@@ -19,9 +19,11 @@ This project captures digital video frames from Neo Geo MVS arcade boards with h
 
 ### Source Code
 
-- **src/main_dma.c** - DMA-based frame capture with hardware IRQ synchronization
+- **src/main_dma.c** - **[CURRENT BUILD]** DMA-based frame capture with hardware IRQ synchronization (single-bit R4)
+- **src/main_rgb.c** - Experimental RGB color capture integration (in development)
+- **src/main.c** - Original implementation with polling-based synchronization (reference)
 - **src/mvs_sync.pio** - PIO programs for CSYNC decoding and pixel sampling
-- **src/CMakeLists.txt** - Build configuration
+- **src/CMakeLists.txt** - Build configuration (currently uses main_dma.c)
 
 ### Documentation
 

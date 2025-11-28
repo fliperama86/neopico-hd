@@ -1,6 +1,6 @@
 # MVS Video Capture - Project Status
 
-**Last Updated**: 2025-10-14
+**Last Updated**: 2025-11-28
 
 ## Quick Summary
 
@@ -9,6 +9,7 @@
 🚀 **Current Phase**: Single-bit R4 capture validated, ready for RGB expansion
 ⏱️ **Time Invested**: ~12 hours including CSYNC research and jitter elimination
 🎯 **Major Achievement**: Hardware IRQ synchronization eliminates timing jitter completely
+🔨 **Current Build**: `main_dma.c` (DMA-based R4 single-bit capture)
 
 ## Development Methodology
 
@@ -51,7 +52,7 @@
 
 | Step | Status | Description              | Outcome                         |
 | ---- | ------ | ------------------------ | ------------------------------- |
-| 3.1  | ✅     | Create PIO pixel sampler | mvs_capture.pio implemented     |
+| 3.1  | ✅     | Create PIO pixel sampler | mvs_sync.pio - mvs_pixel_capture program |
 | 3.2  | ✅     | Capture R4 (Red MSB)     | 302 kHz edge rate measured      |
 | 3.3  | ✅     | Validate with gameplay   | Activity changes with content ✓ |
 | 3.4  | ✅     | Verify timing            | 5% pixel activity makes sense   |
@@ -84,20 +85,20 @@
 
 ---
 
-### Phase 5: Full RGB Capture 🔨 IN PROGRESS
+### Phase 5: Full RGB Capture ⏳ NOT STARTED
 
 | Step | Status | Description               | Notes                          |
 | ---- | ------ | ------------------------- | ------------------------------ |
 | 5.1  | ⏳     | Wire G4, B4 pins          | GP3, GP4 (R4 already connected)|
-| 5.2  | ✅     | Create 3-bit RGB PIO      | mvs_rgb_capture ready          |
-| 5.3  | ⏳     | Update main_dma for RGB   | Switch to RGB PIO program      |
+| 5.2  | ✅     | Create 3-bit RGB PIO      | mvs_rgb_capture ready in mvs_sync.pio |
+| 5.3  | ⏳     | Create main_rgb.c         | Integrate RGB PIO program      |
 | 5.4  | ⏳     | Handle packed RGB data    | 3 bits/pixel post-processing   |
 | 5.5  | ⏳     | Output PPM format         | Color bitmap                   |
 | 5.6  | ⏳     | Test with test pattern    | Verify colors                  |
 | 5.7  | ⏳     | Expand to full 15-bit RGB | All 5 bits per channel         |
 
-**Estimated Time**: 1-2 hours for 3-bit, 2-3 hours for full 15-bit
-**Status**: PIO program ready (mvs_sync.pio), needs C code integration
+**Status**: PIO program ready (mvs_rgb_capture in mvs_sync.pio), C code integration pending
+**Note**: Requires hardware wiring of G4 (GP3) and B4 (GP4) pins before testing
 
 ---
 
@@ -251,26 +252,25 @@ Day 2 (2025-10-14):
 
 ## Next Actions
 
-### Immediate (Next 30 minutes)
+### Immediate (Next session)
 
-1. ✅ Document current progress (this file)
-2. 🔄 User tests with MVS color pattern
-3. ⏳ Verify PBM image quality
-4. ⏳ Adjust timing if needed
+1. ⏳ Wire G4 (GP3) and B4 (GP4) pins to Pico
+2. ⏳ Verify hardware connections with continuity test
+3. ⏳ Test mvs_rgb_capture PIO program with known good signal
 
-### Short Term (Next session)
+### Short Term
 
-1. ⏳ Wire all RGB channels (GP2-GP16)
-2. ⏳ Update PIO to capture 15 bits
-3. ⏳ Test full color capture
-4. ⏳ Output PPM (color) format
+1. ⏳ Integrate mvs_rgb_capture into C code (create main_rgb.c or extend main_dma.c)
+2. ⏳ Implement PPM (color) format output
+3. ⏳ Test 3-bit color capture with test pattern
+4. ⏳ Adjust frame offsets if needed for RGB channels
 
 ### Medium Term (Future sessions)
 
-1. ⏳ Add DARK/SHADOW signal support
-2. ⏳ Implement DMA transfer
-3. ⏳ Frame statistics engine
-4. ⏳ Motion detection
+1. ⏳ Expand to full 15-bit RGB (all 5 bits per channel)
+2. ⏳ Add DARK/SHADOW signal support
+3. ⏳ Implement frame statistics engine
+4. ⏳ Motion detection / frame differencing
 
 ---
 
@@ -382,9 +382,10 @@ Day 2 (2025-10-14):
 | 0.5     | 2025-10-13 | Basic frame PBM output                            |
 | 0.6     | 2025-10-14 | CSYNC research & implementation plan              |
 | 0.7     | 2025-10-14 | DMA-based full frame capture                      |
-| 0.8     | 2025-10-14 | Hardware IRQ sync - zero jitter! (current)        |
-| 0.9     | TBD        | 3-bit RGB color capture (in progress)             |
-| 1.0     | TBD        | Full 15-bit RGB capture (goal)                    |
+| 0.8     | 2025-10-14 | Hardware IRQ sync - zero jitter!                  |
+| 0.9     | 2025-11-28 | Documentation review & cleanup (current)          |
+| 1.0     | TBD        | 3-bit RGB color capture (next milestone)          |
+| 1.1     | TBD        | Full 15-bit RGB capture (goal)                    |
 
 ---
 

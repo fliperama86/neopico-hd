@@ -94,7 +94,7 @@ All calculated values match MVS specifications!
 **Goal**: Sample actual video data (R4 channel only)
 
 **Implementation**:
-- Created `mvs_capture.pio` to sample R4 on each pixel clock
+- Created `mvs_pixel_capture` program (in mvs_sync.pio) to sample R4 on each pixel clock
 - PIO uses auto-push every 32 pixels
 - C code tracks CSYNC to identify scanlines
 
@@ -321,16 +321,23 @@ Plenty of room for:
 ## Code Structure
 
 ```
-debug-pico/
-├── main.c                   # Main capture loop
-├── freq_counter.pio         # Edge counter PIO program
-├── mvs_capture.pio          # Pixel sampling PIO program
-├── mvs_sync.pio             # Future: CSYNC decoder in PIO
+neopico-hd/
+├── src/
+│   ├── main_dma.c           # Main capture loop (current build)
+│   ├── main_rgb.c           # RGB color capture (in development)
+│   ├── main.c               # Original implementation (reference)
+│   ├── freq_counter.pio     # Edge counter PIO program
+│   └── mvs_sync.pio         # CSYNC decoder + pixel capture PIO programs
+├── docs/
+│   ├── MVS_CAPTURE.md       # This file
+│   ├── MVS_DIGITAL_VIDEO.md # Complete signal specifications
+│   ├── PROJECT_STATUS.md    # Current progress tracking
+│   ├── CSYNC_IMPLEMENTATION_PLAN.md # Development methodology
+│   └── TIMING_OFFSET_ANALYSIS.md    # Frame offset analysis
 ├── CMakeLists.txt           # Build configuration
-├── deploy.sh                # Deployment script
-├── README.md                # Frequency counter docs
-├── MVS_CAPTURE.md           # This file
-└── PROJECT_STATUS.md        # Progress tracking
+├── README.md                # Project overview
+└── scripts/
+    └── build.sh             # Build script
 ```
 
 ## References

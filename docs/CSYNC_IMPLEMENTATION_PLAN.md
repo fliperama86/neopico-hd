@@ -1,8 +1,10 @@
 # CSYNC Decoding Implementation Plan - Baby Steps
 
+> **Status**: ✅ COMPLETED - This document describes the methodology and implementation that was used to complete Phase 4. Refer to [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current project status.
+
 ## Overview
 
-This plan implements the cps2_digiav CSYNC decoding algorithm using PIO state machines. The approach is based on the proven FPGA implementation from `neogeo_frontend.v`.
+This plan documents the cps2_digiav CSYNC decoding algorithm implementation using PIO state machines. The approach is based on the proven FPGA implementation from `neogeo_frontend.v`.
 
 **Core Strategy**:
 - Use horizontal pixel counter (h_ctr) to filter HSYNC from equalization pulses
@@ -13,9 +15,10 @@ This plan implements the cps2_digiav CSYNC decoding algorithm using PIO state ma
 
 ---
 
-## Phase 4a: Horizontal Counter & HSYNC Detection (First Step)
+## Phase 4a: Horizontal Counter & HSYNC Detection ✅ COMPLETED
 
 **Goal**: Implement h_ctr logic, detect valid HSYNC pulses, ignore equalization
+**Status**: ✅ Completed and integrated into mvs_sync_4a program in mvs_sync.pio
 
 ### PIO Program (`mvs_sync.pio`)
 
@@ -111,9 +114,10 @@ HSYNC count: 3000, freq: 15.62 kHz, h_ctr: 384
 
 ---
 
-## Phase 4b: Equalization Detection (Second Step)
+## Phase 4b: Equalization Detection ✅ COMPLETED
 
 **Goal**: Sample CSYNC at pixel 192, count consecutive equalization pulses
+**Status**: ✅ Completed as part of Phase 4
 
 ### Enhanced PIO Program
 
@@ -208,9 +212,10 @@ Equalization sequence: 9 pulses
 
 ---
 
-## Phase 4c: Frame Counter (Third Step)
+## Phase 4c: Frame Counter ✅ COMPLETED
 
 **Goal**: Count lines, detect frame boundaries using equalization pattern + line count
+**Status**: ✅ Completed as part of Phase 4
 
 ### C Code (complete state machine)
 
@@ -297,7 +302,7 @@ int main() {
 
 ---
 
-## Phase 4d: Output Timing Signals (Fourth Step)
+## Phase 4d: Output Timing Signals ✅ COMPLETED
 
 **Goal**: Generate clean HSYNC, VSYNC, DE signals for future use
 
@@ -407,7 +412,7 @@ Frame 1, Active pixel (0, 0)
 
 ---
 
-## Phase 4e: DMA-Based Architecture (Performance Step)
+## Phase 4e: DMA-Based Architecture ✅ COMPLETED
 
 **Goal**: Move to zero-CPU sync monitoring, prove architecture scales for pixel capture
 
