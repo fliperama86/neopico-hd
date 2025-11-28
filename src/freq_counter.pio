@@ -1,0 +1,12 @@
+.program freq_counter
+
+; Count rising edges on the input pin internally using X register
+; This program runs as fast as possible to capture 6MHz signals
+; The X register accumulates the count, C side reads it periodically
+
+.wrap_target
+loop:
+    wait 0 pin 0        ; Wait for pin to go low
+    wait 1 pin 0        ; Wait for pin to go high (rising edge)
+    jmp x-- loop        ; Decrement X and loop back (X starts at 0xFFFFFFFF)
+.wrap

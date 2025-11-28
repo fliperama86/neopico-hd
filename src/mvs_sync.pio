@@ -1,0 +1,209 @@
+;
+; MVS CSYNC Decoder - Phase 4a: Horizontal Counter
+;
+; Based on cps2_digiav neogeo_frontend.v (lines 91-112)
+; Strategy: Count pixel clocks to track horizontal position (h_ctr)
+;           Push h_ctr value on every CSYNC falling edge
+;           C code will filter based on h_ctr > 288
+;
+; Input pins:
+;   pin 0: CSYNC
+;   pin 1: PCLK (pixel clock, 6 MHz)
+;
+
+.program mvs_sync_4a
+
+public entry_point:
+.wrap_target
+    ; Wait for CSYNC to be high (start of a line)
+    wait 1 gpio 0               ; Wait for CSYNC high
+    set x, 0                    ; h_ctr = 0, start counting
+
+pixel_loop:
+    ; Wait for pixel clock edge
+    wait 0 gpio 1               ; Wait for PCLK falling
+    wait 1 gpio 1               ; Wait for PCLK rising
+
+    ; Increment h_ctr (X counts down from 0, so decrement)
+    jmp x-- skip_inc            ; X--, skip if not zero
+skip_inc:
+
+    ; Check if CSYNC went low (falling edge detected)
+    jmp pin pixel_loop          ; If CSYNC is high, continue counting
+
+csync_falling:
+    ; CSYNC falling edge detected - push h_ctr
+    ; Convert X (counts down) to actual count (counts up)
+    mov isr, !x                 ; ISR = ~X (inverted = actual count)
+    push noblock                ; Push to FIFO
+
+    ; Wait for CSYNC to go back high before next line
+    wait 1 gpio 0               ; Wait for CSYNC high (end of sync pulse)
+    set x, 0                    ; Reset counter for next line
+    jmp pixel_loop              ; Start counting next line
+
+.wrap
+
+
+% c-sdk {
+
+void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uint pin_pclk) {
+    pio_sm_config c = mvs_sync_4a_program_get_default_config(offset);
+
+    // Configure input pins
+    sm_config_set_in_pins(&c, pin_csync);
+
+    // Initialize GPIO pins for PIO use
+    pio_gpio_init(pio, pin_csync);
+    pio_gpio_init(pio, pin_pclk);
+
+    // Set both pins as inputs
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_csync, 2, false);
+
+    // Enable pull-downs to reduce noise
+    gpio_pull_down(pin_csync);
+    gpio_pull_down(pin_pclk);
+
+    // Configure JMP pin for CSYNC (used in 'jmp pin')
+    sm_config_set_jmp_pin(&c, pin_csync);
+
+    // Run at full speed (125 MHz PIO clock)
+    sm_config_set_clkdiv(&c, 1.0f);
+
+    // Configure ISR: shift right, no autopush (we push manually)
+    sm_config_set_in_shift(&c, false, false, 32);
+
+    // Double RX FIFO depth
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+
+    // Initialize and start state machine at entry_point
+    pio_sm_init(pio, sm, offset + mvs_sync_4a_offset_entry_point, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+%}
+
+
+;
+; MVS Pixel Capture - Sample R4 on PCLK edges
+;
+; Input pins:
+;   pin 0: R4 (pixel data)
+;   pin 1: PCLK (pixel clock, 6 MHz)
+;
+
+.program mvs_pixel_capture
+
+    ; Wait for trigger signal from C code (IRQ 4)
+    ; This ensures we start at a deterministic point
+    wait 1 irq 4
+
+.wrap_target
+    ; Wait for PCLK rising edge
+    wait 0 gpio 1
+    wait 1 gpio 1
+
+    ; Sample R4 and push (autopush every 32 bits)
+    in pins, 1
+.wrap
+
+
+% c-sdk {
+
+void mvs_pixel_capture_program_init(PIO pio, uint sm, uint offset, uint pin_r4, uint pin_pclk) {
+    pio_sm_config c = mvs_pixel_capture_program_get_default_config(offset);
+
+    // Configure input pins (R4 is pin 0 in the mapping)
+    sm_config_set_in_pins(&c, pin_r4);
+
+    // Initialize GPIO pins for PIO use
+    pio_gpio_init(pio, pin_r4);
+    pio_gpio_init(pio, pin_pclk);
+
+    // Set pins as inputs
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_r4, 1, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_pclk, 1, false);
+
+    // Enable pull-downs
+    gpio_pull_down(pin_r4);
+    gpio_pull_down(pin_pclk);
+
+    // Run at full speed
+    sm_config_set_clkdiv(&c, 1.0f);
+
+    // Configure ISR: shift right, autopush every 32 bits
+    sm_config_set_in_shift(&c, true, true, 32);
+
+    // Double RX FIFO depth
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+
+    // Initialize and start
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+%}
+
+
+;
+; MVS RGB Capture - Sample R4, G4, B4 on PCLK edges (3-bit color)
+;
+; Input pins:
+;   pin 0: R4 (red MSB)
+;   pin 1: G4 (green MSB)
+;   pin 2: B4 (blue MSB)
+;   pin 3: PCLK (pixel clock, 6 MHz)
+;
+
+
+.program mvs_rgb_capture
+
+.wrap_target
+    ; Wait for PCLK rising edge
+    wait 0 gpio 4
+    wait 1 gpio 4
+
+    ; Sample RGB (3 bits) and push (autopush every 32 bits = ~10 pixels)
+    in pins, 3
+.wrap
+
+
+% c-sdk {
+
+void mvs_rgb_capture_program_init(PIO pio, uint sm, uint offset, uint pin_r4, uint pin_pclk) {
+    pio_sm_config c = mvs_rgb_capture_program_get_default_config(offset);
+
+    // Configure input pins (R4, G4, B4 are consecutive starting at pin_r4)
+    sm_config_set_in_pins(&c, pin_r4);
+
+    // Initialize GPIO pins for PIO use
+    pio_gpio_init(pio, pin_r4);       // R4 (GP2)
+    pio_gpio_init(pio, pin_r4 + 1);   // G4 (GP3)
+    pio_gpio_init(pio, pin_r4 + 2);   // B4 (GP4)
+    pio_gpio_init(pio, pin_pclk);     // PCLK (GP1)
+
+    // Set pins as inputs
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_r4, 3, false);     // RGB
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_pclk, 1, false);   // PCLK
+
+    // Enable pull-downs
+    gpio_pull_down(pin_r4);
+    gpio_pull_down(pin_r4 + 1);
+    gpio_pull_down(pin_r4 + 2);
+    gpio_pull_down(pin_pclk);
+
+    // Run at full speed
+    sm_config_set_clkdiv(&c, 1.0f);
+
+    // Configure ISR: shift right, autopush every 32 bits
+    sm_config_set_in_shift(&c, true, true, 32);
+
+    // Double RX FIFO depth
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+
+    // Initialize and start
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+%}

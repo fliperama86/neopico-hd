@@ -1,0 +1,18 @@
+# Build artifacts
+build/
+.claude/
+
+# Temporary capture files
+*.pbm
+*.png
+data.txt
+screenlog.*
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+*.swp
+*.swo
+*~
