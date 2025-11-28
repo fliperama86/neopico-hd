@@ -7,50 +7,41 @@
 #include "hardware/irq.h"
 #include "mvs_sync.pio.h"
 
-#define PIN_CSYNC 0  // GP0 - Composite sync
-#define PIN_PCLK  1  // GP1 - Pixel clock (C2, 6MHz)
-#define PIN_R4    2  // GP2 - Red MSB (most significant bit)
+#define PIN_CSYNC 0
+#define PIN_PCLK 1
+#define PIN_R4 2
 
-#define H_THRESHOLD 288  // 3/4 of 384 pixels - distinguishes HSYNC from equalization
+#define H_THRESHOLD 288
 
 // MVS timing
-#define NEO_H_SYNCLEN   29
-#define NEO_H_BACKPORCH 28
-#define NEO_H_ACTIVE    320
-#define NEO_V_SYNCLEN   3
-#define NEO_V_BACKPORCH 21
-#define NEO_V_ACTIVE    224
-#define NEO_V_TOTAL     264
+#define NEO_H_TOTAL 384 // Approximate pixels per line
+#define NEO_V_TOTAL 264
+#define NEO_V_ACTIVE_START 24 // Line where active region starts
+#define NEO_V_ACTIVE_END 248  // Line where active region ends (24 + 224)
+#define NEO_H_ACTIVE_START 6  // Pixel where active region starts (skip horizontal blanking)
 
-// DMA capture buffer - capture FULL frame including blanking
-// ~264 lines × 384 pixels = ~101,376 pixels
-// Stored as 32-bit words (32 pixels per word) = 3,168 words
-#define RAW_BUFFER_WORDS 3200  // Slightly larger for safety
+// DMA buffer for full frame capture + margin
+// We'll capture more than one frame, then find the correct frame boundary
+// Frame size: 264 lines × 384 pixels = 101,376 pixels = 3,168 words
+// Add ~20 lines margin = ~7,680 pixels = 240 words
+#define RAW_BUFFER_WORDS 3410
 uint32_t raw_pixel_buffer[RAW_BUFFER_WORDS];
 
-// Final output buffer - only active pixels
-#define FRAME_WIDTH  320
+// Output buffer
+#define FRAME_WIDTH 320
 #define FRAME_HEIGHT 224
-#define FRAME_BYTES  (FRAME_WIDTH * FRAME_HEIGHT / 8)
-uint8_t pixel_buffer[FRAME_BYTES];
+uint8_t pixel_buffer[FRAME_WIDTH * FRAME_HEIGHT / 8];
 
-// Capture state
-volatile bool frame_ready = false;
-volatile uint32_t captured_words = 0;
+// State
+volatile bool frame_complete = false;
+int dma_chan;
 
-int main() {
+int main()
+{
     stdio_init_all();
-    sleep_ms(5000);  // Wait for USB
+    sleep_ms(5000);
 
-    fprintf(stderr, "\n=== MVS R4 DMA Capture ===\n");
-    fprintf(stderr, "GP0: CSYNC | GP1: PCLK | GP2: R4\n");
-    fprintf(stderr, "Using DMA for zero-CPU capture\n\n");
-
-    // Clear buffers
-    memset(raw_pixel_buffer, 0, sizeof(raw_pixel_buffer));
-    memset(pixel_buffer, 0, FRAME_BYTES);
-
-    // Setup PIO - two state machines
+    // Setup PIO
     PIO pio = pio0;
 
     // SM0: Sync decoder
@@ -58,140 +49,223 @@ int main() {
     uint sm_sync = pio_claim_unused_sm(pio, true);
     mvs_sync_4a_program_init(pio, sm_sync, offset_sync, PIN_CSYNC, PIN_PCLK);
 
-    // SM1: Pixel capture (start disabled)
+    // SM1: Pixel capture (will wait for IRQ 4 trigger)
     uint offset_pixel = pio_add_program(pio, &mvs_pixel_capture_program);
     uint sm_pixel = pio_claim_unused_sm(pio, true);
     mvs_pixel_capture_program_init(pio, sm_pixel, offset_pixel, PIN_R4, PIN_PCLK);
 
-    // Stop pixel capture until we're ready
-    pio_sm_set_enabled(pio, sm_pixel, false);
+    // Pixel PIO is running but blocked at "wait 1 irq 4" instruction
+    // It will start capturing when we set IRQ 4
 
-    fprintf(stderr, "PIO initialized. Waiting for VSYNC to start capture...\n");
+    // Setup DMA: PIO FIFO → raw_pixel_buffer
+    dma_chan = dma_claim_unused_channel(true);
+    dma_channel_config cfg = dma_channel_get_default_config(dma_chan);
 
-    // Frame capture state
+    channel_config_set_read_increment(&cfg, false);                    // Always read from PIO FIFO
+    channel_config_set_write_increment(&cfg, true);                    // Write to buffer sequentially
+    channel_config_set_dreq(&cfg, pio_get_dreq(pio, sm_pixel, false)); // Paced by PIO
+
+    dma_channel_configure(
+        dma_chan,
+        &cfg,
+        raw_pixel_buffer,    // Destination
+        &pio->rxf[sm_pixel], // Source (PIO RX FIFO)
+        RAW_BUFFER_WORDS,    // Transfer count
+        false                // Don't start yet
+    );
+
+    // Wait for TWO VSYNCs to ensure we start at a known frame boundary
     uint32_t v_pos = 0;
     uint32_t equ_count = 0;
+    uint32_t vsync_count = 0;
     bool capturing = false;
-    bool frame_complete = false;
-    uint32_t pixel_count = 0;
+    uint32_t capture_start_line = 0;
 
-    // Skip offset: tune this to align the image
-    // Approximate calculation:
-    // - 3 VSYNC lines + 21 back porch = 24 lines before active
-    // - Each line ~384 pixels = ~9,216 pixels
-    // - Plus horizontal offset (57 pixels per line for sync+backporch)
-    // Let's try different values to find the right alignment
-    uint32_t skip_pixels = 9200;  // Trying middle value
-    uint32_t skipped = 0;
-
-    while (!frame_complete) {
-        // Check for sync events (line boundaries)
-        if (!pio_sm_is_rx_fifo_empty(pio, sm_sync)) {
+    while (!capturing)
+    {
+        if (!pio_sm_is_rx_fifo_empty(pio, sm_sync))
+        {
             uint32_t h_ctr = pio_sm_get(pio, sm_sync);
-            bool is_equ = (h_ctr <= H_THRESHOLD);
 
-            if (is_equ) {
+            if (h_ctr <= H_THRESHOLD)
+            {
                 equ_count++;
-                if (equ_count % 2 == 0) {
-                    v_pos++;
-                }
-            } else {
+            }
+            else
+            {
                 // Normal HSYNC
-                if (equ_count > 0) {
-                    if (equ_count >= 8) {
-                        if (capturing) {
-                            // Frame complete!
-                            frame_complete = true;
-                            fprintf(stderr, "Frame complete (line %lu)\n", v_pos);
-                        } else {
-                            // Start capturing - enable pixel PIO immediately
-                            capturing = true;
-                            v_pos = 0;
+                if (equ_count >= 8)
+                {
+                    // VSYNC detected!
+                    vsync_count++;
 
-                            pio_sm_restart(pio, sm_pixel);
-                            pio_sm_clear_fifos(pio, sm_pixel);
-                            pio_sm_set_enabled(pio, sm_pixel, true);
-
-                            fprintf(stderr, "VSYNC detected, starting pixel capture\n");
-                        }
+                    if (vsync_count == 1)
+                    {
+                        // First VSYNC - just noted, continue waiting
+                        equ_count = 0;
                     }
+                    else
+                    {
+                        // Second VSYNC detected - now wait for first normal HSYNC after VSYNC
+                        // Drain FIFO to get close to real-time
+                        while (!pio_sm_is_rx_fifo_empty(pio, sm_sync))
+                        {
+                            pio_sm_get(pio, sm_sync);
+                        }
+
+                        // Now wait for the very next HSYNC (first line after VSYNC)
+                        // This gives us a deterministic trigger point
+                        equ_count = 0;
+                        bool found_first_hsync = false;
+
+                        while (!found_first_hsync)
+                        {
+                            if (!pio_sm_is_rx_fifo_empty(pio, sm_sync))
+                            {
+                                uint32_t h_ctr = pio_sm_get(pio, sm_sync);
+
+                                if (h_ctr <= H_THRESHOLD)
+                                {
+                                    // Still in VSYNC region, skip
+                                    equ_count++;
+                                }
+                                else
+                                {
+                                    // First normal HSYNC after VSYNC!
+                                    found_first_hsync = true;
+                                }
+                            }
+                        }
+
+                        capturing = true;
+                        capture_start_line = v_pos;
+
+                        // Clear pixel FIFO before triggering
+                        pio_sm_clear_fifos(pio, sm_pixel);
+
+                        // Start DMA first (before triggering pixel capture)
+                        dma_channel_start(dma_chan);
+
+                        // Trigger pixel PIO via hardware IRQ (deterministic, no C code latency)
+                        // Execute "irq set 4" instruction directly in the sync state machine
+                        // This sets the PIO internal IRQ flag that pixel SM is waiting for
+                        pio_sm_exec(pio, sm_sync, pio_encode_irq_set(false, 4));
+                        break;
+                    }
+                }
+                else
+                {
                     equ_count = 0;
                 }
                 v_pos++;
             }
         }
+    }
 
-        // Continuously drain pixel FIFO while capturing
-        if (capturing && !frame_complete) {
-            while (!pio_sm_is_rx_fifo_empty(pio, sm_pixel)) {
-                uint32_t pixels = pio_sm_get(pio, sm_pixel);
+    // Monitor for frame complete
+    v_pos = 0;
+    equ_count = 0;
 
-                for (int bit = 0; bit < 32; bit++) {
-                    // Skip initial pixels until we reach active region
-                    if (skipped < skip_pixels) {
-                        skipped++;
-                        continue;
-                    }
+    while (!frame_complete)
+    {
+        if (!pio_sm_is_rx_fifo_empty(pio, sm_sync))
+        {
+            uint32_t h_ctr = pio_sm_get(pio, sm_sync);
 
-                    // Capture active pixels
-                    if (pixel_count < (FRAME_WIDTH * FRAME_HEIGHT)) {
-                        uint8_t pixel_bit = (pixels >> bit) & 1;
-
-                        uint32_t byte_idx = pixel_count / 8;
-                        uint32_t bit_idx = pixel_count % 8;
-                        if (pixel_bit) {
-                            pixel_buffer[byte_idx] |= (1 << bit_idx);
-                        }
-                        pixel_count++;
-
-                        // Stop if buffer full
-                        if (pixel_count >= (FRAME_WIDTH * FRAME_HEIGHT)) {
-                            break;
-                        }
-                    }
+            if (h_ctr <= H_THRESHOLD)
+            {
+                equ_count++;
+                if (equ_count % 2 == 0)
+                    v_pos++;
+            }
+            else
+            {
+                if (equ_count >= 8)
+                {
+                    // Frame complete!
+                    frame_complete = true;
+                    break;
                 }
+                equ_count = 0;
+                v_pos++;
             }
         }
     }
 
-    fprintf(stderr, "Frame captured!\n");
-    fprintf(stderr, "  Total lines in frame: %lu\n", v_pos);
-    fprintf(stderr, "  Skipped pixels: %lu (target: %lu)\n", skipped, skip_pixels);
-    fprintf(stderr, "  Captured pixels: %lu (expected: %d)\n\n",
-            pixel_count, FRAME_WIDTH * FRAME_HEIGHT);
+    // Stop capture
+    dma_channel_abort(dma_chan);
+    pio_sm_set_enabled(pio, sm_pixel, false);
 
-    // Output as PBM image (black & white, R4 channel)
-    printf("P1\n");                           // PBM ASCII format
-    printf("%d %d\n", FRAME_WIDTH, FRAME_HEIGHT);
+    uint32_t words_captured = RAW_BUFFER_WORDS - dma_channel_hw_addr(dma_chan)->transfer_count;
 
-    // Output pixels
-    for (uint32_t y = 0; y < FRAME_HEIGHT; y++) {
-        for (uint32_t x = 0; x < FRAME_WIDTH; x++) {
-            uint32_t pixel_idx = y * FRAME_WIDTH + x;
-            uint32_t byte_idx = pixel_idx / 8;
-            uint32_t bit_idx = pixel_idx % 8;
+    // Post-process: Extract active pixels
+    memset(pixel_buffer, 0, sizeof(pixel_buffer));
 
-            uint8_t pixel = (pixel_buffer[byte_idx] >> bit_idx) & 1;
-            printf("%d ", pixel);
+    // We start capturing a few lines after VSYNC (after FIFO drain + delay)
+    // Active region starts at line 24, so try extracting from around line 20-30
+    // Try different values: 15, 20, 25, 30 until alignment is correct
+    uint32_t capture_offset_lines = 20; // TUNING PARAMETER - adjusted to capture top of frame
+
+    uint32_t raw_pixel_idx = 0;
+    uint32_t out_pixel_idx = 0;
+
+    // Start from offset
+    raw_pixel_idx = capture_offset_lines * NEO_H_TOTAL;
+
+    // Extract 224 lines of 320 pixels each
+    for (uint32_t line = 0; line < FRAME_HEIGHT && out_pixel_idx < (FRAME_WIDTH * FRAME_HEIGHT); line++)
+    {
+        // Skip horizontal blanking (57 pixels)
+        raw_pixel_idx += NEO_H_ACTIVE_START;
+
+        // Capture 320 active pixels
+        for (uint32_t x = 0; x < FRAME_WIDTH; x++)
+        {
+            uint32_t word_idx = raw_pixel_idx / 32;
+            uint32_t bit_idx = raw_pixel_idx % 32;
+
+            if (word_idx < words_captured)
+            {
+                uint8_t pixel = (raw_pixel_buffer[word_idx] >> bit_idx) & 1;
+
+                if (pixel)
+                {
+                    uint32_t byte_idx = out_pixel_idx / 8;
+                    uint32_t out_bit_idx = out_pixel_idx % 8;
+                    pixel_buffer[byte_idx] |= (1 << out_bit_idx);
+                }
+            }
+
+            raw_pixel_idx++;
+            out_pixel_idx++;
         }
-        printf("\n");
+
+        // Skip to next line (skip remaining horizontal blanking)
+        raw_pixel_idx += (NEO_H_TOTAL - NEO_H_ACTIVE_START - FRAME_WIDTH);
     }
 
-    fprintf(stderr, "=== PBM output complete ===\n");
-    fprintf(stderr, "Expected: 320x224 = 71,680 pixels\n");
-    fprintf(stderr, "Save output to file.pbm to view\n");
+    // Output PBM
+    printf("P1\n");
+    printf("%d %d\n", FRAME_WIDTH, FRAME_HEIGHT);
 
-    // Done - blink LED forever
-    const uint LED_PIN = PICO_DEFAULT_LED_PIN;
-    gpio_init(LED_PIN);
-    gpio_set_dir(LED_PIN, GPIO_OUT);
+    for (uint32_t i = 0; i < FRAME_WIDTH * FRAME_HEIGHT; i++)
+    {
+        uint32_t byte_idx = i / 8;
+        uint32_t bit_idx = i % 8;
+        printf("%d ", (pixel_buffer[byte_idx] >> bit_idx) & 1);
+        if ((i + 1) % FRAME_WIDTH == 0)
+            printf("\n");
+    }
 
-    printf("\nCapture complete. LED blinking.\n");
+    // Blink LED
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
-    while (true) {
-        gpio_put(LED_PIN, 1);
+    while (true)
+    {
+        gpio_put(PICO_DEFAULT_LED_PIN, 1);
         sleep_ms(500);
-        gpio_put(LED_PIN, 0);
+        gpio_put(PICO_DEFAULT_LED_PIN, 0);
         sleep_ms(500);
     }
 

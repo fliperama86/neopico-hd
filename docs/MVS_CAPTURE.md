@@ -323,10 +323,7 @@ Plenty of room for:
 ```
 neopico-hd/
 ├── src/
-│   ├── main_dma.c           # Main capture loop (current build)
-│   ├── main_rgb.c           # RGB color capture (in development)
-│   ├── main.c               # Original implementation (reference)
-│   ├── freq_counter.pio     # Edge counter PIO program
+│   ├── main.c               # Main capture implementation (DMA-based R4 capture)
 │   └── mvs_sync.pio         # CSYNC decoder + pixel capture PIO programs
 ├── docs/
 │   ├── MVS_CAPTURE.md       # This file

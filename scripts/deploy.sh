@@ -20,7 +20,7 @@ cd ..
 echo "Build complete!"
 
 # Check if UF2 file exists
-UF2_FILE="build/src/freq_counter.uf2"
+UF2_FILE="build/src/neopico_hd.uf2"
 if [ ! -f "$UF2_FILE" ]; then
     echo "Error: UF2 file not found at $UF2_FILE"
     exit 1

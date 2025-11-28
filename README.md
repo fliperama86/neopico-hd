@@ -66,7 +66,7 @@ The build script will:
 1. Check for PICO_SDK_PATH environment variable
 2. Create/update build directory
 3. Run cmake and make with parallel compilation
-4. Generate `build/src/freq_counter.uf2` file
+4. Generate `build/src/neopico_hd.uf2` file
 
 ## Deploying
 
@@ -74,7 +74,7 @@ The build script will:
 2. Copy the UF2 file to the Pico:
 
 ```bash
-cp build/src/freq_counter.uf2 /Volumes/RPI-RP2/
+cp build/src/neopico_hd.uf2 /Volumes/RPI-RP2/
 ```
 
 The Pico will automatically reboot and start capturing.
