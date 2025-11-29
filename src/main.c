@@ -21,17 +21,17 @@
 #define NEO_H_ACTIVE_START 0  // Pixel where active region starts (fine-tune for 1-bit capture)
 #define H_OFFSET_PIXELS 0     // Fine-tune horizontal alignment
 
-// DMA buffer for full frame capture + margin
+// DMA buffer for full frame capture + margin (2-bit RG)
 // We'll capture more than one frame, then find the correct frame boundary
-// Frame size: 264 lines × 384 pixels = 101,376 pixels = 3,168 words
-// Add ~20 lines margin = ~7,680 pixels = 240 words
-#define RAW_BUFFER_WORDS 3410
+// Frame size: 264 lines × 384 pixels × 2 bits = 203,776 bits = 6,369 words
+// Add ~20 lines margin and buffer for safety = 8,000 words
+#define RAW_BUFFER_WORDS 8000
 uint32_t raw_pixel_buffer[RAW_BUFFER_WORDS];
 
-// Output buffer
+// Output buffer (2 bits per pixel = 4 grayscale levels)
 #define FRAME_WIDTH 320
 #define FRAME_HEIGHT 224
-uint8_t pixel_buffer[FRAME_WIDTH * FRAME_HEIGHT / 8];
+uint8_t pixel_buffer[FRAME_WIDTH * FRAME_HEIGHT / 4];
 
 // State
 volatile bool frame_complete = false;
@@ -50,7 +50,7 @@ int main()
     uint sm_sync = pio_claim_unused_sm(pio, true);
     mvs_sync_4a_program_init(pio, sm_sync, offset_sync, PIN_CSYNC, PIN_PCLK);
 
-    // SM1: Pixel capture (will wait for IRQ 4 trigger)
+    // SM1: 2-bit RG pixel capture (will wait for IRQ 4 trigger)
     uint offset_pixel = pio_add_program(pio, &mvs_pixel_capture_program);
     uint sm_pixel = pio_claim_unused_sm(pio, true);
     mvs_pixel_capture_program_init(pio, sm_pixel, offset_pixel, PIN_R4, PIN_PCLK);
@@ -210,16 +210,16 @@ int main()
     uint32_t raw_pixel_idx = 0;
     uint32_t out_pixel_idx = 0;
 
-    // Start from offset
-    raw_pixel_idx = capture_offset_lines * NEO_H_TOTAL;
+    // Start from offset (multiply by 2 for 2-bit per pixel)
+    raw_pixel_idx = capture_offset_lines * NEO_H_TOTAL * 2;
 
-    // Extract 224 lines of 320 pixels each
+    // Extract 224 lines of 320 pixels each (2 bits per pixel)
     for (uint32_t line = 0; line < FRAME_HEIGHT && out_pixel_idx < (FRAME_WIDTH * FRAME_HEIGHT); line++)
     {
-        // Skip horizontal blanking (57 pixels)
-        raw_pixel_idx += NEO_H_ACTIVE_START;
+        // Skip horizontal blanking
+        raw_pixel_idx += NEO_H_ACTIVE_START * 2;
 
-        // Capture 320 active pixels
+        // Capture 320 active pixels (2 bits each)
         for (uint32_t x = 0; x < FRAME_WIDTH; x++)
         {
             uint32_t word_idx = raw_pixel_idx / 32;
@@ -227,33 +227,32 @@ int main()
 
             if (word_idx < words_captured)
             {
-                uint8_t pixel = (raw_pixel_buffer[word_idx] >> bit_idx) & 1;
+                uint8_t pixel = (raw_pixel_buffer[word_idx] >> bit_idx) & 3;  // Extract 2 bits
 
-                if (pixel)
-                {
-                    uint32_t byte_idx = out_pixel_idx / 8;
-                    uint32_t out_bit_idx = out_pixel_idx % 8;
-                    pixel_buffer[byte_idx] |= (1 << out_bit_idx);
-                }
+                uint32_t byte_idx = out_pixel_idx / 4;
+                uint32_t out_bit_idx = (out_pixel_idx % 4) * 2;
+                pixel_buffer[byte_idx] |= (pixel << out_bit_idx);
             }
 
-            raw_pixel_idx++;
+            raw_pixel_idx += 2;  // Skip 2 bits for next pixel
             out_pixel_idx++;
         }
 
         // Skip to next line (skip remaining horizontal blanking)
-        raw_pixel_idx += (NEO_H_TOTAL - NEO_H_ACTIVE_START - FRAME_WIDTH);
+        raw_pixel_idx += (NEO_H_TOTAL - NEO_H_ACTIVE_START - FRAME_WIDTH) * 2;
     }
 
-    // Output PBM
-    printf("P1\n");
+    // Output PGM (grayscale, 4 levels from 2-bit RG)
+    printf("P2\n");
     printf("%d %d\n", FRAME_WIDTH, FRAME_HEIGHT);
+    printf("3\n");  // Max value: 3 (2-bit)
 
     for (uint32_t i = 0; i < FRAME_WIDTH * FRAME_HEIGHT; i++)
     {
-        uint32_t byte_idx = i / 8;
-        uint32_t bit_idx = i % 8;
-        printf("%d ", (pixel_buffer[byte_idx] >> bit_idx) & 1);
+        uint32_t byte_idx = i / 4;
+        uint32_t bit_idx = (i % 4) * 2;
+        uint8_t pixel = (pixel_buffer[byte_idx] >> bit_idx) & 3;
+        printf("%d ", pixel);
         if ((i + 1) % FRAME_WIDTH == 0)
             printf("\n");
     }

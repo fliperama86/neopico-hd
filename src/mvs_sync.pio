@@ -85,11 +85,12 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
 
 
 ;
-; MVS Pixel Capture - Sample R4 on PCLK edges
+; MVS Pixel Capture - Sample R4, G4 on PCLK edges (2-bit)
 ;
 ; Input pins:
-;   pin 0: R4 (pixel data)
-;   pin 1: PCLK (pixel clock, 6 MHz)
+;   pin 0: R4 (red pixel data)
+;   pin 1: G4 (green pixel data)
+;   pin 2: PCLK (pixel clock, 6 MHz)
 ;
 
 .program mvs_pixel_capture
@@ -103,8 +104,8 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
     wait 0 gpio 1
     wait 1 gpio 1
 
-    ; Sample R4 and push (autopush every 32 bits)
-    in pins, 1
+    ; Sample R4, G4 and push (autopush every 32 bits = 16 pixels)
+    in pins, 2
 .wrap
 
 
@@ -113,19 +114,23 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
 void mvs_pixel_capture_program_init(PIO pio, uint sm, uint offset, uint pin_r4, uint pin_pclk) {
     pio_sm_config c = mvs_pixel_capture_program_get_default_config(offset);
 
-    // Configure input pins (R4 is pin 0 in the mapping)
+    uint pin_g4 = pin_r4 + 1;  // G4 is the next pin after R4
+
+    // Configure input pins (R4, G4 starting at pin_r4)
     sm_config_set_in_pins(&c, pin_r4);
 
     // Initialize GPIO pins for PIO use
     pio_gpio_init(pio, pin_r4);
+    pio_gpio_init(pio, pin_g4);
     pio_gpio_init(pio, pin_pclk);
 
-    // Set pins as inputs
-    pio_sm_set_consecutive_pindirs(pio, sm, pin_r4, 1, false);
-    pio_sm_set_consecutive_pindirs(pio, sm, pin_pclk, 1, false);
+    // Set pins as inputs (2 pins for RGB, 1 for clock)
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_r4, 2, false);  // R4, G4
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_pclk, 1, false); // PCLK
 
     // Enable pull-downs
     gpio_pull_down(pin_r4);
+    gpio_pull_down(pin_g4);
     gpio_pull_down(pin_pclk);
 
     // Run at full speed
