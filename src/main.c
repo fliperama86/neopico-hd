@@ -21,17 +21,17 @@
 #define NEO_H_ACTIVE_START 0  // Pixel where active region starts (fine-tune for 1-bit capture)
 #define H_OFFSET_PIXELS 0     // Fine-tune horizontal alignment
 
-// DMA buffer for full frame capture + margin (2-bit GB)
+// DMA buffer for full frame capture + margin (4-bit RGBA, 3-bit used)
 // We'll capture more than one frame, then find the correct frame boundary
-// Frame size: 264 lines × 384 pixels × 2 bits = 203,776 bits = 6,369 words
-// Add ~20 lines margin and buffer for safety = 8,000 words
-#define RAW_BUFFER_WORDS 8000
+// Frame size: 264 lines × 384 pixels × 4 bits = 407,552 bits = 12,736 words
+// Add ~20 lines margin and buffer for safety = 14,000 words
+#define RAW_BUFFER_WORDS 14000
 uint32_t raw_pixel_buffer[RAW_BUFFER_WORDS];
 
-// Output buffer (2 bits per pixel = 4 grayscale levels)
+// Output buffer (3-bit RGB: 1 byte per pixel)
 #define FRAME_WIDTH 320
 #define FRAME_HEIGHT 224
-uint8_t pixel_buffer[FRAME_WIDTH * FRAME_HEIGHT / 4];
+uint8_t pixel_buffer[FRAME_WIDTH * FRAME_HEIGHT];
 
 // State
 volatile bool frame_complete = false;
@@ -210,16 +210,16 @@ int main()
     uint32_t raw_pixel_idx = 0;
     uint32_t out_pixel_idx = 0;
 
-    // Start from offset (multiply by 2 for 2-bit per pixel)
-    raw_pixel_idx = capture_offset_lines * NEO_H_TOTAL * 2;
+    // Start from offset (multiply by 4 for 4-bit per pixel: R, G, B, GND)
+    raw_pixel_idx = capture_offset_lines * NEO_H_TOTAL * 4;
 
-    // Extract 224 lines of 320 pixels each (2 bits per pixel)
+    // Extract 224 lines of 320 pixels each (4 bits per pixel: R4, G4, B4, GND)
     for (uint32_t line = 0; line < FRAME_HEIGHT && out_pixel_idx < (FRAME_WIDTH * FRAME_HEIGHT); line++)
     {
         // Skip horizontal blanking
-        raw_pixel_idx += NEO_H_ACTIVE_START * 2;
+        raw_pixel_idx += NEO_H_ACTIVE_START * 4;
 
-        // Capture 320 active pixels (2 bits each)
+        // Capture 320 active pixels (4 bits each, but we only use 3 bits for RGB)
         for (uint32_t x = 0; x < FRAME_WIDTH; x++)
         {
             uint32_t word_idx = raw_pixel_idx / 32;
@@ -227,32 +227,32 @@ int main()
 
             if (word_idx < words_captured)
             {
-                uint8_t pixel = (raw_pixel_buffer[word_idx] >> bit_idx) & 3;  // Extract 2 bits
-
-                uint32_t byte_idx = out_pixel_idx / 4;
-                uint32_t out_bit_idx = (out_pixel_idx % 4) * 2;
-                pixel_buffer[byte_idx] |= (pixel << out_bit_idx);
+                // Extract 4 bits (R, G, B, GND) and mask to 3 bits (R, G, B)
+                uint8_t pixel_4bit = (raw_pixel_buffer[word_idx] >> bit_idx) & 15;
+                uint8_t pixel_rgb = pixel_4bit & 7;  // Mask to 3 bits (discard GND bit)
+                pixel_buffer[out_pixel_idx] = pixel_rgb;
             }
 
-            raw_pixel_idx += 2;  // Skip 2 bits for next pixel
+            raw_pixel_idx += 4;  // Skip 4 bits for next pixel
             out_pixel_idx++;
         }
 
         // Skip to next line (skip remaining horizontal blanking)
-        raw_pixel_idx += (NEO_H_TOTAL - NEO_H_ACTIVE_START - FRAME_WIDTH) * 2;
+        raw_pixel_idx += (NEO_H_TOTAL - NEO_H_ACTIVE_START - FRAME_WIDTH) * 4;
     }
 
-    // Output PGM (grayscale, 4 levels from 2-bit GB)
-    printf("P2\n");
+    // Output PPM (color, 3-bit RGB: 8 colors)
+    printf("P3\n");
     printf("%d %d\n", FRAME_WIDTH, FRAME_HEIGHT);
-    printf("3\n");  // Max value: 3 (2-bit)
+    printf("7\n");  // Max value: 7 (3-bit)
 
     for (uint32_t i = 0; i < FRAME_WIDTH * FRAME_HEIGHT; i++)
     {
-        uint32_t byte_idx = i / 4;
-        uint32_t bit_idx = (i % 4) * 2;
-        uint8_t pixel = (pixel_buffer[byte_idx] >> bit_idx) & 3;
-        printf("%d ", pixel);
+        uint8_t rgb = pixel_buffer[i];
+        uint8_t r = ((rgb >> 0) & 1) * 7;  // Red (bit 0)
+        uint8_t g = ((rgb >> 1) & 1) * 7;  // Green (bit 1)
+        uint8_t b = ((rgb >> 2) & 1) * 7;  // Blue (bit 2)
+        printf("%d %d %d ", r, g, b);
         if ((i + 1) % FRAME_WIDTH == 0)
             printf("\n");
     }

@@ -85,20 +85,21 @@
 
 ---
 
-### Phase 5: Full RGB Capture ⏳ NOT STARTED
+### Phase 5: Full RGB Capture ✅ COMPLETE
 
 | Step | Status | Description               | Notes                          |
 | ---- | ------ | ------------------------- | ------------------------------ |
-| 5.1  | ⏳     | Wire G4, B4 pins          | GP3, GP4 (R4 already connected)|
-| 5.2  | ✅     | Create 3-bit RGB PIO      | mvs_rgb_capture ready in mvs_sync.pio |
-| 5.3  | ⏳     | Create main_rgb.c         | Integrate RGB PIO program      |
-| 5.4  | ⏳     | Handle packed RGB data    | 3 bits/pixel post-processing   |
-| 5.5  | ⏳     | Output PPM format         | Color bitmap                   |
-| 5.6  | ⏳     | Test with test pattern    | Verify colors                  |
-| 5.7  | ⏳     | Expand to full 15-bit RGB | All 5 bits per channel         |
+| 5.1  | ✅     | Wire G4, B4 pins          | GP3, GP4 (R4 already connected)|
+| 5.2  | ✅     | Create 4-bit RGBA PIO     | mvs_pixel_capture uses 4 pins (R, G, B, GND) |
+| 5.3  | ✅     | Integrate into main.c     | 4-bit extraction + PPM output |
+| 5.4  | ✅     | Handle packed RGB data    | Extract 4 bits, mask to 3 for RGB |
+| 5.5  | ✅     | Output PPM format         | P3 format with 8 colors        |
+| 5.6  | ✅     | Test with real game       | King of Fighters - crystal clear! |
+| 5.7  | ⏳     | Expand to full 15-bit RGB | All 5 bits per channel (future) |
 
-**Status**: PIO program ready (mvs_rgb_capture in mvs_sync.pio), C code integration pending
-**Note**: Requires hardware wiring of G4 (GP3) and B4 (GP4) pins before testing
+**Status**: ✅ 3-bit RGB capture working perfectly via 4-bit with dummy GND bit!
+**Achievement**: Solved PIO autopush alignment problem - 32÷4 = 8 pixel perfect alignment
+**Result**: Crystal-clear 8-color output, no artifacts, deterministic frame capture
 
 ---
 
@@ -284,13 +285,13 @@ Day 2 (2025-10-14):
 - [x] No timing jitter (±0 pixels with hardware IRQ sync)
 - [x] Repeatable captures (deterministic alignment)
 
-### Phase 5 (Current) - RGB Capture
+### Phase 5 ✅ COMPLETE - RGB Capture
 
-- [x] Create 3-bit RGB PIO program
-- [ ] Wire G4, B4 pins to Pico
-- [ ] Integrate RGB PIO into main_dma.c
-- [ ] Output valid PPM format (3-bit color)
-- [ ] Verify colors with test pattern
+- [x] Create 4-bit RGBA PIO program (with dummy GND)
+- [x] Wire G4, B4 pins to Pico (GP3, GP4)
+- [x] Integrate RGB PIO into main.c
+- [x] Output valid PPM format (8-color)
+- [x] Verify colors with real game (King of Fighters)
 - [ ] Expand to full 15-bit RGB (future)
 
 ---
@@ -383,10 +384,10 @@ Day 2 (2025-10-14):
 | 0.6     | 2025-10-14 | CSYNC research & implementation plan              |
 | 0.7     | 2025-10-14 | DMA-based full frame capture                      |
 | 0.8     | 2025-10-14 | Hardware IRQ sync - zero jitter!                  |
-| 0.9     | 2025-11-28 | Documentation review & cleanup (current)          |
-| 1.0     | TBD        | 3-bit RGB color capture (next milestone)          |
+| 0.9     | 2025-11-28 | Documentation review & cleanup                    |
+| 1.0     | 2025-11-29 | ✅ **4-bit RGB capture working!** Phase 5 complete |
 | 1.1     | TBD        | Full 15-bit RGB capture (goal)                    |
 
 ---
 
-**Status Summary**: 🟢 Major breakthrough achieved! Hardware IRQ synchronization provides deterministic, jitter-free capture. Ready for RGB expansion.
+**Status Summary**: 🟢 Phase 5 complete! 4-bit RGB capture delivers crystal-clear 8-color output. PIO autopush alignment solved via dummy GND bit. Production-ready for 3-bit color capture.

@@ -85,12 +85,14 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
 
 
 ;
-; MVS Pixel Capture - Sample G4, B4 on PCLK edges (2-bit)
+; MVS Pixel Capture - Sample R4, G4, B4, GND on PCLK edges (4-bit aligned)
 ;
 ; Input pins:
-;   pin 0: G4 (green pixel data)
-;   pin 1: B4 (blue pixel data)
-;   pin 2: PCLK (pixel clock, 6 MHz)
+;   pin 0: R4 (red pixel data)
+;   pin 1: G4 (green pixel data)
+;   pin 2: B4 (blue pixel data)
+;   pin 3: GND (dummy bit for autopush alignment - GPIO 5 tied to ground)
+;   pin 4: PCLK (pixel clock, 6 MHz)
 ;
 
 .program mvs_pixel_capture
@@ -104,8 +106,9 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
     wait 0 gpio 1
     wait 1 gpio 1
 
-    ; Sample G4, B4 and push (autopush every 32 bits = 16 pixels)
-    in pins, 2
+    ; Sample R4, G4, B4, GND (4 bits = perfect 32-bit autopush alignment)
+    ; 32 bits / 4 bits per pixel = 8 pixels exactly
+    in pins, 4
 .wrap
 
 
@@ -114,25 +117,29 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
 void mvs_pixel_capture_program_init(PIO pio, uint sm, uint offset, uint pin_r4, uint pin_pclk) {
     pio_sm_config c = mvs_pixel_capture_program_get_default_config(offset);
 
-    // For G+B: use GPIO 3 (G4) and GPIO 4 (B4)
-    uint pin_g4 = 3;  // G4 on GPIO 3
-    uint pin_b4 = 4;  // B4 on GPIO 4
+    uint pin_g4 = pin_r4 + 1;   // G4 is next pin after R4
+    uint pin_b4 = pin_r4 + 2;   // B4 is next pin after G4
+    uint pin_gnd = pin_r4 + 3;  // GND (GPIO 5) is next pin for dummy bit
 
-    // Configure input pins (G4, B4 starting at pin_g4)
-    sm_config_set_in_pins(&c, pin_g4);
+    // Configure input pins (R4, G4, B4, GND starting at pin_r4)
+    sm_config_set_in_pins(&c, pin_r4);
 
     // Initialize GPIO pins for PIO use
+    pio_gpio_init(pio, pin_r4);
     pio_gpio_init(pio, pin_g4);
     pio_gpio_init(pio, pin_b4);
+    pio_gpio_init(pio, pin_gnd);
     pio_gpio_init(pio, pin_pclk);
 
-    // Set pins as inputs (2 pins for GB, 1 for clock)
-    pio_sm_set_consecutive_pindirs(pio, sm, pin_g4, 2, false);  // G4, B4
+    // Set pins as inputs (4 pins for RGBA, 1 for clock)
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_r4, 4, false);  // R4, G4, B4, GND
     pio_sm_set_consecutive_pindirs(pio, sm, pin_pclk, 1, false); // PCLK
 
     // Enable pull-downs
+    gpio_pull_down(pin_r4);
     gpio_pull_down(pin_g4);
     gpio_pull_down(pin_b4);
+    gpio_pull_down(pin_gnd);
     gpio_pull_down(pin_pclk);
 
     // Run at full speed
