@@ -37,6 +37,135 @@ uint8_t pixel_buffer[FRAME_WIDTH * FRAME_HEIGHT];
 volatile bool frame_complete = false;
 int dma_chan;
 
+// =============================================================================
+// VSYNC Detection State Machine
+// =============================================================================
+
+typedef enum
+{
+    SYNC_WAIT_FIRST_VSYNC,
+    SYNC_WAIT_SECOND_VSYNC,
+    SYNC_WAIT_FIRST_HSYNC_AFTER_VSYNC,
+    SYNC_READY_TO_CAPTURE
+} sync_state_t;
+
+// Helper: drain the sync FIFO to get close to real-time
+static inline void drain_sync_fifo(PIO pio, uint sm)
+{
+    while (!pio_sm_is_rx_fifo_empty(pio, sm))
+    {
+        pio_sm_get(pio, sm);
+    }
+}
+
+// Helper: blocking read from sync FIFO
+static inline uint32_t read_sync_fifo(PIO pio, uint sm)
+{
+    while (pio_sm_is_rx_fifo_empty(pio, sm))
+    {
+        tight_loop_contents();
+    }
+    return pio_sm_get(pio, sm);
+}
+
+// Wait for two VSYNCs and return at first HSYNC after second VSYNC
+// This ensures we start at a known, deterministic frame boundary
+void wait_for_frame_start(PIO pio, uint sm_sync)
+{
+    sync_state_t state = SYNC_WAIT_FIRST_VSYNC;
+    uint32_t equ_count = 0;
+
+    while (state != SYNC_READY_TO_CAPTURE)
+    {
+        uint32_t h_ctr = read_sync_fifo(pio, sm_sync);
+        bool is_short_pulse = (h_ctr <= H_THRESHOLD);
+
+        switch (state)
+        {
+        case SYNC_WAIT_FIRST_VSYNC:
+            if (is_short_pulse)
+            {
+                equ_count++;
+            }
+            else if (equ_count >= 8)
+            {
+                // First VSYNC complete
+                state = SYNC_WAIT_SECOND_VSYNC;
+                equ_count = 0;
+            }
+            else
+            {
+                equ_count = 0;
+            }
+            break;
+
+        case SYNC_WAIT_SECOND_VSYNC:
+            if (is_short_pulse)
+            {
+                equ_count++;
+            }
+            else if (equ_count >= 8)
+            {
+                // Second VSYNC complete - drain FIFO and look for first HSYNC
+                drain_sync_fifo(pio, sm_sync);
+                state = SYNC_WAIT_FIRST_HSYNC_AFTER_VSYNC;
+                equ_count = 0;
+            }
+            else
+            {
+                equ_count = 0;
+            }
+            break;
+
+        case SYNC_WAIT_FIRST_HSYNC_AFTER_VSYNC:
+            if (is_short_pulse)
+            {
+                equ_count++; // Still in equalizing pulses, keep waiting
+            }
+            else
+            {
+                // First normal HSYNC after VSYNC - we're ready!
+                state = SYNC_READY_TO_CAPTURE;
+            }
+            break;
+
+        case SYNC_READY_TO_CAPTURE:
+            // Should never reach here in the loop
+            break;
+        }
+    }
+}
+
+// Wait for next VSYNC (frame complete detection)
+void wait_for_vsync(PIO pio, uint sm_sync)
+{
+    uint32_t equ_count = 0;
+
+    while (true)
+    {
+        uint32_t h_ctr = read_sync_fifo(pio, sm_sync);
+        bool is_short_pulse = (h_ctr <= H_THRESHOLD);
+
+        if (is_short_pulse)
+        {
+            equ_count++;
+        }
+        else
+        {
+            if (equ_count >= 8)
+            {
+                // VSYNC detected - frame complete!
+                return;
+            }
+            equ_count = 0;
+        }
+    }
+}
+
+// =============================================================================
+// Main
+// =============================================================================
+
 int main()
 {
     stdio_init_all();
@@ -50,7 +179,7 @@ int main()
     uint sm_sync = pio_claim_unused_sm(pio, true);
     mvs_sync_4a_program_init(pio, sm_sync, offset_sync, PIN_CSYNC, PIN_PCLK);
 
-    // SM1: 2-bit RG pixel capture (will wait for IRQ 4 trigger)
+    // SM1: 4-bit pixel capture (will wait for IRQ 4 trigger)
     uint offset_pixel = pio_add_program(pio, &mvs_pixel_capture_program);
     uint sm_pixel = pio_claim_unused_sm(pio, true);
     mvs_pixel_capture_program_init(pio, sm_pixel, offset_pixel, PIN_R4, PIN_PCLK);
@@ -75,123 +204,19 @@ int main()
         false                // Don't start yet
     );
 
-    // Wait for TWO VSYNCs to ensure we start at a known frame boundary
-    uint32_t v_pos = 0;
-    uint32_t equ_count = 0;
-    uint32_t vsync_count = 0;
-    bool capturing = false;
-    uint32_t capture_start_line = 0;
+    // Wait for frame boundary (two VSYNCs, then first HSYNC)
+    wait_for_frame_start(pio, sm_sync);
 
-    while (!capturing)
-    {
-        if (!pio_sm_is_rx_fifo_empty(pio, sm_sync))
-        {
-            uint32_t h_ctr = pio_sm_get(pio, sm_sync);
+    // Clear pixel FIFO and start capture
+    pio_sm_clear_fifos(pio, sm_pixel);
+    dma_channel_start(dma_chan);
 
-            if (h_ctr <= H_THRESHOLD)
-            {
-                equ_count++;
-            }
-            else
-            {
-                // Normal HSYNC
-                if (equ_count >= 8)
-                {
-                    // VSYNC detected!
-                    vsync_count++;
+    // Trigger pixel PIO via hardware IRQ (deterministic, no C code latency)
+    // This sets the PIO internal IRQ flag that pixel SM is waiting for
+    pio_sm_exec(pio, sm_sync, pio_encode_irq_set(false, 4));
 
-                    if (vsync_count == 1)
-                    {
-                        // First VSYNC - just noted, continue waiting
-                        equ_count = 0;
-                    }
-                    else
-                    {
-                        // Second VSYNC detected - now wait for first normal HSYNC after VSYNC
-                        // Drain FIFO to get close to real-time
-                        while (!pio_sm_is_rx_fifo_empty(pio, sm_sync))
-                        {
-                            pio_sm_get(pio, sm_sync);
-                        }
-
-                        // Now wait for the very next HSYNC (first line after VSYNC)
-                        // This gives us a deterministic trigger point
-                        equ_count = 0;
-                        bool found_first_hsync = false;
-
-                        while (!found_first_hsync)
-                        {
-                            if (!pio_sm_is_rx_fifo_empty(pio, sm_sync))
-                            {
-                                uint32_t h_ctr = pio_sm_get(pio, sm_sync);
-
-                                if (h_ctr <= H_THRESHOLD)
-                                {
-                                    // Still in VSYNC region, skip
-                                    equ_count++;
-                                }
-                                else
-                                {
-                                    // First normal HSYNC after VSYNC!
-                                    found_first_hsync = true;
-                                }
-                            }
-                        }
-
-                        capturing = true;
-                        capture_start_line = v_pos;
-
-                        // Clear pixel FIFO before triggering
-                        pio_sm_clear_fifos(pio, sm_pixel);
-
-                        // Start DMA first (before triggering pixel capture)
-                        dma_channel_start(dma_chan);
-
-                        // Trigger pixel PIO via hardware IRQ (deterministic, no C code latency)
-                        // Execute "irq set 4" instruction directly in the sync state machine
-                        // This sets the PIO internal IRQ flag that pixel SM is waiting for
-                        pio_sm_exec(pio, sm_sync, pio_encode_irq_set(false, 4));
-                        break;
-                    }
-                }
-                else
-                {
-                    equ_count = 0;
-                }
-                v_pos++;
-            }
-        }
-    }
-
-    // Monitor for frame complete
-    v_pos = 0;
-    equ_count = 0;
-
-    while (!frame_complete)
-    {
-        if (!pio_sm_is_rx_fifo_empty(pio, sm_sync))
-        {
-            uint32_t h_ctr = pio_sm_get(pio, sm_sync);
-
-            if (h_ctr <= H_THRESHOLD)
-            {
-                equ_count++;
-                if (equ_count % 2 == 0)
-                    v_pos++;
-            }
-            else
-            {
-                if (equ_count >= 8)
-                {
-                    // Frame complete!
-                    frame_complete = true;
-                    break;
-                }
-                equ_count = 0;
-                v_pos++;
-            }
-        }
-    }
+    // Wait for frame complete (next VSYNC)
+    wait_for_vsync(pio, sm_sync);
 
     // Stop capture
     dma_channel_abort(dma_chan);
@@ -229,11 +254,11 @@ int main()
             {
                 // Extract 4 bits (R, G, B, GND) and mask to 3 bits (R, G, B)
                 uint8_t pixel_4bit = (raw_pixel_buffer[word_idx] >> bit_idx) & 15;
-                uint8_t pixel_rgb = pixel_4bit & 7;  // Mask to 3 bits (discard GND bit)
+                uint8_t pixel_rgb = pixel_4bit & 7; // Mask to 3 bits (discard GND bit)
                 pixel_buffer[out_pixel_idx] = pixel_rgb;
             }
 
-            raw_pixel_idx += 4;  // Skip 4 bits for next pixel
+            raw_pixel_idx += 4; // Skip 4 bits for next pixel
             out_pixel_idx++;
         }
 
@@ -244,20 +269,20 @@ int main()
     // Output PPM (color, 3-bit RGB: 8 colors)
     printf("P3\n");
     printf("%d %d\n", FRAME_WIDTH, FRAME_HEIGHT);
-    printf("7\n");  // Max value: 7 (3-bit)
+    printf("7\n"); // Max value: 7 (3-bit)
 
     for (uint32_t i = 0; i < FRAME_WIDTH * FRAME_HEIGHT; i++)
     {
         uint8_t rgb = pixel_buffer[i];
-        uint8_t r = ((rgb >> 0) & 1) * 7;  // Red (bit 0)
-        uint8_t g = ((rgb >> 1) & 1) * 7;  // Green (bit 1)
-        uint8_t b = ((rgb >> 2) & 1) * 7;  // Blue (bit 2)
+        uint8_t r = ((rgb >> 0) & 1) * 7; // Red (bit 0)
+        uint8_t g = ((rgb >> 1) & 1) * 7; // Green (bit 1)
+        uint8_t b = ((rgb >> 2) & 1) * 7; // Blue (bit 2)
         printf("%d %d %d ", r, g, b);
         if ((i + 1) % FRAME_WIDTH == 0)
             printf("\n");
     }
 
-    // Blink LED
+    // Blink LED to indicate completion
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
