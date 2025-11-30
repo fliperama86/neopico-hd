@@ -11,13 +11,13 @@ Digital video capture and HDMI output for Neo Geo MVS arcade hardware using Rasp
 
 ## Current Status
 
-| Feature | Status |
-|---------|--------|
-| 240p HDMI output | ✅ Working |
-| 60fps capture | ✅ Working |
-| 15-bit RGB (R5G5B5) | ✅ Working |
-| Horizontal stability | ✅ Fixed |
-| RT4K compatible | ✅ Tested |
+| Feature              | Status     |
+| -------------------- | ---------- |
+| 240p HDMI output     | ✅ Working |
+| 60fps capture        | ✅ Working |
+| 15-bit RGB (R5G5B5)  | ✅ Working |
+| Horizontal stability | ✅ Fixed   |
+| RT4K compatible      | ✅ Tested  |
 
 ## Hardware Requirements
 
@@ -27,16 +27,16 @@ Digital video capture and HDMI output for Neo Geo MVS arcade hardware using Rasp
 
 ### Pin Configuration
 
-| Function | GPIO | Notes |
-|----------|------|-------|
-| MVS R0-R4 | GPIO 0-4 | Red channel (5 bits) |
-| MVS B0-B4 | GPIO 5-9 | Blue channel (5 bits) |
-| MVS G0-G4 | GPIO 10-14 | Green channel (5 bits) |
-| MVS GND | GPIO 15 | Dummy bit for 16-bit alignment |
-| DVI Data | GPIO 16-21 | 3 differential pairs (active active active) |
-| MVS CSYNC | GPIO 22 | Composite sync |
-| DVI Clock | GPIO 26-27 | Differential clock pair |
-| MVS PCLK | GPIO 28 | 6 MHz pixel clock |
+| Function  | GPIO       | Notes                                       |
+| --------- | ---------- | ------------------------------------------- |
+| MVS R0-R4 | GPIO 0-4   | Red channel (5 bits)                        |
+| MVS B0-B4 | GPIO 5-9   | Blue channel (5 bits)                       |
+| MVS G0-G4 | GPIO 10-14 | Green channel (5 bits)                      |
+| MVS GND   | GPIO 15    | Dummy bit for 16-bit alignment              |
+| DVI Data  | GPIO 16-21 | 3 differential pairs (active active active) |
+| MVS CSYNC | GPIO 22    | Composite sync                              |
+| DVI Clock | GPIO 26-27 | Differential clock pair                     |
+| MVS PCLK  | GPIO 28    | 6 MHz pixel clock                           |
 
 ### MVS Hookup Points (MV1C Board)
 
@@ -89,13 +89,13 @@ Core 0: MVS Capture                Core 1: DVI Output
 
 ## Performance
 
-| Metric | Value |
-|--------|-------|
-| Capture resolution | 320×224 |
-| Output resolution | 640×240 (240p) |
-| Color depth | 15-bit RGB |
-| Frame rate | 60fps |
-| RAM usage | ~150KB (framebuffer only) |
+| Metric             | Value                     |
+| ------------------ | ------------------------- |
+| Capture resolution | 320×224                   |
+| Output resolution  | 640×240 (240p)            |
+| Color depth        | 15-bit RGB                |
+| Frame rate         | 60fps                     |
+| RAM usage          | ~150KB (framebuffer only) |
 
 ## References
 
@@ -105,4 +105,4 @@ Core 0: MVS Capture                Core 1: DVI Output
 
 ## License
 
-MIT License
+Unlicense
