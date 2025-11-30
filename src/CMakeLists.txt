@@ -1,15 +1,55 @@
 # =============================================================================
-# Main capture application
+# Main DVI application (MVS capture + HDMI output)
 # =============================================================================
 add_executable(neopico_hd
     main.c
 )
 
 # Generate PIO headers
-pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/mvs_sync.pio)
+pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/mvs_capture.pio)
+
+# Include PicoDVI headers
+target_include_directories(neopico_hd PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
+)
 
 # Link libraries
 target_link_libraries(neopico_hd
+    pico_stdlib
+    pico_multicore
+    hardware_pio
+    hardware_clocks
+    hardware_dma
+    hardware_irq
+    hardware_vreg
+    libdvi
+)
+
+# Disable line doubling for 240p output
+target_compile_definitions(neopico_hd PRIVATE
+    DVI_VERTICAL_REPEAT=1
+)
+
+# Enable USB for debug output
+pico_enable_stdio_usb(neopico_hd 1)
+pico_enable_stdio_uart(neopico_hd 0)
+
+# Create map/bin/hex/uf2 files
+pico_add_extra_outputs(neopico_hd)
+
+# =============================================================================
+# USB streaming application (legacy - streams to PC viewer)
+# =============================================================================
+add_executable(neopico_usb
+    main_usb.c
+)
+
+# Generate PIO headers
+pico_generate_pio_header(neopico_usb ${CMAKE_CURRENT_LIST_DIR}/mvs_capture.pio)
+
+# Link libraries
+target_link_libraries(neopico_usb
     pico_stdlib
     hardware_pio
     hardware_clocks
@@ -18,11 +58,11 @@ target_link_libraries(neopico_hd
 )
 
 # Enable SDK stdio USB
-pico_enable_stdio_usb(neopico_hd 1)
-pico_enable_stdio_uart(neopico_hd 0)
+pico_enable_stdio_usb(neopico_usb 1)
+pico_enable_stdio_uart(neopico_usb 0)
 
 # Create map/bin/hex/uf2 files
-pico_add_extra_outputs(neopico_hd)
+pico_add_extra_outputs(neopico_usb)
 
 # =============================================================================
 # GPIO Test (for debugging wiring)
@@ -66,43 +106,3 @@ pico_enable_stdio_uart(dvi_test 0)
 
 # Create UF2
 pico_add_extra_outputs(dvi_test)
-
-# =============================================================================
-# Main DVI application (MVS capture + DVI output)
-# =============================================================================
-add_executable(main_dvi
-    main_dvi.c
-)
-
-# Generate PIO headers
-pico_generate_pio_header(main_dvi ${CMAKE_CURRENT_LIST_DIR}/mvs_sync.pio)
-
-# Include PicoDVI headers
-target_include_directories(main_dvi PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
-    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
-)
-
-# Link libraries
-target_link_libraries(main_dvi
-    pico_stdlib
-    pico_multicore
-    hardware_pio
-    hardware_clocks
-    hardware_dma
-    hardware_irq
-    hardware_vreg
-    libdvi
-)
-
-# Disable line doubling for 240p output
-target_compile_definitions(main_dvi PRIVATE
-    DVI_VERTICAL_REPEAT=1
-)
-
-# Enable USB for debug output
-pico_enable_stdio_usb(main_dvi 1)
-pico_enable_stdio_uart(main_dvi 0)
-
-# Create UF2
-pico_add_extra_outputs(main_dvi)
