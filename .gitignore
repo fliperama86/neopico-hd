@@ -1,5 +1,6 @@
 # Build artifacts
 build/
+build_*/
 .claude/
 
 # Temporary capture files

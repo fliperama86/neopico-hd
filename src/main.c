@@ -14,8 +14,8 @@
 
 #define PIN_R0 0   // RGB data: GPIO 0-14 (15 bits)
 #define PIN_GND 15 // Dummy bit for 16-bit alignment
-#define PIN_CSYNC 16
-#define PIN_PCLK 17
+#define PIN_CSYNC 22 // Moved from 16 to make room for DVI
+#define PIN_PCLK 28  // Moved from 17 to make room for DVI
 
 // =============================================================================
 // MVS Timing Constants
@@ -45,7 +45,11 @@
 #define SYNC_WORD_2 0x55AA
 
 static uint32_t raw_buffer[RAW_BUFFER_WORDS];
-static uint16_t frame_buffer[FRAME_WIDTH * FRAME_HEIGHT]; // RGB565
+
+// Double buffering - capture to one while sending the other
+static uint16_t frame_buffer_a[FRAME_WIDTH * FRAME_HEIGHT]; // RGB565
+static uint16_t frame_buffer_b[FRAME_WIDTH * FRAME_HEIGHT]; // RGB565
+static uint8_t current_buffer = 0; // 0 = A, 1 = B
 
 static int dma_chan;
 
@@ -498,11 +502,21 @@ int main()
     // Blink 6: Got sync, starting capture
     led_blink_code(6);
 
+    // Track if we have a frame ready to send
+    bool have_frame_to_send = false;
+    uint16_t *send_buf = NULL;
+
     // Main capture loop
     while (true)
     {
         // Toggle LED every 15 frames
         gpio_put(PICO_DEFAULT_LED_PIN, (frame_count / 15) & 1);
+
+        // Send PREVIOUS frame while waiting for sync (overlapped!)
+        if (have_frame_to_send)
+        {
+            send_frame_usb(send_buf);
+        }
 
         // Wait for VSYNC then first HSYNC
         bool got_sync = wait_for_vsync_and_hsync(pio, sm_sync, 100);
@@ -537,9 +551,17 @@ int main()
         dma_channel_abort(dma_chan);
         uint32_t words_captured = RAW_BUFFER_WORDS - dma_channel_hw_addr(dma_chan)->transfer_count;
 
-        process_frame(raw_buffer, frame_buffer, words_captured);
+        // Get current buffer pointer
+        uint16_t *capture_buf = current_buffer ? frame_buffer_b : frame_buffer_a;
 
-        send_frame_usb(frame_buffer);
+        process_frame(raw_buffer, capture_buf, words_captured);
+
+        // Set up this frame to be sent on NEXT iteration (while we capture)
+        send_buf = capture_buf;
+        have_frame_to_send = true;
+
+        // Swap buffers for next frame
+        current_buffer = !current_buffer;
 
         frame_count++;
     }

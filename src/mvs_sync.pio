@@ -2,8 +2,8 @@
 ; MVS CSYNC Decoder - Phase 4a: Horizontal Counter
 ;
 ; Input pins:
-;   GPIO 16: CSYNC
-;   GPIO 17: PCLK (pixel clock, 6 MHz)
+;   GPIO 22: CSYNC (moved from 16 for DVI)
+;   GPIO 28: PCLK (pixel clock, 6 MHz) (moved from 17 for DVI)
 ;
 
 .program mvs_sync_4a
@@ -11,13 +11,13 @@
 public entry_point:
 .wrap_target
     ; Wait for CSYNC to be high (start of a line)
-    wait 1 gpio 16              ; Wait for CSYNC high
+    wait 1 gpio 22              ; Wait for CSYNC high
     set x, 0                    ; h_ctr = 0, start counting
 
 pixel_loop:
     ; Wait for pixel clock edge
-    wait 0 gpio 17              ; Wait for PCLK falling
-    wait 1 gpio 17              ; Wait for PCLK rising
+    wait 0 gpio 28              ; Wait for PCLK falling
+    wait 1 gpio 28              ; Wait for PCLK rising
 
     ; Increment h_ctr (X counts down from 0, so decrement)
     jmp x-- skip_inc            ; X--, skip if not zero
@@ -33,7 +33,7 @@ csync_falling:
     push noblock                ; Push to FIFO
 
     ; Wait for CSYNC to go back high before next line
-    wait 1 gpio 16              ; Wait for CSYNC high (end of sync pulse)
+    wait 1 gpio 22              ; Wait for CSYNC high (end of sync pulse)
     set x, 0                    ; Reset counter for next line
     jmp pixel_loop              ; Start counting next line
 
@@ -88,8 +88,8 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
 ;   GPIO 5-9:   G0-G4 (5 green bits)
 ;   GPIO 10-14: B0-B4 (5 blue bits)
 ;   GPIO 15:    GND (dummy for 16-bit alignment)
-;   GPIO 16:    CSYNC
-;   GPIO 17:    PCLK
+;   GPIO 22:    CSYNC (moved from 16 for DVI)
+;   GPIO 28:    PCLK (moved from 17 for DVI)
 ;
 
 .program mvs_pixel_capture
@@ -98,19 +98,19 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
     wait 1 irq 4
 
     ; Wait for CSYNC to be LOW (we might be mid-line)
-    wait 0 gpio 16
+    wait 0 gpio 22
 
     ; Wait for CSYNC to go HIGH (start of new line)
-    wait 1 gpio 16
+    wait 1 gpio 22
 
     ; Sync to pixel clock
-    wait 0 gpio 17
-    wait 1 gpio 17
+    wait 0 gpio 28
+    wait 1 gpio 28
 
 .wrap_target
     ; Wait for PCLK rising edge
-    wait 0 gpio 17
-    wait 1 gpio 17
+    wait 0 gpio 28
+    wait 1 gpio 28
 
     ; Sample 16 bits: R0-R4, G0-G4, B0-B4, GND (GPIO 0-15)
     ; Autopush at 32 bits = 2 pixels per word
