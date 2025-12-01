@@ -76,8 +76,9 @@ Core 0: Line-by-Line Capture      Core 1: DVI Output
 
 | File | Purpose |
 |------|---------|
-| `src/main_dvi.c` | Main application (240p @ 60fps) |
-| `src/mvs_sync.pio` | PIO programs for sync + capture |
+| `src/main.c` | Main application (240p @ 60fps) |
+| `src/main_usb.c` | USB streaming variant |
+| `src/mvs_capture.pio` | PIO programs for sync + capture |
 | `src/CMakeLists.txt` | Build configuration |
 
 ## Performance
@@ -92,10 +93,64 @@ Core 0: Line-by-Line Capture      Core 1: DVI Output
 
 ## Future Ideas
 
-- USB streaming option (dual output)
+- Audio capture (see below)
 - OSD overlay (frame counter, status)
 - Scanline filter
 - AES support (different timing)
+
+## Audio Capture (Not Yet Implemented)
+
+The Neo Geo MVS uses a **Yamaha YM2610** sound chip which outputs **analog audio only**. There is no digital audio bus to tap like the RGB video bus.
+
+### Approach: External I2S ADC
+
+The cps2_digiav project solves this with a small daughter board (`neogeo_aadc`) containing:
+
+- **WM8782** stereo ADC (analog → I2S digital)
+- 3.3V regulator (TLV70033)
+- Input filtering and decoupling
+
+```
+MVS Analog Audio (L/R)
+        ↓
+   [I2S ADC chip] ← MCLK from Pico
+        ↓
+   I2S (16-bit stereo, ~48kHz)
+        ↓
+   Pico PIO (3 GPIOs: DATA, WS, BCK)
+        ↓
+   PicoDVI audio embedding
+        ↓
+   HDMI audio stream
+```
+
+### Hardware Required
+
+| Component | Purpose | Notes |
+|-----------|---------|-------|
+| I2S ADC module | Digitize analog audio | PCM1802, WM8782, or similar |
+| 3 GPIO pins | I2S signals | DATA, WS (LRCLK), BCK |
+| 1 GPIO pin | MCLK output | Master clock to ADC |
+
+### GPIO Options
+
+Current pinout leaves these available:
+- GPIO 23-25: Free (could use for I2S)
+- GPIO 29: ADC3 (for Pico's built-in ADC, mono only)
+
+### Alternative: Pico's Built-in ADC
+
+Simpler but lower quality:
+- 12-bit resolution (vs 16-bit I2S ADC)
+- GPIO 26-27 conflict with DVI clock
+- Could do mono on GPIO 29
+
+### Reference Implementation
+
+See `reference/cps2_digiav/`:
+- `pcb_neogeo_aadc/` - KiCad schematic for ADC board
+- `rtl_common/i2s_rx_asrc.v` - I2S receiver logic
+- `board/neogeo/rtl/i2s_upsampler_asrc.v` - Audio processing pipeline
 
 ## References
 
