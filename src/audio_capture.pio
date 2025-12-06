@@ -1,0 +1,73 @@
+;
+; YM2610 Audio Capture PIO Program
+;
+; Captures 48-bit stereo frames (24 bits per channel)
+; Shifts in data on BCK rising edge, syncs on WS falling edge
+;
+; Uses absolute GPIO numbers for non-consecutive pins
+; IN base = DAT pin for shifting data
+;
+
+.program ym2610_capture
+
+; Pin assignments are set via defines at compile time
+; DAT = data input (IN base)
+; WS, BCK = wait targets (set in init)
+
+.wrap_target
+wait_frame:
+    wait 1 gpio 9       ; Wait for WS high (GPIO 9)
+    wait 0 gpio 9       ; Wait for WS falling edge
+
+    ; Capture left channel - all 24 bits (push as 32-bit with 8 zeros)
+    set x, 23
+left_loop:
+    wait 0 gpio 23      ; Wait for BCK low (GPIO 23)
+    wait 1 gpio 23      ; Wait for BCK rising edge
+    in pins, 1          ; Shift in DAT (GPIO 3)
+    jmp x-- left_loop
+
+    push noblock        ; Push 24 bits (left-aligned in 32-bit word)
+
+    ; Capture right channel - all 24 bits
+    set x, 23
+right_loop:
+    wait 0 gpio 23
+    wait 1 gpio 23
+    in pins, 1
+    jmp x-- right_loop
+
+    push noblock
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+#include "hardware/gpio.h"
+
+static inline void ym2610_capture_program_init(PIO pio, uint sm, uint offset, uint pin_dat) {
+    pio_sm_config c = ym2610_capture_program_get_default_config(offset);
+
+    // IN base = DAT pin for data shifting
+    sm_config_set_in_pins(&c, pin_dat);
+
+    // Configure all pins as inputs
+    pio_gpio_init(pio, pin_dat);
+    pio_gpio_init(pio, 9);   // WS
+    pio_gpio_init(pio, 23);  // BCK
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_dat, 1, false);
+
+    // Enable hysteresis on all
+    gpio_set_input_hysteresis_enabled(pin_dat, true);
+    gpio_set_input_hysteresis_enabled(9, true);
+    gpio_set_input_hysteresis_enabled(23, true);
+
+    // Shift left, no autopush, 24 bits
+    sm_config_set_in_shift(&c, false, false, 24);
+
+    // Run at full speed
+    sm_config_set_clkdiv(&c, 1.0f);
+
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}

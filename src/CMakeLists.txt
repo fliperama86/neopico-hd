@@ -124,3 +124,180 @@ pico_enable_stdio_uart(dvi_test 0)
 
 # Create UF2
 pico_add_extra_outputs(dvi_test)
+
+# =============================================================================
+# HDMI Audio Test (color bars + audio tone via HDMI)
+# =============================================================================
+add_executable(hdmi_audio_test
+    hdmi_audio_test.c
+)
+
+target_include_directories(hdmi_audio_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
+)
+
+target_link_libraries(hdmi_audio_test
+    pico_stdlib
+    pico_multicore
+    hardware_vreg
+    libdvi
+)
+
+pico_enable_stdio_usb(hdmi_audio_test 1)
+pico_enable_stdio_uart(hdmi_audio_test 0)
+pico_add_extra_outputs(hdmi_audio_test)
+
+# =============================================================================
+# HDMI ADC Audio Test (MVS audio capture via ADC + HDMI output)
+# =============================================================================
+add_executable(hdmi_adc_audio_test
+    hdmi_adc_audio_test.c
+)
+
+target_include_directories(hdmi_adc_audio_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
+)
+
+target_link_libraries(hdmi_adc_audio_test
+    pico_stdlib
+    pico_multicore
+    hardware_vreg
+    hardware_adc
+    libdvi
+)
+
+pico_enable_stdio_usb(hdmi_adc_audio_test 1)
+pico_enable_stdio_uart(hdmi_adc_audio_test 0)
+pico_add_extra_outputs(hdmi_adc_audio_test)
+
+# =============================================================================
+# HDMI I2S Audio Test (MVS digital audio + HDMI output)
+# =============================================================================
+add_executable(hdmi_i2s_audio_test
+    hdmi_i2s_audio_test.c
+)
+
+pico_generate_pio_header(hdmi_i2s_audio_test ${CMAKE_CURRENT_LIST_DIR}/i2s_audio.pio)
+
+target_include_directories(hdmi_i2s_audio_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
+)
+
+target_link_libraries(hdmi_i2s_audio_test
+    pico_stdlib
+    pico_multicore
+    hardware_vreg
+    hardware_pio
+    hardware_dma
+    libdvi
+)
+
+pico_enable_stdio_usb(hdmi_i2s_audio_test 1)
+pico_enable_stdio_uart(hdmi_i2s_audio_test 0)
+pico_add_extra_outputs(hdmi_i2s_audio_test)
+
+# =============================================================================
+# I2S USB Audio Test (digital audio capture + USB streaming)
+# =============================================================================
+add_executable(i2s_usb_test
+    i2s_usb_test.c
+)
+
+pico_generate_pio_header(i2s_usb_test ${CMAKE_CURRENT_LIST_DIR}/i2s_audio.pio)
+
+target_link_libraries(i2s_usb_test
+    pico_stdlib
+    hardware_pio
+    hardware_dma
+    hardware_irq
+)
+
+pico_enable_stdio_usb(i2s_usb_test 1)
+pico_enable_stdio_uart(i2s_usb_test 0)
+pico_add_extra_outputs(i2s_usb_test)
+
+# =============================================================================
+# I2S Debug (raw data capture - serial only, no USB audio)
+# =============================================================================
+add_executable(i2s_debug
+    i2s_debug.c
+)
+
+pico_generate_pio_header(i2s_debug ${CMAKE_CURRENT_LIST_DIR}/i2s_audio.pio)
+
+target_link_libraries(i2s_debug
+    pico_stdlib
+    hardware_pio
+)
+
+pico_enable_stdio_usb(i2s_debug 1)
+pico_enable_stdio_uart(i2s_debug 0)
+pico_add_extra_outputs(i2s_debug)
+
+# =============================================================================
+# YM2610 Digital Audio -> HDMI (proper PIO-based capture)
+# =============================================================================
+add_executable(ym2610_hdmi_audio
+    ym2610_hdmi_audio.c
+)
+
+pico_generate_pio_header(ym2610_hdmi_audio ${CMAKE_CURRENT_LIST_DIR}/ym2610_audio.pio)
+
+target_include_directories(ym2610_hdmi_audio PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
+)
+
+target_link_libraries(ym2610_hdmi_audio
+    pico_stdlib
+    pico_multicore
+    hardware_vreg
+    hardware_pio
+    libdvi
+)
+
+pico_enable_stdio_usb(ym2610_hdmi_audio 1)
+pico_enable_stdio_uart(ym2610_hdmi_audio 0)
+pico_add_extra_outputs(ym2610_hdmi_audio)
+
+# =============================================================================
+# Audio Pin Frequency Measurement (PIO-based)
+# =============================================================================
+add_executable(freq_measure
+    freq_measure.c
+)
+
+pico_generate_pio_header(freq_measure ${CMAKE_CURRENT_LIST_DIR}/freq_measure.pio)
+
+target_link_libraries(freq_measure
+    pico_stdlib
+    hardware_pio
+    hardware_clocks
+)
+
+pico_enable_stdio_usb(freq_measure 1)
+pico_enable_stdio_uart(freq_measure 0)
+pico_add_extra_outputs(freq_measure)
+
+# =============================================================================
+# Audio Capture (raw I2S to USB for WAV recording)
+# =============================================================================
+add_executable(audio_capture
+    audio_capture.c
+)
+
+pico_generate_pio_header(audio_capture ${CMAKE_CURRENT_LIST_DIR}/audio_capture.pio)
+
+target_link_libraries(audio_capture
+    pico_stdlib
+    hardware_pio
+    hardware_dma
+    hardware_clocks
+)
+
+pico_enable_stdio_usb(audio_capture 1)
+pico_enable_stdio_uart(audio_capture 0)
+pico_add_extra_outputs(audio_capture)

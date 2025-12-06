@@ -1,0 +1,83 @@
+;
+; PIO Edge Counter for Frequency Measurement
+;
+; Counts rising edges on a pin. The count is stored in the X register
+; and can be read by stopping the SM and executing MOV ISR, X; PUSH.
+;
+
+.program edge_counter
+
+; Count rising edges properly by waiting for full low->high->low cycle
+loop:
+    wait 0 pin 0        ; Wait for pin to go low
+    wait 1 pin 0        ; Wait for pin to go high (this is the rising edge)
+    jmp x-- loop        ; Decrement X and repeat
+
+% c-sdk {
+#include "hardware/clocks.h"
+#include "hardware/gpio.h"
+
+// Init with custom PIO clock rate (in Hz)
+static inline void edge_counter_program_init_freq(PIO pio, uint sm, uint offset, uint pin, float pio_freq_hz) {
+    pio_sm_config c = edge_counter_program_get_default_config(offset);
+
+    // Set the input pin
+    sm_config_set_in_pins(&c, pin);
+
+    // Configure the pin as input with hysteresis (Schmitt trigger)
+    pio_gpio_init(pio, pin);
+    gpio_set_input_hysteresis_enabled(pin, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
+
+    // Set clock divider based on requested PIO frequency
+    float sysclk = (float)clock_get_hz(clk_sys);
+    sm_config_set_clkdiv(&c, sysclk / pio_freq_hz);
+
+    // Initialize X to 0xFFFFFFFF (we count down)
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_exec(pio, sm, pio_encode_set(pio_x, 0));
+    pio_sm_exec(pio, sm, pio_encode_mov_not(pio_x, pio_x));  // X = ~0 = 0xFFFFFFFF
+
+    // Start the state machine
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+// Default init at 10 MHz
+static inline void edge_counter_program_init(PIO pio, uint sm, uint offset, uint pin) {
+    edge_counter_program_init_freq(pio, sm, offset, pin, 10000000.0f);
+}
+
+// Read the current edge count (non-blocking read of X register)
+static inline uint32_t edge_counter_get_count(PIO pio, uint sm) {
+    // Temporarily halt the SM, read X, restart
+    pio_sm_set_enabled(pio, sm, false);
+
+    // Execute: MOV ISR, X; PUSH
+    pio_sm_exec(pio, sm, pio_encode_mov(pio_isr, pio_x));
+    pio_sm_exec(pio, sm, pio_encode_push(false, false));
+
+    uint32_t count = pio_sm_get_blocking(pio, sm);
+
+    pio_sm_set_enabled(pio, sm, true);
+
+    // Convert from countdown to count-up
+    return 0xFFFFFFFF - count;
+}
+
+// Reset the edge counter to zero
+static inline void edge_counter_reset(PIO pio, uint sm) {
+    pio_sm_set_enabled(pio, sm, false);
+
+    // Clear the FIFO
+    pio_sm_clear_fifos(pio, sm);
+
+    // Reset X to 0xFFFFFFFF
+    pio_sm_exec(pio, sm, pio_encode_set(pio_x, 0));
+    pio_sm_exec(pio, sm, pio_encode_mov_not(pio_x, pio_x));
+
+    // Restart at beginning of program
+    pio_sm_restart(pio, sm);
+
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
