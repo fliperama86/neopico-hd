@@ -301,3 +301,43 @@ target_link_libraries(audio_capture
 pico_enable_stdio_usb(audio_capture 1)
 pico_enable_stdio_uart(audio_capture 0)
 pico_add_extra_outputs(audio_capture)
+
+# =============================================================================
+# RGB Conversion Benchmark (GPIO wiring performance test)
+# =============================================================================
+add_executable(rgb_benchmark
+    rgb_benchmark.c
+)
+
+target_link_libraries(rgb_benchmark
+    pico_stdlib
+    hardware_timer
+    hardware_clocks
+)
+
+pico_enable_stdio_usb(rgb_benchmark 1)
+pico_enable_stdio_uart(rgb_benchmark 0)
+pico_add_extra_outputs(rgb_benchmark)
+
+# =============================================================================
+# ILI9341 Bouncing Box Demo (TENSTAR ROBOT GMT024-08-SPI8P display)
+# Uses PIO for high-speed SPI output
+# =============================================================================
+add_executable(ili9341_bounce
+    ili9341_bounce.c
+)
+
+pico_generate_pio_header(ili9341_bounce ${CMAKE_CURRENT_LIST_DIR}/lcd_pio.pio)
+
+target_link_libraries(ili9341_bounce
+    pico_stdlib
+    hardware_pio
+    hardware_gpio
+    hardware_dma
+    hardware_clocks
+    hardware_vreg
+)
+
+pico_enable_stdio_usb(ili9341_bounce 1)
+pico_enable_stdio_uart(ili9341_bounce 0)
+pico_add_extra_outputs(ili9341_bounce)
