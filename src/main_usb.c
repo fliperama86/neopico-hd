@@ -11,11 +11,23 @@
 // =============================================================================
 // Pin Configuration
 // =============================================================================
+// GPIO 0:     PCLK (C2)
+// GPIO 1-5:   G4-G0 (Green, reversed bit order)
+// GPIO 6-10:  B0-B4 (Blue)
+// GPIO 11-15: R0-R4 (Red)
+// GPIO 22:    CSYNC
 
-#define PIN_R0 0   // RGB data: GPIO 0-14 (15 bits)
-#define PIN_GND 15 // Dummy bit for 16-bit alignment
-#define PIN_CSYNC 22 // Moved from 16 to make room for DVI
-#define PIN_PCLK 28  // Moved from 17 to make room for DVI
+#define PIN_BASE 0    // Base pin for 16-bit capture (PCLK + RGB data)
+#define PIN_PCLK 0    // Pixel clock
+#define PIN_CSYNC 22  // Composite sync
+
+// Lookup table to reverse 5-bit green value (G4G3G2G1G0 -> G0G1G2G3G4)
+static const uint8_t green_reverse_lut[32] = {
+    0x00, 0x10, 0x08, 0x18, 0x04, 0x14, 0x0C, 0x1C,
+    0x02, 0x12, 0x0A, 0x1A, 0x06, 0x16, 0x0E, 0x1E,
+    0x01, 0x11, 0x09, 0x19, 0x05, 0x15, 0x0D, 0x1D,
+    0x03, 0x13, 0x0B, 0x1B, 0x07, 0x17, 0x0F, 0x1F
+};
 
 // =============================================================================
 // MVS Timing Constants
@@ -301,7 +313,11 @@ static bool wait_for_vsync_and_hsync(PIO pio, uint sm_sync, uint32_t timeout_ms)
 // =============================================================================
 
 // Extract pixels from raw capture buffer
-// Input: 16 bits per pixel (GPIO 0-14 = R5+G5+B5, GPIO 15 = dummy)
+// Input: 16 bits per pixel:
+//   GPIO 0:     PCLK (ignored)
+//   GPIO 1-5:   G4-G0 (Green, reversed - use LUT)
+//   GPIO 6-10:  B0-B4 (Blue)
+//   GPIO 11-15: R0-R4 (Red)
 // Output: RGB565 (RRRRRGGGGGGBBBBB)
 static void process_frame(uint32_t *raw_buf, uint16_t *frame_buf, uint32_t words_captured)
 {
@@ -326,13 +342,14 @@ static void process_frame(uint32_t *raw_buf, uint16_t *frame_buf, uint32_t words
                     raw_val |= raw_buf[word_idx + 1] << (32 - bit_idx);
                 }
 
-                // Extract RGB555 from GPIO 0-14
-                // GPIO 0-4:   R0-R4 (5 red bits)
-                // GPIO 5-9:   B0-B4 (5 blue bits)
-                // GPIO 10-14: G0-G4 (5 green bits)
-                uint8_t r5 = raw_val & 0x1F;          // bits 0-4
-                uint8_t b5 = (raw_val >> 5) & 0x1F;   // bits 5-9
-                uint8_t g5 = (raw_val >> 10) & 0x1F; // bits 10-14
+                // Extract RGB555 from GPIO 1-15 (bit 0 is PCLK, ignored)
+                // GPIO 1-5:   G4-G0 (reversed, use LUT)
+                // GPIO 6-10:  B0-B4
+                // GPIO 11-15: R0-R4
+                uint8_t g_raw = (raw_val >> 1) & 0x1F;  // bits 1-5 (reversed green)
+                uint8_t b5 = (raw_val >> 6) & 0x1F;     // bits 6-10
+                uint8_t r5 = (raw_val >> 11) & 0x1F;    // bits 11-15
+                uint8_t g5 = green_reverse_lut[g_raw];  // reverse green bits
 
                 // Convert to RGB565: RRRRR GGGGGG BBBBB
                 // Expand G from 5 to 6 bits: g6 = (g5 << 1) | (g5 >> 4)
@@ -448,7 +465,7 @@ int main()
 
     uint offset_pixel = pio_add_program(pio, &mvs_pixel_capture_program);
     uint sm_pixel = pio_claim_unused_sm(pio, true);
-    mvs_pixel_capture_program_init(pio, sm_pixel, offset_pixel, PIN_R0, PIN_GND, PIN_CSYNC, PIN_PCLK);
+    mvs_pixel_capture_program_init(pio, sm_pixel, offset_pixel, PIN_BASE, PIN_CSYNC, PIN_PCLK);
 
     // Blink 3: PIO initialized
     led_blink_code(3);

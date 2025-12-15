@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.13)
 
 # Set board type before SDK import (override with -DPICO_BOARD=pico for Pico 1)
 if(NOT DEFINED PICO_BOARD)
-    set(PICO_BOARD pico2)
+    set(PICO_BOARD weact_studio_rp2350b_core)
 endif()
 
 # Initialize the SDK

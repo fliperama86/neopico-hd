@@ -2,8 +2,8 @@
 ; MVS CSYNC Decoder - Phase 4a: Horizontal Counter
 ;
 ; Input pins:
-;   GPIO 22: CSYNC (moved from 16 for DVI)
-;   GPIO 28: PCLK (pixel clock, 6 MHz) (moved from 17 for DVI)
+;   GPIO 22: CSYNC
+;   GPIO 0:  PCLK (pixel clock, 6 MHz)
 ;
 
 .program mvs_sync_4a
@@ -16,8 +16,8 @@ public entry_point:
 
 pixel_loop:
     ; Wait for pixel clock edge
-    wait 0 gpio 28              ; Wait for PCLK falling
-    wait 1 gpio 28              ; Wait for PCLK rising
+    wait 0 gpio 0               ; Wait for PCLK falling
+    wait 1 gpio 0               ; Wait for PCLK rising
 
     ; Increment h_ctr (X counts down from 0, so decrement)
     jmp x-- skip_inc            ; X--, skip if not zero
@@ -81,15 +81,14 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
 
 
 ;
-; MVS Pixel Capture - 16-bit RGB (R5G5B5 + dummy)
+; MVS Pixel Capture - 16-bit RGB
 ;
 ; Captures 16 bits per pixel clock:
-;   GPIO 0-4:   R0-R4 (5 red bits)
-;   GPIO 5-9:   G0-G4 (5 green bits)
-;   GPIO 10-14: B0-B4 (5 blue bits)
-;   GPIO 15:    GND (dummy for 16-bit alignment)
-;   GPIO 22:    CSYNC (moved from 16 for DVI)
-;   GPIO 28:    PCLK (moved from 17 for DVI)
+;   GPIO 0:     PCLK (ignored in data, but captured for alignment)
+;   GPIO 1-5:   G4-G0 (5 green bits, reversed order)
+;   GPIO 6-10:  B0-B4 (5 blue bits)
+;   GPIO 11-15: R0-R4 (5 red bits)
+;   GPIO 22:    CSYNC
 ;
 
 .program mvs_pixel_capture
@@ -104,15 +103,15 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
     wait 1 gpio 22
 
     ; Sync to pixel clock
-    wait 0 gpio 28
-    wait 1 gpio 28
+    wait 0 gpio 0
+    wait 1 gpio 0
 
 .wrap_target
     ; Wait for PCLK rising edge
-    wait 0 gpio 28
-    wait 1 gpio 28
+    wait 0 gpio 0
+    wait 1 gpio 0
 
-    ; Sample 16 bits: R0-R4, G0-G4, B0-B4, GND (GPIO 0-15)
+    ; Sample 16 bits: PCLK, G4-G0, B0-B4, R0-R4 (GPIO 0-15)
     ; Autopush at 32 bits = 2 pixels per word
     in pins, 16
 .wrap
@@ -120,30 +119,28 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
 
 % c-sdk {
 
-void mvs_pixel_capture_program_init(PIO pio, uint sm, uint offset, uint pin_r0, uint pin_gnd, uint pin_csync, uint pin_pclk) {
+void mvs_pixel_capture_program_init(PIO pio, uint sm, uint offset, uint pin_base, uint pin_csync, uint pin_pclk) {
     pio_sm_config c = mvs_pixel_capture_program_get_default_config(offset);
 
-    // Configure input pins starting at R0 (GPIO 0)
-    sm_config_set_in_pins(&c, pin_r0);
+    // Configure input pins starting at PCLK (GPIO 0)
+    // We capture 16 bits: GPIO 0 (PCLK), GPIO 1-15 (RGB data)
+    sm_config_set_in_pins(&c, pin_base);
 
-    // Initialize all GPIO pins for PIO use (0-15 for RGB+GND, 16-17 for sync/clock)
-    for (uint i = pin_r0; i <= pin_gnd; i++) {
+    // Initialize all GPIO pins for PIO use (0-15 for PCLK+RGB, 17 for CSYNC)
+    for (uint i = pin_base; i < pin_base + 16; i++) {
         pio_gpio_init(pio, i);
     }
     pio_gpio_init(pio, pin_csync);
-    pio_gpio_init(pio, pin_pclk);
 
     // Set pins as inputs
-    pio_sm_set_consecutive_pindirs(pio, sm, pin_r0, 16, false);  // R0-B4 + GND
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_base, 16, false);  // PCLK + RGB
     pio_sm_set_consecutive_pindirs(pio, sm, pin_csync, 1, false);
-    pio_sm_set_consecutive_pindirs(pio, sm, pin_pclk, 1, false);
 
-    // Enable pull-downs on RGB pins
-    for (uint i = pin_r0; i <= pin_gnd; i++) {
+    // Enable pull-downs on data pins (skip PCLK at pin_base)
+    for (uint i = pin_base + 1; i < pin_base + 16; i++) {
         gpio_pull_down(i);
     }
     gpio_pull_down(pin_csync);
-    gpio_pull_down(pin_pclk);
 
     // Run at full speed
     sm_config_set_clkdiv(&c, 1.0f);

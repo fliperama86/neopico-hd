@@ -16,36 +16,7 @@
 #include "hardware/vreg.h"
 
 #include "dvi.h"
-#include "dvi_serialiser.h"
-
-// =============================================================================
-// Custom Pin Configuration for NeoPico-HD
-// =============================================================================
-// DVI Data:  GPIO 16-21 (3 differential pairs)
-// DVI Clock: GPIO 26-27
-//
-// Wiring:
-//   D0N/D0P -> GP16/GP17
-//   D1N/D1P -> GP18/GP19
-//   D2N/D2P -> GP20/GP21
-//   CLKN/CLKP -> GP26/GP27
-
-// Pico 2 custom wiring to Spotpear
-// Spotpear GP8  (CLKN) <- Pico GP26
-// Spotpear GP9  (CLKP) <- Pico GP27
-// Spotpear GP10 (D0N)  <- Pico GP16
-// Spotpear GP11 (D0P)  <- Pico GP17
-// Spotpear GP12 (D1N)  <- Pico GP18
-// Spotpear GP13 (D1P)  <- Pico GP19
-// Spotpear GP14 (D2N)  <- Pico GP20
-// Spotpear GP15 (D2P)  <- Pico GP21
-static const struct dvi_serialiser_cfg neopico_dvi_cfg = {
-    .pio = pio0,
-    .sm_tmds = {0, 1, 2},
-    .pins_tmds = {16, 18, 20},   // D0=GP16-17, D1=GP18-19, D2=GP20-21
-    .pins_clk = 26,              // Clock=GP26-27
-    .invert_diffpairs = true
-};
+#include "neopico_config.h"
 
 // =============================================================================
 // Display Configuration
@@ -89,45 +60,11 @@ static const uint16_t color_bars[] = {
 #define NUM_BARS (sizeof(color_bars) / sizeof(color_bars[0]))
 #define BAR_WIDTH (FRAME_WIDTH / NUM_BARS)
 
-// Moving box state
-static int box_x = 50, box_y = 50;
-static int box_dx = 2, box_dy = 1;
-#define BOX_SIZE 40
-
-// Line number display for debugging vertical position
-static void generate_moving_box_line(uint16_t *buf, uint y, uint frame) {
-    // Update box position once per frame at line 0
-    if (y == 0) {
-        box_x += box_dx;
-        box_y += box_dy;
-        if (box_x <= 0 || box_x >= FRAME_WIDTH - BOX_SIZE) box_dx = -box_dx;
-        if (box_y <= 0 || box_y >= FRAME_HEIGHT - BOX_SIZE) box_dy = -box_dy;
-    }
-
+// Generate classic SMPTE-style color bar line
+static void generate_color_bar_line(uint16_t *buf, uint y) {
     for (uint x = 0; x < FRAME_WIDTH; x++) {
-        // First 4 lines: bright colors to see where they appear
-        if (y < 4) {
-            buf[x] = (y == 0) ? COLOR_RED : (y == 1) ? COLOR_GREEN : (y == 2) ? COLOR_BLUE : COLOR_YELLOW;
-            continue;
-        }
-        // Last 4 lines: different colors
-        if (y >= FRAME_HEIGHT - 4) {
-            buf[x] = (y == FRAME_HEIGHT-4) ? COLOR_CYAN : (y == FRAME_HEIGHT-3) ? COLOR_MAGENTA :
-                     (y == FRAME_HEIGHT-2) ? COLOR_WHITE : 0xF800;
-            continue;
-        }
-
-        // Checkerboard background
-        uint checker = ((x / 20) + (y / 20) + (frame / 30)) % 2;
-        uint16_t bg = checker ? 0x4208 : 0x2104;
-
-        // Bouncing white box
-        if (x >= box_x && x < box_x + BOX_SIZE &&
-            y >= box_y && y < box_y + BOX_SIZE) {
-            buf[x] = COLOR_WHITE;
-        } else {
-            buf[x] = bg;
-        }
+        uint bar_idx = (x * NUM_BARS) / FRAME_WIDTH;
+        buf[x] = color_bars[bar_idx];
     }
 }
 
@@ -165,7 +102,7 @@ int main() {
 
     printf("NeoPico-HD DVI Test - Color Bars\n");
     printf("Resolution: %dx%d (pixel-doubled to 640x480)\n", FRAME_WIDTH, FRAME_HEIGHT);
-    printf("DVI pins: Data GP16-21, Clock GP26-27\n");
+    printf("DVI pins: Clock GP25-26, Data GP27-32\n");
 
     // Initialize DVI
     dvi0.timing = &DVI_TIMING;
@@ -175,23 +112,16 @@ int main() {
     // Launch DVI on core 1
     multicore_launch_core1(core1_main);
 
-    printf("DVI initialized, outputting moving box test...\n");
+    printf("DVI initialized, outputting color bars...\n");
 
     static uint frame_num = 0;
-
-    // Offset to compensate for DVI timing - adjust this value
-    // Negative offset: subtract to shift content UP on screen
-    #define DVI_LINE_OFFSET 8
 
     // Main loop - feed scanlines to DVI
     uint buf_idx = 0;
     while (true) {
         for (uint y = 0; y < FRAME_HEIGHT; ++y) {
-            // Adjust y coordinate by offset (wrap around) - SUBTRACT to shift up
-            uint adjusted_y = (y + FRAME_HEIGHT - DVI_LINE_OFFSET) % FRAME_HEIGHT;
-
-            // Generate line with adjusted coordinate
-            generate_moving_box_line(scanline_buf[buf_idx], adjusted_y, frame_num);
+            // Generate color bar line
+            generate_color_bar_line(scanline_buf[buf_idx], y);
 
             // Get pointer to current scanline buffer
             const uint16_t *scanline = scanline_buf[buf_idx];

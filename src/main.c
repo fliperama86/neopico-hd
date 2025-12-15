@@ -7,12 +7,13 @@
  * - Convert and write to framebuffer per-line
  *
  * Pin Configuration:
- *   MVS RGB Data:  GPIO 0-14 (15 bits)
- *   MVS Dummy:     GPIO 15
+ *   MVS PCLK:      GPIO 0 (C2)
+ *   MVS Green:     GPIO 1-5 (G4-G0, reversed bit order)
+ *   MVS Blue:      GPIO 6-10 (B0-B4)
+ *   MVS Red:       GPIO 11-15 (R0-R4)
  *   MVS CSYNC:     GPIO 22
- *   MVS PCLK:      GPIO 28
- *   DVI Data:      GPIO 16-21
- *   DVI Clock:     GPIO 26-27
+ *   DVI Clock:     GPIO 25-26
+ *   DVI Data:      GPIO 27-32
  */
 
 #include <stdio.h>
@@ -32,11 +33,23 @@
 // =============================================================================
 // Pin Configuration
 // =============================================================================
+// GPIO 0:     PCLK (C2)
+// GPIO 1-5:   G4-G0 (Green, reversed bit order)
+// GPIO 6-10:  B0-B4 (Blue)
+// GPIO 11-15: R0-R4 (Red)
+// GPIO 22:    CSYNC
 
-#define PIN_R0 0       // RGB data: GPIO 0-14 (15 bits)
-#define PIN_GND 15     // Dummy bit for 16-bit alignment
-#define PIN_CSYNC 22   // Moved for DVI
-#define PIN_PCLK 28    // Moved for DVI
+#define PIN_BASE 0     // Base pin for 16-bit capture (PCLK + RGB data)
+#define PIN_PCLK 0     // Pixel clock
+#define PIN_CSYNC 22   // Composite sync
+
+// Lookup table to reverse 5-bit green value (G4G3G2G1G0 -> G0G1G2G3G4)
+static const uint8_t green_reverse_lut[32] = {
+    0x00, 0x10, 0x08, 0x18, 0x04, 0x14, 0x0C, 0x1C,
+    0x02, 0x12, 0x0A, 0x1A, 0x06, 0x16, 0x0E, 0x1E,
+    0x01, 0x11, 0x09, 0x19, 0x05, 0x15, 0x0D, 0x1D,
+    0x03, 0x13, 0x0B, 0x1B, 0x07, 0x17, 0x0F, 0x1F
+};
 
 // =============================================================================
 // DVI Configuration
@@ -45,8 +58,8 @@
 static const struct dvi_serialiser_cfg neopico_dvi_cfg = {
     .pio = pio0,
     .sm_tmds = {0, 1, 2},
-    .pins_tmds = {16, 18, 20},
-    .pins_clk = 26,
+    .pins_tmds = {27, 29, 31},   // D0=GP27-28, D1=GP29-30, D2=GP31-32
+    .pins_clk = 25,              // Clock=GP25-26
     .invert_diffpairs = true
 };
 
@@ -193,21 +206,23 @@ static bool wait_for_vsync(PIO pio, uint sm_sync, uint32_t timeout_ms) {
 
 static inline void convert_and_store_pixels(uint32_t word, uint16_t *dst) {
     // Each word contains 2 pixels (16 bits each)
-    // MVS format per pixel: R5 (bits 0-4), B5 (bits 5-9), G5 (bits 10-14), dummy (bit 15)
+    // Per pixel: bit 0 = PCLK (ignore), bits 1-5 = G4-G0 (reversed), bits 6-10 = B0-B4, bits 11-15 = R0-R4
 
     // Pixel 0 (low 16 bits)
     uint16_t p0 = word & 0xFFFF;
-    uint8_t r0 = p0 & 0x1F;
-    uint8_t b0 = (p0 >> 5) & 0x1F;
-    uint8_t g0 = (p0 >> 10) & 0x1F;
+    uint8_t g0_raw = (p0 >> 1) & 0x1F;
+    uint8_t b0 = (p0 >> 6) & 0x1F;
+    uint8_t r0 = (p0 >> 11) & 0x1F;
+    uint8_t g0 = green_reverse_lut[g0_raw];
     uint8_t g0_6 = (g0 << 1) | (g0 >> 4);  // 5-bit to 6-bit green
     dst[0] = (r0 << 11) | (g0_6 << 5) | b0;
 
     // Pixel 1 (high 16 bits)
     uint16_t p1 = word >> 16;
-    uint8_t r1 = p1 & 0x1F;
-    uint8_t b1 = (p1 >> 5) & 0x1F;
-    uint8_t g1 = (p1 >> 10) & 0x1F;
+    uint8_t g1_raw = (p1 >> 1) & 0x1F;
+    uint8_t b1 = (p1 >> 6) & 0x1F;
+    uint8_t r1 = (p1 >> 11) & 0x1F;
+    uint8_t g1 = green_reverse_lut[g1_raw];
     uint8_t g1_6 = (g1 << 1) | (g1 >> 4);
     dst[1] = (r1 << 11) | (g1_6 << 5) | b1;
 }
@@ -256,7 +271,7 @@ int main() {
 
     uint offset_pixel = pio_add_program(pio_mvs, &mvs_pixel_capture_program);
     uint sm_pixel = pio_claim_unused_sm(pio_mvs, true);
-    mvs_pixel_capture_program_init(pio_mvs, sm_pixel, offset_pixel, PIN_R0, PIN_GND, PIN_CSYNC, PIN_PCLK);
+    mvs_pixel_capture_program_init(pio_mvs, sm_pixel, offset_pixel, PIN_BASE, PIN_CSYNC, PIN_PCLK);
 
     // Enable sync detection
     pio_sm_set_enabled(pio_mvs, sm_sync, true);
