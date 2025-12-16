@@ -1,0 +1,34 @@
+; Simple Logic Analyzer Capture PIO Program
+; Samples consecutive GPIO pins into FIFO at a programmable rate
+;
+; Usage:
+;   - Set pin_base to first GPIO to capture
+;   - Configure how many bits to capture (up to 32)
+;   - Use clock divider to control sample rate
+
+.program capture
+
+; Continuously sample pins and push to FIFO
+.wrap_target
+    in pins, 32      ; Read all 32 bits of pin state
+    push noblock     ; Push to FIFO (will drop if full)
+.wrap
+
+% c-sdk {
+static inline void capture_program_init(PIO pio, uint sm, uint offset, uint pin_base, float div) {
+    pio_sm_config c = capture_program_get_default_config(offset);
+
+    // Set input pin base (will read 32 consecutive pins starting here)
+    sm_config_set_in_pins(&c, pin_base);
+
+    // Configure shift: shift right, no autopush
+    sm_config_set_in_shift(&c, false, false, 32);
+
+    // Set clock divider for sample rate control
+    sm_config_set_clkdiv(&c, div);
+
+    // Initialize and start
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}

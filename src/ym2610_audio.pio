@@ -1,19 +1,27 @@
-; YM2610 Serial Audio Receiver (based on cps2_digiav ym_rx_asrc.v)
+; YM2610 Serial Audio Receiver for Neo Geo MVS
 ;
 ; Captures digital audio from YM2610 -> YM3016 serial interface
 ; Pin mapping (from audio_config.h):
-;   GPIO 21: BCK (øS) - bit clock
+;   GPIO 21: BCK (øS) - bit clock (~2.66 MHz)
 ;   GPIO 23: DAT (OPO) - serial data (in_base)
-;   GPIO 24: WS (SH1) - word select / left channel latch
+;   GPIO 24: WS (SH1) - word select (~55.5 kHz)
 ;
-; YM2610 format: 16-bit per channel
+; MVS Format (verified via logic analyzer):
+;   48 BCK cycles per WS period (24 per channel)
+;   Each channel: 8-bit padding (zeros) + 16-bit data
+;
+; YM2610 16-bit data format:
 ;   bits[15:13] = 3-bit exponent
 ;   bits[12:3]  = 10-bit mantissa (signed, offset by 512)
 ;   bits[2:0]   = padding
 ; Decode: (mantissa - 512) << (exponent - 1)
 ;
-; WS FALLING edge = start of LEFT channel (per cps2_digiav)
-; Sample on BCK RISING edge
+; Timing:
+;   WS FALLING = start of LEFT channel
+;   WS RISING  = start of RIGHT channel
+;   BCK 1-8:   padding (skip)
+;   BCK 9-24:  16-bit data (capture)
+;   Sample DAT on BCK RISING edge
 
 .program ym2610_rx
 
@@ -21,29 +29,45 @@
     wait 1 gpio 24
 
 .wrap_target
-    ; Wait for WS falling edge (start of LEFT channel)
-    wait 0 gpio 24
+    ; === LEFT CHANNEL ===
+    wait 0 gpio 24              ; Wait for WS falling edge (start of left)
 
-    ; Capture 16 bits for LEFT channel
+    ; Skip 8 padding bits
+    set x, 7
+skip_left_pad:
+    wait 0 gpio 21
+    wait 1 gpio 21
+    jmp x-- skip_left_pad
+
+    ; Capture 16 data bits for LEFT channel
     set x, 15
 left_loop:
-    wait 0 gpio 21          ; Wait for BCK low
-    wait 1 gpio 21          ; Wait for BCK rising edge
-    in pins, 1              ; Sample DAT
+    wait 0 gpio 21
+    wait 1 gpio 21
+    in pins, 1
     jmp x-- left_loop
-    push noblock            ; Push 16-bit LEFT sample (in lower 16 bits)
+    push noblock
 
-    ; Wait for WS rising edge (start of RIGHT channel)
-    wait 1 gpio 24
+    ; === RIGHT CHANNEL ===
+    ; No WS wait - we're exactly at BCK 24, right channel starts now
+    ; Skip 8 padding bits
+    set x, 7
+skip_right_pad:
+    wait 0 gpio 21
+    wait 1 gpio 21
+    jmp x-- skip_right_pad
 
-    ; Capture 16 bits for RIGHT channel
+    ; Capture 16 data bits for RIGHT channel
     set x, 15
 right_loop:
-    wait 0 gpio 21          ; Wait for BCK low
-    wait 1 gpio 21          ; Wait for BCK rising edge
-    in pins, 1              ; Sample DAT
+    wait 0 gpio 21
+    wait 1 gpio 21
+    in pins, 1
     jmp x-- right_loop
-    push noblock            ; Push 16-bit RIGHT sample
+    push noblock
+
+    ; Wait for WS to go high then we'll catch falling edge at wrap
+    wait 1 gpio 24
 .wrap
 
 % c-sdk {

@@ -4,8 +4,8 @@
  * Captures digital audio from YM2610's serial output (before YM3016 DAC)
  * and sends it to HDMI. Video shows color bars for simplicity.
  *
- * Hardware connections (consecutive GPIOs):
- *   GPIO 22: BCK (øS) - bit clock from YM2610
+ * Hardware connections:
+ *   GPIO 21: BCK (øS) - bit clock from YM2610
  *   GPIO 23: DAT (OPO) - serial data from YM2610
  *   GPIO 24: WS (SH1) - word select / left channel latch
  *
@@ -57,12 +57,24 @@ static audio_sample_t audio_buffer[AUDIO_BUFFER_SIZE];
 static PIO audio_pio = pio1;
 static uint audio_sm = 0;
 
-// Debug counters
+// Debug counters and values
 static volatile uint32_t samples_captured = 0;
 static volatile uint32_t samples_dropped = 0;
 static volatile uint32_t fifo_overflows = 0;
+static volatile uint32_t exp0_count = 0;  // Count of exp=0 samples
 static volatile int16_t last_left = 0;
 static volatile int16_t last_right = 0;
+// Raw debug values (for analysis)
+static volatile uint16_t last_raw_pio_l = 0;  // Raw from PIO (before bit reverse)
+static volatile uint16_t last_raw_pio_r = 0;
+static volatile uint16_t last_reversed_l = 0; // After bit reverse
+static volatile uint16_t last_reversed_r = 0;
+
+// Sample rate conversion: 55500 Hz input -> 48000 Hz output
+// Using fractional accumulator method
+#define SRC_INPUT_RATE  55500
+#define SRC_OUTPUT_RATE 48000
+static uint32_t src_accumulator = 0;
 
 // =============================================================================
 // Color Bar Generation (simple test pattern)
@@ -103,24 +115,27 @@ static inline uint16_t reverse_bits_16(uint16_t x) {
     return x;
 }
 
-// Decode YM2610 floating point format
+// Decode YM2610 floating point format (cps2_digiav algorithm)
 // Format: bits[15:13]=exponent, bits[12:3]=mantissa, bits[2:0]=padding
 static inline int16_t decode_ym2610_sample(uint16_t raw) {
+    // Handle silence (padding bits captured as zeros)
+    if (raw == 0) return 0;
+
     int exp = (raw >> 13) & 0x7;           // bits[15:13]
     int mantissa = (raw >> 3) & 0x3FF;     // bits[12:3]
 
     // Convert to signed (10-bit mantissa centered at 512)
     int32_t value = mantissa - 512;
 
-    // Apply exponent shift
+    // Apply exponent shift (cps2_digiav style)
     if (exp > 0) {
         value <<= (exp - 1);
     }
 
-    // Scale to better fill 16-bit range
+    // Scale up to better fill 16-bit range
     value <<= 4;
 
-    // Clamp
+    // Clamp to 16-bit range
     if (value > 32767) value = 32767;
     if (value < -32768) value = -32768;
 
@@ -135,11 +150,25 @@ static void process_audio(void) {
         uint32_t raw_left = pio_sm_get(audio_pio, audio_sm);
         uint32_t raw_right = pio_sm_get(audio_pio, audio_sm);
 
-        // Bit reversal needed - YM2610 sends LSB first
-        uint16_t sample_left = reverse_bits_16(raw_left & 0xFFFF);
-        uint16_t sample_right = reverse_bits_16(raw_right & 0xFFFF);
+        // Back to 16 bits per channel (matching cps2_digiav)
+        // Store raw values for debug
+        last_raw_pio_l = raw_left & 0xFFFF;
+        last_raw_pio_r = raw_right & 0xFFFF;
 
-        // Extract and decode YM2610 floating point samples
+        // With updated PIO that skips 8-bit padding, data is now MSB-first
+        // No bit reversal needed - use raw values directly
+        uint16_t sample_left = raw_left & 0xFFFF;
+        uint16_t sample_right = raw_right & 0xFFFF;
+
+        // Store for debug
+        last_reversed_l = sample_left;
+        last_reversed_r = sample_right;
+
+        // Count exp=0 samples
+        if (((sample_left >> 13) & 0x7) == 0) exp0_count++;
+        if (((sample_right >> 13) & 0x7) == 0) exp0_count++;
+
+        // Decode using floating point format
         int16_t left = decode_ym2610_sample(sample_left);
         int16_t right = decode_ym2610_sample(sample_right);
 
@@ -147,7 +176,8 @@ static void process_audio(void) {
         last_right = right;
         samples_captured++;
 
-        // Write to HDMI audio ring buffer
+        // Write directly to HDMI audio ring buffer (no rate conversion)
+        // The ring buffer will handle overflow by dropping oldest samples
         int available = get_write_size(&dvi0.audio_ring, false);
         if (available > 0) {
             audio_sample_t *ptr = get_write_pointer(&dvi0.audio_ring);
@@ -392,21 +422,29 @@ int main() {
         uint32_t now = time_us_32();
         if (now - last_status_time >= 2000000) {
             uint32_t samples_per_sec = (samples_captured - last_sample_count) / 2;
-            uint fifo_level = pio_sm_get_rx_fifo_level(audio_pio, audio_sm);
 
-            printf("F:%u S:%lu (%lu/s) FIFO:%u L:0x%04X(%d) R:0x%04X(%d)\n",
+            // Extract exp/mantissa for display
+            int exp_l = (last_reversed_l >> 13) & 0x7;
+            int exp_r = (last_reversed_r >> 13) & 0x7;
+            int man_l = (last_reversed_l >> 3) & 0x3FF;
+            int man_r = (last_reversed_r >> 3) & 0x3FF;
+
+            printf("F:%u S:%lu (%lu/s) exp0:%lu\n",
                    frame_num,
                    (unsigned long)samples_captured,
                    (unsigned long)samples_per_sec,
-                   fifo_level,
-                   (uint16_t)last_left, last_left,
-                   (uint16_t)last_right, last_right);
+                   (unsigned long)exp0_count);
+            printf("  RAW: L=0x%04X R=0x%04X -> REV: L=0x%04X R=0x%04X\n",
+                   last_raw_pio_l, last_raw_pio_r,
+                   last_reversed_l, last_reversed_r);
+            printf("  EXP:%d/%d MAN:%d/%d DEC:%d/%d\n",
+                   exp_l, exp_r, man_l, man_r, last_left, last_right);
 
             if (fifo_overflows > 0) {
                 printf("  WARNING: %lu FIFO overflows!\n", (unsigned long)fifo_overflows);
             }
             if (samples_dropped > 0) {
-                printf("  WARNING: %lu samples dropped!\n", (unsigned long)samples_dropped);
+                printf("  WARNING: %lu drops!\n", (unsigned long)samples_dropped);
             }
 
             last_status_time = now;
