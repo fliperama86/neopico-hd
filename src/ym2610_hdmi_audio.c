@@ -28,25 +28,9 @@
 #include "dvi_serialiser.h"
 #include "audio_ring.h"
 
+#include "neopico_config.h"
+#include "audio_config.h"
 #include "ym2610_audio.pio.h"
-
-// =============================================================================
-// Pin Configuration
-// =============================================================================
-
-// YM2610 audio pins (must be consecutive!)
-#define PIN_BCK 22   // Bit clock (øS)
-#define PIN_DAT 23   // Serial data (OPO)
-#define PIN_WS  24   // Word select (SH1)
-
-// DVI pins
-static const struct dvi_serialiser_cfg neopico_dvi_cfg = {
-    .pio = pio0,
-    .sm_tmds = {0, 1, 2},
-    .pins_tmds = {16, 18, 20},
-    .pins_clk = 26,
-    .invert_diffpairs = true
-};
 
 // =============================================================================
 // Display Configuration - 480p for reliable HDMI audio
@@ -64,7 +48,7 @@ static uint16_t scanline_buf[2][FRAME_WIDTH];
 // Audio Configuration
 // =============================================================================
 
-#define AUDIO_SAMPLE_RATE 32000  // Closer to actual ~28kHz capture rate
+#define AUDIO_SAMPLE_RATE 48000  // Standard HDMI rate, closer to YM2610's ~55kHz
 #define AUDIO_BUFFER_SIZE 256    // Must be power of 2
 
 static audio_sample_t audio_buffer[AUDIO_BUFFER_SIZE];
@@ -109,6 +93,8 @@ static void generate_color_bar_line(uint16_t *buf, uint y) {
 // =============================================================================
 
 // Reverse bits in a 16-bit value
+// Needed because YM2610 transmits LSB first, but our PIO shift-left
+// puts the first bit at the high position
 static inline uint16_t reverse_bits_16(uint16_t x) {
     x = ((x & 0x5555) << 1) | ((x & 0xAAAA) >> 1);
     x = ((x & 0x3333) << 2) | ((x & 0xCCCC) >> 2);
@@ -117,32 +103,56 @@ static inline uint16_t reverse_bits_16(uint16_t x) {
     return x;
 }
 
+// Decode YM2610 floating point format
+// Format: bits[15:13]=exponent, bits[12:3]=mantissa, bits[2:0]=padding
+static inline int16_t decode_ym2610_sample(uint16_t raw) {
+    int exp = (raw >> 13) & 0x7;           // bits[15:13]
+    int mantissa = (raw >> 3) & 0x3FF;     // bits[12:3]
+
+    // Convert to signed (10-bit mantissa centered at 512)
+    int32_t value = mantissa - 512;
+
+    // Apply exponent shift
+    if (exp > 0) {
+        value <<= (exp - 1);
+    }
+
+    // Scale to better fill 16-bit range
+    value <<= 4;
+
+    // Clamp
+    if (value > 32767) value = 32767;
+    if (value < -32768) value = -32768;
+
+    return (int16_t)value;
+}
+
 static void process_audio(void) {
     // Read all available samples from PIO FIFO
     while (pio_sm_get_rx_fifo_level(audio_pio, audio_sm) >= 2) {
         // PIO pushes 16-bit left, then 16-bit right
+        // With shift-left and manual push after 16 bits, data is in LOWER 16 bits
         uint32_t raw_left = pio_sm_get(audio_pio, audio_sm);
         uint32_t raw_right = pio_sm_get(audio_pio, audio_sm);
 
-        // Try bit-reversing (YM2610 might be LSB-first)
-        uint16_t rev_left = reverse_bits_16(raw_left & 0xFFFF);
-        uint16_t rev_right = reverse_bits_16(raw_right & 0xFFFF);
+        // Bit reversal needed - YM2610 sends LSB first
+        uint16_t sample_left = reverse_bits_16(raw_left & 0xFFFF);
+        uint16_t sample_right = reverse_bits_16(raw_right & 0xFFFF);
 
-        // Extract 16-bit signed samples
-        int16_t left = (int16_t)rev_left;
-        int16_t right = (int16_t)rev_right;
+        // Extract and decode YM2610 floating point samples
+        int16_t left = decode_ym2610_sample(sample_left);
+        int16_t right = decode_ym2610_sample(sample_right);
 
         last_left = left;
         last_right = right;
         samples_captured++;
 
         // Write to HDMI audio ring buffer
-        // TEST: Send L channel to both outputs (ignore R for now)
         int available = get_write_size(&dvi0.audio_ring, false);
         if (available > 0) {
             audio_sample_t *ptr = get_write_pointer(&dvi0.audio_ring);
             ptr->channels[0] = left;
-            ptr->channels[1] = left;  // L to both channels for testing
+            ptr->channels[1] = right;
             increase_write_pointer(&dvi0.audio_ring, 1);
         } else {
             samples_dropped++;
@@ -173,23 +183,23 @@ void core1_main() {
 
 static void analyze_gpio_signals(void) {
     printf("\n=== GPIO Signal Analysis ===\n");
-    printf("Sampling GPIO %d/%d/%d for 100ms...\n", PIN_BCK, PIN_DAT, PIN_WS);
+    printf("Sampling GPIO %d/%d/%d for 100ms...\n", AUDIO_PIN_BCK, AUDIO_PIN_DAT, AUDIO_PIN_WS);
 
     uint32_t bck_transitions = 0;
     uint32_t ws_transitions = 0;
     uint32_t dat_transitions = 0;
 
-    bool last_bck = gpio_get(PIN_BCK);
-    bool last_ws = gpio_get(PIN_WS);
-    bool last_dat = gpio_get(PIN_DAT);
+    bool last_bck = gpio_get(AUDIO_PIN_BCK);
+    bool last_ws = gpio_get(AUDIO_PIN_WS);
+    bool last_dat = gpio_get(AUDIO_PIN_DAT);
 
     absolute_time_t start = get_absolute_time();
     absolute_time_t end = make_timeout_time_ms(100);
 
     while (absolute_time_diff_us(get_absolute_time(), end) > 0) {
-        bool bck = gpio_get(PIN_BCK);
-        bool ws = gpio_get(PIN_WS);
-        bool dat = gpio_get(PIN_DAT);
+        bool bck = gpio_get(AUDIO_PIN_BCK);
+        bool ws = gpio_get(AUDIO_PIN_WS);
+        bool dat = gpio_get(AUDIO_PIN_DAT);
 
         if (bck != last_bck) { bck_transitions++; last_bck = bck; }
         if (ws != last_ws) { ws_transitions++; last_ws = ws; }
@@ -257,12 +267,15 @@ static void capture_raw_samples(void) {
         uint32_t raw_l = pio_sm_get(audio_pio, audio_sm);
         uint32_t raw_r = pio_sm_get(audio_pio, audio_sm);
 
-        printf("%d,0x%04lX,0x%04lX,%d,%d\n",
-               i,
-               (unsigned long)(raw_l & 0xFFFF),
-               (unsigned long)(raw_r & 0xFFFF),
-               (int16_t)(raw_l & 0xFFFF),
-               (int16_t)(raw_r & 0xFFFF));
+        // Bit-reverse to get correct YM2610 format (LSB first transmission)
+        uint16_t rev_l = reverse_bits_16(raw_l & 0xFFFF);
+        uint16_t rev_r = reverse_bits_16(raw_r & 0xFFFF);
+
+        // Decode
+        int16_t dec_l = decode_ym2610_sample(rev_l);
+        int16_t dec_r = decode_ym2610_sample(rev_r);
+
+        printf("%d,0x%04X,0x%04X,%d,%d\n", i, rev_l, rev_r, dec_l, dec_r);
     }
 
     printf("\n");
@@ -297,34 +310,36 @@ int main() {
     printf("================================================\n");
     printf("  YM2610 Digital Audio -> HDMI Test\n");
     printf("================================================\n");
-    printf("Pins: BCK=%d, DAT=%d, WS=%d\n", PIN_BCK, PIN_DAT, PIN_WS);
+    printf("Pins: BCK=%d, DAT=%d, WS=%d\n", AUDIO_PIN_BCK, AUDIO_PIN_DAT, AUDIO_PIN_WS);
     printf("Audio: %d Hz -> HDMI\n", AUDIO_SAMPLE_RATE);
     printf("Video: Color bars (320x240)\n");
     printf("\n");
 
     // Configure audio pins as inputs (before PIO takes over)
-    gpio_init(PIN_BCK);
-    gpio_init(PIN_DAT);
-    gpio_init(PIN_WS);
-    gpio_set_dir(PIN_BCK, GPIO_IN);
-    gpio_set_dir(PIN_DAT, GPIO_IN);
-    gpio_set_dir(PIN_WS, GPIO_IN);
+    gpio_init(AUDIO_PIN_BCK);
+    gpio_init(AUDIO_PIN_DAT);
+    gpio_init(AUDIO_PIN_WS);
+    gpio_set_dir(AUDIO_PIN_BCK, GPIO_IN);
+    gpio_set_dir(AUDIO_PIN_DAT, GPIO_IN);
+    gpio_set_dir(AUDIO_PIN_WS, GPIO_IN);
 
     // Analyze signals first
     analyze_gpio_signals();
 
     // Initialize YM2610 audio capture on PIO1
-    // BCK (GPIO 22) is hardcoded in PIO, we pass DAT pin (GPIO 23)
+    // BCK (GPIO 21) and WS (GPIO 24) are hardcoded in PIO, DAT pin is passed
     printf("Initializing PIO audio capture...\n");
     uint offset = pio_add_program(audio_pio, &ym2610_rx_program);
-    ym2610_rx_program_init(audio_pio, audio_sm, offset, PIN_DAT);
-    printf("PIO audio capture started (BCK=22, DAT=%d)\n", PIN_DAT);
+    ym2610_rx_program_init(audio_pio, audio_sm, offset, AUDIO_PIN_DAT);
+    printf("PIO audio capture started (BCK=%d, DAT=%d, WS=%d)\n",
+           AUDIO_PIN_BCK, AUDIO_PIN_DAT, AUDIO_PIN_WS);
 
     // Capture some raw samples for debugging
     capture_raw_samples();
 
     // Initialize DVI
     printf("Initializing DVI...\n");
+    neopico_dvi_gpio_setup();
     dvi0.timing = &DVI_TIMING;
     dvi0.ser_cfg = neopico_dvi_cfg;
     dvi_init(&dvi0, next_striped_spin_lock_num(), next_striped_spin_lock_num());
@@ -334,9 +349,9 @@ int main() {
     dvi_get_blank_settings(&dvi0)->bottom = 4 * 2;
     dvi_audio_sample_buffer_set(&dvi0, audio_buffer, AUDIO_BUFFER_SIZE);
 
-    // CTS/N values for 32kHz (standard HDMI rate)
-    // N=4096, CTS=25200 for 32kHz
-    dvi_set_audio_freq(&dvi0, AUDIO_SAMPLE_RATE, 25200, 4096);
+    // CTS/N values for 48kHz at 25.2MHz pixel clock
+    // N=6144, CTS=25200 for 48kHz
+    dvi_set_audio_freq(&dvi0, AUDIO_SAMPLE_RATE, 25200, 6144);
     printf("HDMI audio configured: %d Hz\n", AUDIO_SAMPLE_RATE);
 
     // Launch DVI on Core 1

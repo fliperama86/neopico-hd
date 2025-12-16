@@ -1,15 +1,17 @@
 ; YM2610 Serial Audio Receiver
 ; Simple 16-bit capture on BCK falling edge
+; Pin mapping from audio_config.h: BCK=21, DAT=23, WS=24
 
 .program i2s_rx
 
 .wrap_target
-    wait 1 gpio 22          ; Wait for BCK high
-    wait 0 gpio 22          ; Wait for BCK falling edge
+    wait 1 gpio 21          ; Wait for BCK high
+    wait 0 gpio 21          ; Wait for BCK falling edge
     in pins, 1              ; Sample GPIO 23 (DAT)
 .wrap
 
 % c-sdk {
+// Pin definitions from audio_config.h: BCK=21, DAT=23, WS=24
 static inline void i2s_rx_program_init(PIO pio, uint sm, uint offset, uint pin_dat, uint pin_ws, uint pin_bck) {
     pio_sm_config c = i2s_rx_program_get_default_config(offset);
 

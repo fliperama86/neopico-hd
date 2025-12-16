@@ -315,6 +315,22 @@ pico_enable_stdio_uart(audio_capture 0)
 pico_add_extra_outputs(audio_capture)
 
 # =============================================================================
+# Signal Capture (Logic analyzer for audio pins)
+# =============================================================================
+add_executable(signal_capture
+    signal_capture.c
+)
+
+target_link_libraries(signal_capture
+    pico_stdlib
+    hardware_clocks
+)
+
+pico_enable_stdio_usb(signal_capture 1)
+pico_enable_stdio_uart(signal_capture 0)
+pico_add_extra_outputs(signal_capture)
+
+# =============================================================================
 # RGB Conversion Benchmark (GPIO wiring performance test)
 # =============================================================================
 add_executable(rgb_benchmark

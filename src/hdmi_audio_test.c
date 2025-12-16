@@ -24,17 +24,7 @@
 #include "dvi_serialiser.h"
 #include "audio_ring.h"
 
-// =============================================================================
-// Pin Configuration (same as existing dvi_test)
-// =============================================================================
-
-static const struct dvi_serialiser_cfg neopico_dvi_cfg = {
-    .pio = pio0,
-    .sm_tmds = {0, 1, 2},
-    .pins_tmds = {16, 18, 20},   // D0=GP16-17, D1=GP18-19, D2=GP20-21
-    .pins_clk = 26,              // Clock=GP26-27
-    .invert_diffpairs = true
-};
+#include "neopico_config.h"
 
 // =============================================================================
 // Display Configuration
@@ -193,6 +183,7 @@ int main() {
     printf("Sine table initialized\n");
 
     // Initialize DVI
+    neopico_dvi_gpio_setup();
     dvi0.timing = &DVI_TIMING;
     dvi0.ser_cfg = neopico_dvi_cfg;
     dvi_init(&dvi0, next_striped_spin_lock_num(), next_striped_spin_lock_num());

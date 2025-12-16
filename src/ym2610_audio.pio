@@ -1,66 +1,74 @@
-; YM2610 Serial Audio Receiver
+; YM2610 Serial Audio Receiver (based on cps2_digiav ym_rx_asrc.v)
 ;
 ; Captures digital audio from YM2610 -> YM3016 serial interface
-; Pin mapping:
-;   GPIO 22: BCK (øS) - bit clock
+; Pin mapping (from audio_config.h):
+;   GPIO 21: BCK (øS) - bit clock
 ;   GPIO 23: DAT (OPO) - serial data (in_base)
 ;   GPIO 24: WS (SH1) - word select / left channel latch
 ;
-; YM2610 format: 16-bit MSB-first
-; We sync on WS rising edge to ensure proper L/R framing
+; YM2610 format: 16-bit per channel
+;   bits[15:13] = 3-bit exponent
+;   bits[12:3]  = 10-bit mantissa (signed, offset by 512)
+;   bits[2:0]   = padding
+; Decode: (mantissa - 512) << (exponent - 1)
+;
+; WS FALLING edge = start of LEFT channel (per cps2_digiav)
+; Sample on BCK RISING edge
 
 .program ym2610_rx
 
-; Wait for WS to go low first (ensures we catch the rising edge)
-    wait 0 gpio 24
+; Wait for WS high first (ensures we catch the falling edge)
+    wait 1 gpio 24
 
 .wrap_target
-    ; Wait for WS rising edge (start of left channel)
-    wait 1 gpio 24
+    ; Wait for WS falling edge (start of LEFT channel)
+    wait 0 gpio 24
 
     ; Capture 16 bits for LEFT channel
     set x, 15
 left_loop:
-    wait 0 gpio 22          ; Wait for BCK low
-    wait 1 gpio 22          ; Wait for BCK rising edge
+    wait 0 gpio 21          ; Wait for BCK low
+    wait 1 gpio 21          ; Wait for BCK rising edge
     in pins, 1              ; Sample DAT
     jmp x-- left_loop
-    ; ISR auto-pushes after 16 bits (left sample)
+    push noblock            ; Push 16-bit LEFT sample (in lower 16 bits)
 
-    ; Wait for WS falling edge (start of right channel)
-    wait 0 gpio 24
+    ; Wait for WS rising edge (start of RIGHT channel)
+    wait 1 gpio 24
 
     ; Capture 16 bits for RIGHT channel
     set x, 15
 right_loop:
-    wait 0 gpio 22          ; Wait for BCK low
-    wait 1 gpio 22          ; Wait for BCK rising edge
+    wait 0 gpio 21          ; Wait for BCK low
+    wait 1 gpio 21          ; Wait for BCK rising edge
     in pins, 1              ; Sample DAT
     jmp x-- right_loop
-    ; ISR auto-pushes after 16 bits (right sample)
+    push noblock            ; Push 16-bit RIGHT sample
 .wrap
 
 % c-sdk {
+// Pin definitions from audio_config.h:
+// AUDIO_PIN_BCK = 21, AUDIO_PIN_DAT = 23, AUDIO_PIN_WS = 24
 static inline void ym2610_rx_program_init(PIO pio, uint sm, uint offset, uint pin_dat) {
     pio_sm_config c = ym2610_rx_program_get_default_config(offset);
 
-    // Pin mapping (hardcoded in PIO):
-    //   GPIO 22: BCK (bit clock)
+    // Pin mapping (must match PIO wait instructions):
+    //   GPIO 21: BCK (bit clock)
     //   GPIO 23: DAT (serial data) - passed as pin_dat
     //   GPIO 24: WS (word select)
 
     // Set IN pin base to DAT for sampling
     sm_config_set_in_pins(&c, pin_dat);
 
-    // Shift LEFT (MSB first), autopush at 16 bits
-    sm_config_set_in_shift(&c, false, true, 16);
+    // Shift LEFT (MSB first), no autopush - we push manually after 16 bits
+    sm_config_set_in_shift(&c, false, false, 32);
 
     // Configure all three pins as inputs
     pio_sm_set_pindirs_with_mask(pio, sm, 0,
-        (1u << 22) | (1u << pin_dat) | (1u << 24));
+        (1u << 21) | (1u << pin_dat) | (1u << 24));
 
     // Initialize GPIO for PIO
-    pio_gpio_init(pio, 22);       // BCK
+    pio_gpio_init(pio, 21);       // BCK
     pio_gpio_init(pio, pin_dat);  // DAT
     pio_gpio_init(pio, 24);       // WS
 

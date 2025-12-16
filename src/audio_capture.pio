@@ -16,15 +16,15 @@
 
 .wrap_target
 wait_frame:
-    wait 0 gpio 9       ; Wait for WS low (GPIO 9)
-    wait 1 gpio 9       ; Wait for WS rising edge = left channel start
+    wait 0 gpio 24       ; Wait for WS low (GPIO 24)
+    wait 1 gpio 24       ; Wait for WS rising edge = left channel start
 
     ; Capture left channel - 24 bits
     set x, 23
 left_loop:
-    wait 0 gpio 23      ; Wait for BCK low (GPIO 23)
-    wait 1 gpio 23      ; Wait for BCK rising edge
-    in pins, 1          ; Shift in DAT (GPIO 3)
+    wait 0 gpio 21      ; Wait for BCK low (GPIO 21)
+    wait 1 gpio 21      ; Wait for BCK rising edge
+    in pins, 1          ; Shift in DAT (GPIO 23)
     jmp x-- left_loop
 
     push noblock
@@ -32,8 +32,8 @@ left_loop:
     ; Capture right channel - 24 bits
     set x, 23
 right_loop:
-    wait 0 gpio 23
-    wait 1 gpio 23
+    wait 0 gpio 21
+    wait 1 gpio 21
     in pins, 1
     jmp x-- right_loop
 
@@ -52,14 +52,14 @@ static inline void ym2610_capture_program_init(PIO pio, uint sm, uint offset, ui
 
     // Configure all pins as inputs
     pio_gpio_init(pio, pin_dat);
-    pio_gpio_init(pio, 9);   // WS
-    pio_gpio_init(pio, 23);  // BCK
+    pio_gpio_init(pio, 24);  // WS
+    pio_gpio_init(pio, 21);  // BCK
     pio_sm_set_consecutive_pindirs(pio, sm, pin_dat, 1, false);
 
     // Enable hysteresis on all
     gpio_set_input_hysteresis_enabled(pin_dat, true);
-    gpio_set_input_hysteresis_enabled(9, true);
-    gpio_set_input_hysteresis_enabled(23, true);
+    gpio_set_input_hysteresis_enabled(24, true);
+    gpio_set_input_hysteresis_enabled(21, true);
 
     // Shift left, no autopush, 24 bits
     sm_config_set_in_shift(&c, false, false, 24);

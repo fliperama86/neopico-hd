@@ -25,22 +25,11 @@
 #include "dvi_serialiser.h"
 #include "audio_ring.h"
 
+#include "neopico_config.h"
+
 // ADC pin for MVS audio (RP2350B: GPIO 40-47 are ADC pins)
 #define ADC_PIN_AUDIO 40
 #define ADC_CHANNEL 0  // GPIO 40 = ADC0 on RP2350B
-
-// =============================================================================
-// Pin Configuration
-// =============================================================================
-
-// DVI pins (same as dvi_test)
-static const struct dvi_serialiser_cfg neopico_dvi_cfg = {
-    .pio = pio0,
-    .sm_tmds = {0, 1, 2},
-    .pins_tmds = {16, 18, 20},
-    .pins_clk = 26,
-    .invert_diffpairs = true
-};
 
 
 // =============================================================================
@@ -201,6 +190,7 @@ int main() {
     printf("ADC initialized on GPIO %d\n", ADC_PIN_AUDIO);
 
     // Initialize DVI
+    neopico_dvi_gpio_setup();
     dvi0.timing = &DVI_TIMING;
     dvi0.ser_cfg = neopico_dvi_cfg;
     dvi_init(&dvi0, next_striped_spin_lock_num(), next_striped_spin_lock_num());

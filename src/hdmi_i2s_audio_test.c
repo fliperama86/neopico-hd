@@ -27,26 +27,9 @@
 #include "dvi_serialiser.h"
 #include "audio_ring.h"
 
+#include "neopico_config.h"
+#include "audio_config.h"
 #include "i2s_audio.pio.h"
-
-// =============================================================================
-// Pin Configuration
-// =============================================================================
-
-// DVI pins
-static const struct dvi_serialiser_cfg neopico_dvi_cfg = {
-    .pio = pio0,
-    .sm_tmds = {0, 1, 2},
-    .pins_tmds = {16, 18, 20},
-    .pins_clk = 26,
-    .invert_diffpairs = true
-};
-
-// I2S pins - testing with swap
-// GPIO 24 at 135k transitions might be WS (~55kHz * 2 edges)
-#define I2S_PIN_DAT 23   // High frequency signal = data
-#define I2S_PIN_WS  24   // 135k transitions ≈ 67kHz - closer to WS
-#define I2S_PIN_BCK 22
 
 // =============================================================================
 // Display Configuration
@@ -179,33 +162,34 @@ int main() {
     printf("========================================\n");
     printf("  HDMI I2S Audio Test - MVS Digital\n");
     printf("========================================\n");
-    printf("I2S Pins: DAT=%d, WS=%d, BCK=%d\n", I2S_PIN_DAT, I2S_PIN_WS, I2S_PIN_BCK);
+    printf("I2S Pins: DAT=%d, WS=%d, BCK=%d\n", AUDIO_PIN_DAT, AUDIO_PIN_WS, AUDIO_PIN_BCK);
     printf("Sample Rate: %d Hz\n", AUDIO_SAMPLE_RATE);
     printf("\n");
 
     // Configure I2S pins as inputs
     // Pins must be consecutive: DAT, WS, BCK
-    gpio_init(I2S_PIN_DAT);
-    gpio_init(I2S_PIN_WS);
-    gpio_init(I2S_PIN_BCK);
-    gpio_set_dir(I2S_PIN_DAT, GPIO_IN);
-    gpio_set_dir(I2S_PIN_WS, GPIO_IN);
-    gpio_set_dir(I2S_PIN_BCK, GPIO_IN);
+    gpio_init(AUDIO_PIN_DAT);
+    gpio_init(AUDIO_PIN_WS);
+    gpio_init(AUDIO_PIN_BCK);
+    gpio_set_dir(AUDIO_PIN_DAT, GPIO_IN);
+    gpio_set_dir(AUDIO_PIN_WS, GPIO_IN);
+    gpio_set_dir(AUDIO_PIN_BCK, GPIO_IN);
 
     // Quick GPIO test before PIO takes over
     printf("GPIO test (should toggle with signal):\n");
     for (int i = 0; i < 5; i++) {
         printf("  %d: DAT=%d WS=%d BCK=%d\n", i,
-               gpio_get(I2S_PIN_DAT), gpio_get(I2S_PIN_WS), gpio_get(I2S_PIN_BCK));
+               gpio_get(AUDIO_PIN_DAT), gpio_get(AUDIO_PIN_WS), gpio_get(AUDIO_PIN_BCK));
         sleep_ms(100);
     }
 
     // Initialize I2S receiver on PIO1
     uint offset = pio_add_program(i2s_pio, &i2s_rx_program);
-    i2s_rx_program_init(i2s_pio, i2s_sm, offset, I2S_PIN_DAT, I2S_PIN_WS, I2S_PIN_BCK);
+    i2s_rx_program_init(i2s_pio, i2s_sm, offset, AUDIO_PIN_DAT, AUDIO_PIN_WS, AUDIO_PIN_BCK);
     printf("I2S PIO initialized\n");
 
     // Initialize DVI
+    neopico_dvi_gpio_setup();
     dvi0.timing = &DVI_TIMING;
     dvi0.ser_cfg = neopico_dvi_cfg;
     dvi_init(&dvi0, next_striped_spin_lock_num(), next_striped_spin_lock_num());
@@ -227,7 +211,7 @@ int main() {
     uint buf_idx = 0;
 
     printf("\n=== I2S USB Capture Test ===\n");
-    printf("Pins: DAT=%d, WS=%d, BCK=%d\n\n", I2S_PIN_DAT, I2S_PIN_WS, I2S_PIN_BCK);
+    printf("Pins: DAT=%d, WS=%d, BCK=%d\n\n", AUDIO_PIN_DAT, AUDIO_PIN_WS, AUDIO_PIN_BCK);
 
     // Capture 1024 samples to a buffer, then dump to USB
     printf("Capturing 1024 samples in 3 seconds...\n");

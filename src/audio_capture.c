@@ -8,10 +8,7 @@
 #include "hardware/dma.h"
 #include "hardware/clocks.h"
 #include "audio_capture.pio.h"
-
-#define PIN_DAT  3
-#define PIN_WS   9
-#define PIN_BCK  23
+#include "audio_config.h"
 
 #define SAMPLE_RATE     55500
 #define BUFFER_SAMPLES  1024
@@ -49,7 +46,7 @@ int main() {
     pio = pio0;
     uint offset = pio_add_program(pio, &ym2610_capture_program);
     sm = pio_claim_unused_sm(pio, true);
-    ym2610_capture_program_init(pio, sm, offset, PIN_DAT);
+    ym2610_capture_program_init(pio, sm, offset, AUDIO_PIN_DAT);
 
     dma_chan = dma_claim_unused_channel(true);
 
