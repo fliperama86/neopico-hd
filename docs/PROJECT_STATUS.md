@@ -1,6 +1,6 @@
 # NeoPico-HD - Project Status
 
-**Last Updated**: 2025-11-30
+**Last Updated**: 2025-12-16
 
 ## Quick Summary
 
@@ -63,14 +63,17 @@ Core 0: Line-by-Line Capture      Core 1: DVI Output
 
 | GPIO | Function |
 |------|----------|
-| 0-4 | MVS R0-R4 |
-| 5-9 | MVS B0-B4 |
-| 10-14 | MVS G0-G4 |
-| 15 | GND (dummy bit) |
-| 16-21 | DVI data pairs |
+| 0 | MVS PCLK |
+| 1-5 | MVS G4-G0 (reversed) |
+| 6-10 | MVS B0-B4 |
+| 11-15 | MVS R0-R4 |
 | 22 | MVS CSYNC |
-| 26-27 | DVI clock pair |
-| 28 | MVS PCLK |
+| 25-26 | DVI D0 |
+| 27-28 | DVI D1 |
+| 29-30 | DVI D2 |
+| 31-32 | DVI CLK |
+
+See `docs/DVI_PIN_TESTING.md` for RP2350 PIO/PWM constraints.
 
 ## Key Files
 
@@ -79,6 +82,7 @@ Core 0: Line-by-Line Capture      Core 1: DVI Output
 | `src/main.c` | Main application (240p @ 60fps) |
 | `src/main_usb.c` | USB streaming variant |
 | `src/mvs_capture.pio` | PIO programs for sync + capture |
+| `src/neopico_config.h` | Shared DVI/MVS pin configuration |
 | `src/CMakeLists.txt` | Build configuration |
 
 ## Performance
