@@ -39,16 +39,21 @@ Key files:
 - `src/main.c` - Main application (DVI output), dual-core setup, capture loop
 - `src/main_usb.c` - USB streaming variant (streams to PC viewer)
 - `src/mvs_capture.pio` - PIO state machines for sync detection and pixel capture
+- `src/neopico_config.h` - Shared pin configuration for DVI and MVS
 - `lib/PicoDVI/` - DVI output library (git submodule)
 
 ## Hardware Configuration
 
 ```
-GPIO 0-4:   MVS R0-R4 (Red)      GPIO 16-21: DVI data pairs
-GPIO 5-9:   MVS B0-B4 (Blue)     GPIO 22:    MVS CSYNC
-GPIO 10-14: MVS G0-G4 (Green)    GPIO 26-27: DVI clock pair
-GPIO 15:    GND (16-bit align)   GPIO 28:    MVS PCLK (6 MHz)
+MVS Capture:                    DVI Output:
+GPIO 0:     MVS PCLK (6 MHz)    GPIO 25-26: DVI D0
+GPIO 1-5:   MVS G4-G0 (Green)   GPIO 27-28: DVI D1
+GPIO 6-10:  MVS B0-B4 (Blue)    GPIO 29-30: DVI D2
+GPIO 11-15: MVS R0-R4 (Red)     GPIO 31-32: DVI CLK
+GPIO 22:    MVS CSYNC
 ```
+
+See `src/neopico_config.h` for pin definitions and `docs/DVI_PIN_TESTING.md` for RP2350 constraints.
 
 ## Critical Constraints
 
@@ -74,3 +79,4 @@ Detailed timing specs and implementation notes are in `docs/`:
 - `MVS_CAPTURE.md` - MVS signal specifications
 - `MVS_DIGITAL_VIDEO.md` - Timing analysis
 - `PROJECT_STATUS.md` - Architecture overview and milestones
+- `DVI_PIN_TESTING.md` - RP2350 DVI pin constraints and solutions
