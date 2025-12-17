@@ -1,7 +1,7 @@
 ; YM2610 Serial Audio Receiver for Neo Geo MVS
 ;
 ; Captures digital audio from YM2610 -> YM3016 serial interface
-; Pin mapping (from audio_config.h):
+; Pin mapping (protoboard setup):
 ;   GPIO 21: BCK (øS) - bit clock (~2.66 MHz)
 ;   GPIO 23: DAT (OPO) - serial data (in_base)
 ;   GPIO 24: WS (SH1) - word select (~55.5 kHz)
@@ -25,53 +25,38 @@
 
 .program ym2610_rx
 
-; Wait for WS high first (ensures we catch the falling edge)
-    wait 1 gpio 24
+; Capture ALL 24 bits per channel to see full frame
+; Right-justified format: WS=1 is LEFT, WS=0 is RIGHT
+; Wait for WS low (right channel) first to sync
+    wait 0 gpio 24
 
 .wrap_target
     ; === LEFT CHANNEL ===
-    wait 0 gpio 24              ; Wait for WS falling edge (start of left)
+    wait 1 gpio 24              ; Wait for WS rising edge (LEFT starts)
 
-    ; Skip 8 padding bits
-    set x, 7
-skip_left_pad:
-    wait 0 gpio 21
-    wait 1 gpio 21
-    jmp x-- skip_left_pad
-
-    ; Capture 16 data bits for LEFT channel
-    set x, 15
+    ; Capture 24 bits on BCK rising edge
+    set x, 23
 left_loop:
     wait 0 gpio 21
-    wait 1 gpio 21
+    wait 1 gpio 21              ; Rising edge
     in pins, 1
     jmp x-- left_loop
-    push noblock
+    push noblock                ; Push 24 bits (in lower 24 of 32-bit word)
 
     ; === RIGHT CHANNEL ===
-    ; No WS wait - we're exactly at BCK 24, right channel starts now
-    ; Skip 8 padding bits
-    set x, 7
-skip_right_pad:
-    wait 0 gpio 21
-    wait 1 gpio 21
-    jmp x-- skip_right_pad
+    wait 0 gpio 24              ; Wait for WS falling edge (RIGHT starts)
 
-    ; Capture 16 data bits for RIGHT channel
-    set x, 15
+    set x, 23
 right_loop:
     wait 0 gpio 21
     wait 1 gpio 21
     in pins, 1
     jmp x-- right_loop
     push noblock
-
-    ; Wait for WS to go high then we'll catch falling edge at wrap
-    wait 1 gpio 24
 .wrap
 
 % c-sdk {
-// Pin definitions from audio_config.h:
+// Pin definitions (protoboard setup):
 // AUDIO_PIN_BCK = 21, AUDIO_PIN_DAT = 23, AUDIO_PIN_WS = 24
 static inline void ym2610_rx_program_init(PIO pio, uint sm, uint offset, uint pin_dat) {
     pio_sm_config c = ym2610_rx_program_get_default_config(offset);
@@ -84,7 +69,7 @@ static inline void ym2610_rx_program_init(PIO pio, uint sm, uint offset, uint pi
     // Set IN pin base to DAT for sampling
     sm_config_set_in_pins(&c, pin_dat);
 
-    // Shift LEFT (MSB first), no autopush - we push manually after 16 bits
+    // Shift LEFT (MSB first), no autopush - we push manually after 24 bits
     sm_config_set_in_shift(&c, false, false, 32);
 
     // Configure all three pins as inputs

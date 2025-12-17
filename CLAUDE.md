@@ -80,3 +80,9 @@ Detailed timing specs and implementation notes are in `docs/`:
 - `MVS_DIGITAL_VIDEO.md` - Timing analysis
 - `PROJECT_STATUS.md` - Architecture overview and milestones
 - `DVI_PIN_TESTING.md` - RP2350 DVI pin constraints and solutions
+
+## Reference Implementations
+
+Source code for reference projects is in `reference/`:
+- `cps2_digiav/` - FPGA-based digital A/V for CPS2/Neo Geo (YM2610 audio handling reference)
+- `PicoDVI-N64/` - N64 HDMI implementation using PicoDVI

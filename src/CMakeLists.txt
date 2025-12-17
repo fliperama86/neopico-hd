@@ -369,3 +369,24 @@ target_link_libraries(ili9341_bounce
 pico_enable_stdio_usb(ili9341_bounce 1)
 pico_enable_stdio_uart(ili9341_bounce 0)
 pico_add_extra_outputs(ili9341_bounce)
+
+# =============================================================================
+# YM2610 Audio USB Capture (raw audio via PIO+DMA to USB)
+# Clean capture without DVI - for debugging audio format
+# =============================================================================
+add_executable(audio_usb_capture
+    audio_usb_capture.c
+)
+
+pico_generate_pio_header(audio_usb_capture ${CMAKE_CURRENT_LIST_DIR}/ym2610_audio.pio)
+
+target_link_libraries(audio_usb_capture
+    pico_stdlib
+    hardware_pio
+    hardware_dma
+    hardware_irq
+)
+
+pico_enable_stdio_usb(audio_usb_capture 1)
+pico_enable_stdio_uart(audio_usb_capture 0)
+pico_add_extra_outputs(audio_usb_capture)

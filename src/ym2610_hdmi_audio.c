@@ -1,15 +1,18 @@
 /**
- * YM2610 Digital Audio -> HDMI Test
+ * YM2610 Digital Audio -> HDMI
  *
- * Captures digital audio from YM2610's serial output (before YM3016 DAC)
- * and sends it to HDMI. Video shows color bars for simplicity.
+ * Captures digital audio from Neo Geo MVS MV1C board.
+ * The MV1C uses NEO-YSA2 + BU9480F DAC which outputs 16-bit linear PCM
+ * (NOT YM2610 floating-point format).
  *
- * Hardware connections:
- *   GPIO 21: BCK (øS) - bit clock from YM2610
- *   GPIO 23: DAT (OPO) - serial data from YM2610
- *   GPIO 24: WS (SH1) - word select / left channel latch
+ * Format: Right-justified, ~55.5kHz sample rate, 16-bit signed PCM
  *
- * DVI pins: GPIO 16-21 (data), 26-27 (clock)
+ * Hardware connections (directly via level shifter):
+ *   GPIO 2: BCK (øS) - bit clock
+ *   GPIO 3: DAT (OPO) - serial data
+ *   GPIO 4: WS (SH1) - word select
+ *
+ * DVI pins: as configured in neopico_config.h
  */
 
 #include <stdio.h>
@@ -48,7 +51,7 @@ static uint16_t scanline_buf[2][FRAME_WIDTH];
 // Audio Configuration
 // =============================================================================
 
-#define AUDIO_SAMPLE_RATE 48000  // Standard HDMI rate, closer to YM2610's ~55kHz
+#define AUDIO_SAMPLE_RATE 48000  // Standard HDMI rate
 #define AUDIO_BUFFER_SIZE 256    // Must be power of 2
 
 static audio_sample_t audio_buffer[AUDIO_BUFFER_SIZE];
@@ -64,15 +67,34 @@ static volatile uint32_t fifo_overflows = 0;
 static volatile uint32_t exp0_count = 0;  // Count of exp=0 samples
 static volatile int16_t last_left = 0;
 static volatile int16_t last_right = 0;
+
+// Clipping and signal analysis
+static volatile int16_t min_sample_l = 32767;
+static volatile int16_t max_sample_l = -32768;
+static volatile int16_t min_sample_r = 32767;
+static volatile int16_t max_sample_r = -32768;
+static volatile uint32_t clip_count = 0;        // Samples near ±32767
+static volatile uint32_t large_jump_count = 0;  // Sudden large deltas (bit errors?)
+static volatile int16_t prev_left = 0;
+static volatile int16_t prev_right = 0;
+#define CLIP_THRESHOLD 30000    // Consider clipped if |sample| > this
+#define JUMP_THRESHOLD 20000    // Suspicious if delta > this in one sample
+
+// Test tone mode: 0=real capture, 1=test SRC, 2=dump raw to USB
+static int test_tone_mode = 0;  // Real capture with YM2610 decode
+static uint32_t tone_phase = 0;
+#define TONE_FREQ 440
+#define TONE_SAMPLE_RATE 55500
 // Raw debug values (for analysis)
 static volatile uint16_t last_raw_pio_l = 0;  // Raw from PIO (before bit reverse)
 static volatile uint16_t last_raw_pio_r = 0;
 static volatile uint16_t last_reversed_l = 0; // After bit reverse
 static volatile uint16_t last_reversed_r = 0;
 
-// Sample rate conversion: 55500 Hz input -> 48000 Hz output
+// Sample rate conversion: 55555 Hz input -> 48000 Hz output
 // Using fractional accumulator method
-#define SRC_INPUT_RATE  55500
+// PIO captures stereo samples at ~55.5kHz (one L/R pair per WS cycle)
+#define SRC_INPUT_RATE  55555
 #define SRC_OUTPUT_RATE 48000
 static uint32_t src_accumulator = 0;
 
@@ -115,78 +137,236 @@ static inline uint16_t reverse_bits_16(uint16_t x) {
     return x;
 }
 
-// Decode YM2610 floating point format (cps2_digiav algorithm)
-// Format: bits[15:13]=exponent, bits[12:3]=mantissa, bits[2:0]=padding
+// Process audio sample - Neo Geo outputs raw 16-bit signed PCM (not YM2610 float)
+// Based on cps2_digiav reference which uses i2s_rx_asrc MODE=1 (right-justified)
+// without any floating-point decode for Neo Geo
 static inline int16_t decode_ym2610_sample(uint16_t raw) {
-    // Handle silence (padding bits captured as zeros)
-    if (raw == 0) return 0;
-
-    int exp = (raw >> 13) & 0x7;           // bits[15:13]
-    int mantissa = (raw >> 3) & 0x3FF;     // bits[12:3]
-
-    // Convert to signed (10-bit mantissa centered at 512)
-    int32_t value = mantissa - 512;
-
-    // Apply exponent shift (cps2_digiav style)
-    if (exp > 0) {
-        value <<= (exp - 1);
-    }
-
-    // Scale up to better fill 16-bit range
-    value <<= 4;
-
-    // Clamp to 16-bit range
-    if (value > 32767) value = 32767;
-    if (value < -32768) value = -32768;
-
-    return (int16_t)value;
+    // Treat as signed 16-bit PCM directly
+    return (int16_t)raw;
 }
 
+// DC blocking filter state (simple IIR high-pass)
+// y[n] = x[n] - x[n-1] + alpha * y[n-1]
+// alpha = 0.995 (~63 in fixed point /64) gives ~10Hz cutoff at 27750Hz
+static int32_t dc_filter_l_prev_in = 0;
+static int32_t dc_filter_l_prev_out = 0;
+static int32_t dc_filter_r_prev_in = 0;
+static int32_t dc_filter_r_prev_out = 0;
+
+#define DC_FILTER_ALPHA 63  // alpha = 63/64 = 0.984375
+
+// =============================================================================
+// FIR Lowpass Filter (from cps2_digiav)
+// =============================================================================
+// 16-tap symmetric lowpass filter for anti-aliasing before SRC
+// Coefficients in Q15 fixed-point (scaled by 32768)
+// Original: 0.0088, 0.0215, 0.0078, -0.0391, -0.0625, 0.0176, 0.1992, 0.3574...
+#define FIR_TAPS 16
+
+static const int16_t fir_coeffs[FIR_TAPS] = {
+    288,    // 0.0088 * 32768
+    704,    // 0.0215 * 32768
+    256,    // 0.0078 * 32768
+    -1281,  // -0.0391 * 32768
+    -2048,  // -0.0625 * 32768
+    577,    // 0.0176 * 32768
+    6528,   // 0.1992 * 32768
+    11710,  // 0.3574 * 32768
+    11710,  // 0.3574 * 32768 (symmetric)
+    6528,   // 0.1992 * 32768
+    577,    // 0.0176 * 32768
+    -2048,  // -0.0625 * 32768
+    -1281,  // -0.0391 * 32768
+    256,    // 0.0078 * 32768
+    704,    // 0.0215 * 32768
+    288     // 0.0088 * 32768
+};
+
+// FIR history buffers
+static int16_t fir_history_l[FIR_TAPS];
+static int16_t fir_history_r[FIR_TAPS];
+static uint8_t fir_idx = 0;
+
+// Apply FIR filter to get one output sample
+static inline int16_t fir_filter(int16_t input, int16_t *history, uint8_t idx) {
+    // Store new sample in history
+    history[idx] = input;
+
+    // Compute FIR output: sum of history * coefficients
+    int32_t acc = 0;
+    for (int i = 0; i < FIR_TAPS; i++) {
+        // Circular buffer access
+        uint8_t hist_idx = (idx - i) & (FIR_TAPS - 1);
+        acc += (int32_t)history[hist_idx] * fir_coeffs[i];
+    }
+
+    // Scale back from Q15 (divide by 32768)
+    acc >>= 15;
+
+    // Clamp to int16 range
+    if (acc > 32767) acc = 32767;
+    if (acc < -32768) acc = -32768;
+
+    return (int16_t)acc;
+}
+
+static inline int16_t dc_block_filter(int16_t in, int32_t *prev_in, int32_t *prev_out) {
+    // y[n] = x[n] - x[n-1] + alpha * y[n-1] / 64
+    int32_t out = in - *prev_in + (*prev_out * DC_FILTER_ALPHA) / 64;
+    *prev_in = in;
+    *prev_out = out;
+
+    // Clip to int16 range
+    if (out > 32767) out = 32767;
+    if (out < -32768) out = -32768;
+    return (int16_t)out;
+}
+
+// Simple sine lookup (256 entries, 8-bit index)
+static const int16_t sine_table[256] = {
+    0, 804, 1608, 2410, 3212, 4011, 4808, 5602, 6393, 7179, 7962, 8739, 9512, 10278, 11039, 11793,
+    12539, 13279, 14010, 14732, 15446, 16151, 16846, 17530, 18204, 18868, 19519, 20159, 20787, 21403, 22005, 22594,
+    23170, 23731, 24279, 24811, 25329, 25832, 26319, 26790, 27245, 27683, 28105, 28510, 28898, 29268, 29621, 29956,
+    30273, 30571, 30852, 31113, 31356, 31580, 31785, 31971, 32137, 32285, 32412, 32521, 32609, 32678, 32728, 32757,
+    32767, 32757, 32728, 32678, 32609, 32521, 32412, 32285, 32137, 31971, 31785, 31580, 31356, 31113, 30852, 30571,
+    30273, 29956, 29621, 29268, 28898, 28510, 28105, 27683, 27245, 26790, 26319, 25832, 25329, 24811, 24279, 23731,
+    23170, 22594, 22005, 21403, 20787, 20159, 19519, 18868, 18204, 17530, 16846, 16151, 15446, 14732, 14010, 13279,
+    12539, 11793, 11039, 10278, 9512, 8739, 7962, 7179, 6393, 5602, 4808, 4011, 3212, 2410, 1608, 804,
+    0, -804, -1608, -2410, -3212, -4011, -4808, -5602, -6393, -7179, -7962, -8739, -9512, -10278, -11039, -11793,
+    -12539, -13279, -14010, -14732, -15446, -16151, -16846, -17530, -18204, -18868, -19519, -20159, -20787, -21403, -22005, -22594,
+    -23170, -23731, -24279, -24811, -25329, -25832, -26319, -26790, -27245, -27683, -28105, -28510, -28898, -29268, -29621, -29956,
+    -30273, -30571, -30852, -31113, -31356, -31580, -31785, -31971, -32137, -32285, -32412, -32521, -32609, -32678, -32728, -32757,
+    -32767, -32757, -32728, -32678, -32609, -32521, -32412, -32285, -32137, -31971, -31785, -31580, -31356, -31113, -30852, -30571,
+    -30273, -29956, -29621, -29268, -28898, -28510, -28105, -27683, -27245, -26790, -26319, -25832, -25329, -24811, -24279, -23731,
+    -23170, -22594, -22005, -21403, -20787, -20159, -19519, -18868, -18204, -17530, -16846, -16151, -15446, -14732, -14010, -13279,
+    -12539, -11793, -11039, -10278, -9512, -8739, -7962, -7179, -6393, -5602, -4808, -4011, -3212, -2410, -1608, -804
+};
+
 static void process_audio(void) {
-    // Read all available samples from PIO FIFO
-    while (pio_sm_get_rx_fifo_level(audio_pio, audio_sm) >= 2) {
-        // PIO pushes 16-bit left, then 16-bit right
-        // With shift-left and manual push after 16 bits, data is in LOWER 16 bits
+    if (test_tone_mode == 2) {
+        // DUMP RAW: Capture raw PIO data and send to USB for Python analysis
+        // Format: binary stream of 16-bit L, 16-bit R values (raw, no decode)
+        static uint32_t dump_count = 0;
+        static int init_state = 0;  // 0=waiting, 1=countdown, 2=dumping
+
+        if (init_state == 0) {
+            printf("\n\n=== RAW AUDIO DUMP MODE ===\n");
+            printf("Starting in 3 seconds...\n");
+            sleep_ms(1000);
+            printf("2...\n");
+            sleep_ms(1000);
+            printf("1...\n");
+            sleep_ms(1000);
+            init_state = 1;
+        }
+
+        if (init_state == 1) {
+            // Clear any stale PIO data
+            while (pio_sm_get_rx_fifo_level(audio_pio, audio_sm) > 0) {
+                pio_sm_get(audio_pio, audio_sm);
+            }
+            printf("RAW_DUMP_START\n");
+            dump_count = 0;
+            init_state = 2;
+        }
+
+        if (init_state == 2) {
+            while (pio_sm_get_rx_fifo_level(audio_pio, audio_sm) >= 2) {
+                uint32_t raw_left = pio_sm_get(audio_pio, audio_sm);
+                uint32_t raw_right = pio_sm_get(audio_pio, audio_sm);
+
+                uint16_t l = raw_left & 0xFFFF;
+                uint16_t r = raw_right & 0xFFFF;
+
+                // Output as hex for easy parsing
+                printf("%04X,%04X\n", l, r);
+
+                dump_count++;
+                if (dump_count >= 2000) {
+                    printf("RAW_DUMP_END\n");
+                    printf("Captured %lu samples. Reset to capture more.\n", (unsigned long)dump_count);
+                    init_state = 3;  // Done
+                    break;
+                }
+            }
+        }
+        return;
+    }
+
+    if (test_tone_mode == 1) {
+        // TEST: Read PIO, generate test tone at PIO rate, run through SRC
+        static int16_t src_buf[64];
+        static uint8_t src_head = 0, src_count = 0;
+        static uint32_t src_phase = 0;
+        static uint32_t src_pos = 0;
+
+        #define TONE_PHASE_INC ((uint32_t)(440ULL * 256ULL * 65536ULL / 55555ULL))
+        #define SRC_RATIO_TEST ((uint32_t)(55555ULL * 65536ULL / 48000ULL))
+
+        while (pio_sm_get_rx_fifo_level(audio_pio, audio_sm) >= 2 && src_count < 60) {
+            pio_sm_get(audio_pio, audio_sm);
+            pio_sm_get(audio_pio, audio_sm);
+            samples_captured++;
+
+            int16_t sample = sine_table[(src_phase >> 16) & 0xFF] / 4;
+            src_phase += TONE_PHASE_INC;
+
+            uint8_t idx = (src_head + src_count) & 63;
+            src_buf[idx] = sample;
+            src_count++;
+        }
+
+        int available = get_write_size(&dvi0.audio_ring, false);
+        while (available > 0 && src_count >= 2) {
+            uint8_t idx0 = src_head;
+            uint8_t idx1 = (src_head + 1) & 63;
+
+            uint16_t frac = src_pos & 0xFFFF;
+            int32_t diff = src_buf[idx1] - src_buf[idx0];
+            int16_t out = src_buf[idx0] + ((diff * frac) >> 16);
+
+            audio_sample_t *ptr = get_write_pointer(&dvi0.audio_ring);
+            ptr->channels[0] = out;
+            ptr->channels[1] = out;
+            increase_write_pointer(&dvi0.audio_ring, 1);
+            available--;
+
+            src_pos += SRC_RATIO_TEST;
+            while (src_pos >= 0x10000 && src_count > 0) {
+                src_pos -= 0x10000;
+                src_head = (src_head + 1) & 63;
+                src_count--;
+            }
+        }
+        return;
+    }
+
+    // === RAW PASSTHROUGH ===
+    // No SRC, no filters - raw samples to HDMI (plays ~15% fast)
+    // This sounded best in testing
+
+    int available = get_write_size(&dvi0.audio_ring, false);
+
+    while (available > 0 && pio_sm_get_rx_fifo_level(audio_pio, audio_sm) >= 2) {
         uint32_t raw_left = pio_sm_get(audio_pio, audio_sm);
         uint32_t raw_right = pio_sm_get(audio_pio, audio_sm);
-
-        // Back to 16 bits per channel (matching cps2_digiav)
-        // Store raw values for debug
-        last_raw_pio_l = raw_left & 0xFFFF;
-        last_raw_pio_r = raw_right & 0xFFFF;
-
-        // With updated PIO that skips 8-bit padding, data is now MSB-first
-        // No bit reversal needed - use raw values directly
-        uint16_t sample_left = raw_left & 0xFFFF;
-        uint16_t sample_right = raw_right & 0xFFFF;
-
-        // Store for debug
-        last_reversed_l = sample_left;
-        last_reversed_r = sample_right;
-
-        // Count exp=0 samples
-        if (((sample_left >> 13) & 0x7) == 0) exp0_count++;
-        if (((sample_right >> 13) & 0x7) == 0) exp0_count++;
-
-        // Decode using floating point format
-        int16_t left = decode_ym2610_sample(sample_left);
-        int16_t right = decode_ym2610_sample(sample_right);
-
-        last_left = left;
-        last_right = right;
         samples_captured++;
 
-        // Write directly to HDMI audio ring buffer (no rate conversion)
-        // The ring buffer will handle overflow by dropping oldest samples
-        int available = get_write_size(&dvi0.audio_ring, false);
-        if (available > 0) {
-            audio_sample_t *ptr = get_write_pointer(&dvi0.audio_ring);
-            ptr->channels[0] = left;
-            ptr->channels[1] = right;
-            increase_write_pointer(&dvi0.audio_ring, 1);
-        } else {
-            samples_dropped++;
-        }
+        int16_t left = (int16_t)(raw_left & 0xFFFF);
+        int16_t right = (int16_t)(raw_right & 0xFFFF);
+
+        // Track stats
+        if (left < min_sample_l) min_sample_l = left;
+        if (left > max_sample_l) max_sample_l = left;
+        if (right < min_sample_r) min_sample_r = right;
+        if (right > max_sample_r) max_sample_r = right;
+
+        // Output directly
+        audio_sample_t *ptr = get_write_pointer(&dvi0.audio_ring);
+        ptr->channels[0] = left;
+        ptr->channels[1] = right;
+        increase_write_pointer(&dvi0.audio_ring, 1);
+        available--;
     }
 
     // Check for FIFO overflow
@@ -356,8 +536,8 @@ int main() {
     // Analyze signals first
     analyze_gpio_signals();
 
-    // Initialize YM2610 audio capture on PIO1
-    // BCK (GPIO 21) and WS (GPIO 24) are hardcoded in PIO, DAT pin is passed
+    // Initialize audio capture on PIO1
+    // BCK (GPIO 2) and WS (GPIO 4) are hardcoded in PIO, DAT pin is passed
     printf("Initializing PIO audio capture...\n");
     uint offset = pio_add_program(audio_pio, &ym2610_rx_program);
     ym2610_rx_program_init(audio_pio, audio_sm, offset, AUDIO_PIN_DAT);
@@ -369,7 +549,7 @@ int main() {
 
     // Initialize DVI
     printf("Initializing DVI...\n");
-    neopico_dvi_gpio_setup();
+    // Note: neopico_dvi_gpio_setup() removed - causes issues when audio PIO is also running
     dvi0.timing = &DVI_TIMING;
     dvi0.ser_cfg = neopico_dvi_cfg;
     dvi_init(&dvi0, next_striped_spin_lock_num(), next_striped_spin_lock_num());
@@ -429,26 +609,35 @@ int main() {
             int man_l = (last_reversed_l >> 3) & 0x3FF;
             int man_r = (last_reversed_r >> 3) & 0x3FF;
 
-            printf("F:%u S:%lu (%lu/s) exp0:%lu\n",
+            printf("F:%u S:%lu (%lu/s)\n",
                    frame_num,
                    (unsigned long)samples_captured,
-                   (unsigned long)samples_per_sec,
-                   (unsigned long)exp0_count);
-            printf("  RAW: L=0x%04X R=0x%04X -> REV: L=0x%04X R=0x%04X\n",
-                   last_raw_pio_l, last_raw_pio_r,
-                   last_reversed_l, last_reversed_r);
-            printf("  EXP:%d/%d MAN:%d/%d DEC:%d/%d\n",
-                   exp_l, exp_r, man_l, man_r, last_left, last_right);
+                   (unsigned long)samples_per_sec);
+
+            // Signal range analysis (key diagnostic)
+            int range_l = max_sample_l - min_sample_l;
+            int range_r = max_sample_r - min_sample_r;
+            printf("  RANGE L:[%d,%d]=%d  R:[%d,%d]=%d\n",
+                   min_sample_l, max_sample_l, range_l,
+                   min_sample_r, max_sample_r, range_r);
+
+            // Clipping and error stats
+            if (clip_count > 0 || large_jump_count > 0) {
+                printf("  CLIP:%lu (>%d) JUMPS:%lu (>%d)\n",
+                       (unsigned long)clip_count, CLIP_THRESHOLD,
+                       (unsigned long)large_jump_count, JUMP_THRESHOLD);
+            }
 
             if (fifo_overflows > 0) {
                 printf("  WARNING: %lu FIFO overflows!\n", (unsigned long)fifo_overflows);
             }
-            if (samples_dropped > 0) {
-                printf("  WARNING: %lu drops!\n", (unsigned long)samples_dropped);
-            }
 
             last_status_time = now;
             last_sample_count = samples_captured;
+
+            // Reset min/max for next period
+            min_sample_l = 32767; max_sample_l = -32768;
+            min_sample_r = 32767; max_sample_r = -32768;
         }
     }
 

@@ -4,7 +4,9 @@
 // =============================================================================
 // MVS Audio Capture Pin Configuration
 // =============================================================================
-// YM2610 digital audio interface (directly from chip, before YM3016 DAC)
+// YM2610 digital audio interface (protoboard setup)
+// MV1C board outputs 16-bit linear PCM (via NEO-YSA2 -> BU9480F DAC)
+// Format: Right-justified, ~55.5kHz sample rate
 //
 // GP21: BCK (bit clock / øS)
 // GP23: DAT (serial data / OPO)
