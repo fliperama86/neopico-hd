@@ -390,3 +390,58 @@ target_link_libraries(audio_usb_capture
 pico_enable_stdio_usb(audio_usb_capture 1)
 pico_enable_stdio_uart(audio_usb_capture 0)
 pico_add_extra_outputs(audio_usb_capture)
+
+# =============================================================================
+# Audio Pipeline Test (modular audio with visual status display)
+# =============================================================================
+add_executable(audio_pipeline_test
+    audio_pipeline_test.c
+    audio/audio_buffer.c
+    audio/dc_filter.c
+    audio/lowpass.c
+    audio/src.c
+    audio/i2s_capture.c
+    audio/audio_pipeline.c
+)
+
+pico_generate_pio_header(audio_pipeline_test ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
+
+target_include_directories(audio_pipeline_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
+)
+
+target_link_libraries(audio_pipeline_test
+    pico_stdlib
+    pico_multicore
+    hardware_vreg
+    hardware_pio
+    hardware_dma
+    hardware_irq
+    libdvi
+)
+
+target_compile_definitions(audio_pipeline_test PRIVATE DVI_USE_PIO_CLOCK=1)
+
+pico_enable_stdio_usb(audio_pipeline_test 1)
+pico_enable_stdio_uart(audio_pipeline_test 0)
+pico_add_extra_outputs(audio_pipeline_test)
+
+# =============================================================================
+# GPIO Frequency Analyzer (simple logic analyzer for debugging wiring)
+# =============================================================================
+add_executable(gpio_freq_analyzer
+    gpio_freq_analyzer.c
+)
+
+target_link_libraries(gpio_freq_analyzer
+    pico_stdlib
+    hardware_timer
+    hardware_pio
+    hardware_clocks
+)
+
+pico_enable_stdio_usb(gpio_freq_analyzer 1)
+pico_enable_stdio_uart(gpio_freq_analyzer 0)
+pico_add_extra_outputs(gpio_freq_analyzer)

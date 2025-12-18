@@ -66,6 +66,13 @@ static void generate_color_bar_line(uint16_t *buf, uint y) {
         uint bar_idx = (x * NUM_BARS) / FRAME_WIDTH;
         buf[x] = color_bars[bar_idx];
     }
+
+    // Add horizontal white lines at y=60, 120, 180 to detect scrolling
+    if (y == 60 || y == 120 || y == 180) {
+        for (uint x = 0; x < FRAME_WIDTH; x++) {
+            buf[x] = 0xFFFF;  // White
+        }
+    }
 }
 
 // =============================================================================
