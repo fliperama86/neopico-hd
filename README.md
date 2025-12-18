@@ -80,10 +80,10 @@ Requires [Pico SDK](https://github.com/raspberrypi/pico-sdk) with `PICO_SDK_PATH
 mkdir build && cd build && cmake .. && make
 
 # Specific targets
-make neopico_hd          # Main app (video + audio)
-make audio_pipeline_test # Audio test with color bars
-make dvi_test            # DVI color bar test
-make gpio_test           # GPIO wiring test
+make neopico_hd          # Main firmware (video + audio capture → HDMI)
+make audio_pipeline_test # Audio capture test (color bars + audio status)
+make dvi_test            # HDMI output test (color bars only, no capture)
+make gpio_freq_analyzer  # GPIO/clock analyzer (debug wiring)
 ```
 
 ### RP2350B Board Configuration
@@ -163,16 +163,19 @@ cd viewer && python3 main.py
 
 ```
 src/
-  main.c              # Main application
-  neopico_config.h    # Pin definitions
-  mvs_capture.pio     # Video capture PIO program
+  main.c                # Main firmware (neopico_hd)
+  dvi_test.c            # HDMI output test
+  audio_pipeline_test.c # Audio capture test
+  gpio_freq_analyzer.c  # GPIO/clock analyzer
+  neopico_config.h      # Pin definitions
+  mvs_capture.pio       # Video capture PIO program
   audio/
-    i2s_capture.pio   # Audio capture PIO program
-    i2s_capture.c     # DMA-based I2S capture
-    audio_pipeline.c  # Audio processing orchestrator
-    src.c             # Sample rate conversion (55.5k -> 48k)
-    dc_filter.c       # DC blocking filter
-    lowpass.c         # Anti-aliasing lowpass filter
+    i2s_capture.pio     # Audio capture PIO program
+    i2s_capture.c       # DMA-based I2S capture
+    audio_pipeline.c    # Audio processing orchestrator
+    src.c               # Sample rate conversion (55.5k → 48k)
+    dc_filter.c         # DC blocking filter
+    lowpass.c           # Anti-aliasing lowpass filter
 docs/
   MVS_MV1C_DIGITAL_VIDEO.md  # Video signal specification
   MVS_MV1C_DIGITAL_AUDIO.md  # Audio signal specification
@@ -180,9 +183,9 @@ docs/
   DVI_PIN_TESTING.md         # RP2350 DVI constraints
   PCB_DESIGN_GUIDE.md        # Hardware design notes
 lib/
-  PicoDVI/            # DVI output library (submodule)
+  PicoDVI/              # DVI output library (submodule)
 reference/
-  cps2_digiav/        # FPGA reference for Neo Geo audio
+  cps2_digiav/          # FPGA reference for Neo Geo audio
 ```
 
 ## Documentation
