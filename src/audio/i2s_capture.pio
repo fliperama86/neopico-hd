@@ -35,24 +35,21 @@ right_loop:
 % c-sdk {
 #include "hardware/gpio.h"
 
-// Pin definitions - Bank 1 GPIOs (isolated from video noise)
-// Consecutive pins for `wait pin N` instruction
-// Absolute GPIO numbers:
-#define I2S_PIO_PIN_DAT 36      // in_base (lowest)
-#define I2S_PIO_PIN_WS  37      // in_base + 1
-#define I2S_PIO_PIN_BCK 38      // in_base + 2
-
-// PIO GPIO base - must be set to access GPIO 30+
-#define I2S_PIO_GPIO_BASE 16
+// Pin definitions - Bank 1 GPIOs
+#define I2S_PIO_PIN_DAT 36
+#define I2S_PIO_PIN_WS  37
+#define I2S_PIO_PIN_BCK 38
 
 static inline void i2s_capture_program_init(PIO pio, uint sm, uint offset) {
     pio_sm_config c = i2s_capture_program_get_default_config(offset);
 
-    // Set IN pin base to DAT for sampling
+    // Set IN pin base to DAT. 
+    // On RP2350, with pio_set_gpio_base(16), absolute pin 36 is the correct base.
     sm_config_set_in_pins(&c, I2S_PIO_PIN_DAT);
 
-    // Shift LEFT (MSB first), no autopush
-    // MSB-first data shifting LEFT results in data in lower bits of ISR
+    // Shift LEFT (MSB first), no autopush.
+    // Data arrives MSB first and shifts into ISR bit 0, moving up.
+    // After 24 bits, data is in bits 23:0.
     sm_config_set_in_shift(&c, false, false, 32);
 
     // Join FIFOs for 8-word RX depth

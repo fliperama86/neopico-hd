@@ -142,7 +142,8 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap)
         // Move pointer forward by 2
         cap->dma_buffer_idx = (next_idx + 1) & AP_RING_MASK;
 
-        // MV1C outputs linear PCM. Data is 16-bit signed PCM in lower bits.
+        // NEO-YSA2 (MV1C) outputs 24-bit frames in Right-Justified format (MODE=1).
+        // The 16-bit PCM data is in the lower 16 bits of the 24-bit window.
         ap_sample_t sample;
         sample.left = (int16_t)(raw_l & 0xFFFF);
         sample.right = (int16_t)(raw_r & 0xFFFF);
