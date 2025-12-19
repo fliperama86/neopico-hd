@@ -372,9 +372,9 @@ int main() {
 
     // Initialize audio filters
     dc_filter_init(&dc_filter);
-    dc_filter_set_enabled(&dc_filter, false);  // Disabled for comparison
+    dc_filter_set_enabled(&dc_filter, true);
     lowpass_init(&lowpass);
-    lowpass_set_enabled(&lowpass, false);  // Disabled for comparison
+    lowpass_set_enabled(&lowpass, true);
 
     printf("Starting line-by-line capture loop\n");
 
