@@ -312,6 +312,32 @@ Hypothesis falsified if: Rate drops or varies wildly
 2.  Clock speed difference - must unify at 252 MHz for HDMI audio
 3.  Video capture blocking model - limits where audio processing can run
 
-Recommended integration order: 4. Verify both work at 252 MHz independently 5. Fix PIO SM allocation 6. Add audio capture without processing 7. Add audio processing during vblank/frame gaps 8. Enable HDMI audio output
+Recommended integration order:
+1. Verify both work at 252 MHz independently
+2. Fix PIO SM allocation
+3. Add audio capture without processing
+4. Add audio processing during vblank/frame gaps
+5. Enable HDMI audio output
 
 Key insight: Video capture's blocking nature means audio processing CANNOT be interleaved during active line capture. It must happen during vertical blanking (V_SKIP_LINES period) and between frames.
+
+---
+
+## Key Finding: 480p Required for HDMI Audio
+
+**Tested 2024-12-19:** HDMI audio does NOT work reliably at 240p (126 MHz bit clock).
+
+| Mode | Video | Audio | Result |
+| ---- | ----- | ----- | ------ |
+| 480p @ 252 MHz | Stable | Working | **Use this** |
+| 240p @ 126 MHz | Flickering | Works but corrupts video | Not viable |
+
+**Root cause:** At 126 MHz, the CPU/DMA cannot keep up with TMDS encoding + data island encoding simultaneously. The data islands (which carry audio) overrun into active video, causing flickering.
+
+**Decision:** Use 480p (252 MHz) for audio integration. The Tink 4K handles upscaling well.
+
+**Impact on main firmware:**
+- Must switch from 240p to 480p timing
+- FRAME_HEIGHT changes from 240 to 232 (due to blank_settings)
+- System clock: 252 MHz instead of 126 MHz
+- MVS capture timing (H_THRESHOLD) needs adjustment for higher clock

@@ -32,30 +32,13 @@
 #include "neopico_config.h"
 
 #define FRAME_WIDTH 320
-#define FRAME_HEIGHT 240  // Native 240p output
+#define FRAME_HEIGHT 240  // 480p: 240 * 2 = 480 DVI lines
 #define MVS_HEIGHT 224
 #define VREG_VSEL VREG_VOLTAGE_1_20
 
-// Custom 240p timing (640x240 @ 60Hz)
-// Half the pixel clock of 480p for true 60Hz refresh
-// Total: 262 lines, 12.6 MHz pixel clock
-static const struct dvi_timing dvi_timing_640x240p_60hz = {
-    .h_sync_polarity   = false,
-    .h_front_porch     = 16,
-    .h_sync_width      = 96,
-    .h_back_porch      = 48,
-    .h_active_pixels   = 640,
-
-    .v_sync_polarity   = false,
-    .v_front_porch     = 3,
-    .v_sync_width      = 3,
-    .v_back_porch      = 16,
-    .v_active_lines    = 240,
-
-    .bit_clk_khz       = 126000  // Half of 252000 for 60Hz
-};
-
-#define DVI_TIMING dvi_timing_640x240p_60hz
+// Use 480p timing (252 MHz) - required for HDMI audio
+// 240p @ 126 MHz doesn't have enough CPU headroom for audio data islands
+#define DVI_TIMING dvi_timing_640x480p_60hz
 
 struct dvi_inst dvi0;
 
@@ -63,7 +46,9 @@ struct dvi_inst dvi0;
 // MVS Timing Constants (from cps2_digiav neogeo_frontend.v)
 // =============================================================================
 
-#define H_THRESHOLD 288      // NEO_H_TOTAL/2 + NEO_H_TOTAL/4
+// H_THRESHOLD: distinguishes short (vsync) from long (hsync) pulses
+// PIO counts PCLK edges (6 MHz external), so threshold is clock-independent
+#define H_THRESHOLD 288
 #define NEO_H_TOTAL 384
 #define NEO_H_ACTIVE 320
 
@@ -97,14 +82,17 @@ static void core1_scanline_callback(void) {
     while (queue_try_remove_u32(&dvi0.q_colour_free, &bufptr))
         ;
 
-    // Track current scanline
-    static uint scanline = 2;  // First two are pushed before DVI start
+    // Track current DVI line (0-479 for 480p)
+    static uint dvi_line = 4;  // First two framebuffer lines pushed = 4 DVI lines
+
+    // Each framebuffer line shown twice (line doubling for 480p)
+    uint scanline = dvi_line / 2;
 
     // Return pointer to current row in framebuffer
     bufptr = &g_framebuf[FRAME_WIDTH * scanline];
     queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
 
-    scanline = (scanline + 1) % FRAME_HEIGHT;
+    dvi_line = (dvi_line + 1) % 480;
 }
 
 // =============================================================================
