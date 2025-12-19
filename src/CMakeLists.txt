@@ -95,6 +95,31 @@ pico_enable_stdio_uart(dvi_test 0)
 pico_add_extra_outputs(dvi_test)
 
 # =============================================================================
+# DVI Audio Test (240p with HDMI audio - test tone)
+# =============================================================================
+add_executable(dvi_audio_test
+    dvi_audio_test.c
+)
+
+target_include_directories(dvi_audio_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
+    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
+)
+
+target_link_libraries(dvi_audio_test
+    pico_stdlib
+    pico_multicore
+    hardware_vreg
+    libdvi
+)
+
+target_compile_definitions(dvi_audio_test PRIVATE DVI_USE_PIO_CLOCK=1)
+
+pico_enable_stdio_usb(dvi_audio_test 1)
+pico_enable_stdio_uart(dvi_audio_test 0)
+pico_add_extra_outputs(dvi_audio_test)
+
+# =============================================================================
 # GPIO Frequency Analyzer (debug wiring and clock signals)
 # =============================================================================
 add_executable(gpio_freq_analyzer
