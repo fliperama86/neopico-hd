@@ -40,9 +40,9 @@ bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *con
         return false;
     }
 
-    // Initialize DC filter (disabled by default for troubleshooting)
+    // Initialize DC filter (enabled to remove DC offset)
     dc_filter_init(&p->dc_filter);
-    p->dc_filter.enabled = false;
+    p->dc_filter.enabled = true;
 
     // Initialize lowpass filter (enabled to reduce noise)
     lowpass_init(&p->lowpass);
