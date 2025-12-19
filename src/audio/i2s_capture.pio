@@ -5,8 +5,11 @@
 ;   WS  = in_base + 1 (wait pin 1)
 ;   BCK = in_base + 2 (wait pin 2)
 
-; Sync: wait for WS low first
-    wait 0 pin 1                ; WS low (in_base + 1)
+; Robust sync: wait for a complete WS cycle to ensure clean frame boundary
+    wait 1 pin 1                ; Wait for WS high (left channel)
+    wait 0 pin 1                ; Wait for WS low (right channel)
+    wait 1 pin 1                ; Wait for WS high again - now we're at a clean frame start
+    wait 0 pin 1                ; Back to low, ready for the loop to catch rising edge
 
 .wrap_target
     ; === LEFT CHANNEL (WS HIGH for MV1C) ===
@@ -14,8 +17,8 @@
 
     set x, 23                   ; Capture all 24 bits
 left_loop:
-    wait 0 pin 2                ; BCK low
-    wait 1 pin 2                ; BCK high - rising edge (data stable)
+    wait 1 pin 2                ; BCK high
+    wait 0 pin 2                ; BCK low - falling edge (try this instead)
     in pins, 1                  ; Sample DAT
     jmp x-- left_loop
     push noblock                ; Push 24 bits (Left)
@@ -23,11 +26,11 @@ left_loop:
     ; === RIGHT CHANNEL (WS LOW for MV1C) ===
     wait 0 pin 1                ; Wait for WS falling edge (RIGHT starts)
 
-    set x, 23
+    set x, 23                   ; Capture all 24 bits
 right_loop:
-    wait 0 pin 2
-    wait 1 pin 2
-    in pins, 1
+    wait 1 pin 2                ; BCK high
+    wait 0 pin 2                ; BCK low - falling edge
+    in pins, 1                  ; Sample DAT
     jmp x-- right_loop
     push noblock                ; Push 24 bits (Right)
 .wrap

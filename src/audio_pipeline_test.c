@@ -435,6 +435,17 @@ int main() {
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
+    // NOISE FIX: Disable video GPIO input buffers
+    // When video signals drive floating inputs, the internal buffers switch
+    // at 6 MHz, causing noise that couples into I2S capture.
+    // Disable input enable to stop the switching without shorting outputs.
+    for (int pin = 0; pin <= 15; pin++) {
+        gpio_init(pin);
+        gpio_set_input_enabled(pin, false);
+    }
+    gpio_init(22);
+    gpio_set_input_enabled(22, false);
+
     // Early blink to show we're alive
     for (int i = 0; i < 3; i++) {
         gpio_put(PICO_DEFAULT_LED_PIN, 1);
