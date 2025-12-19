@@ -21,3 +21,5 @@ screenlog.*
 *.png
 *.flac
 *.bin
+
+.obsidian

@@ -31,21 +31,26 @@ static const struct pio_program pio_edge_counter_program = {
     .origin = -1,
 };
 
-// Pins to monitor
-#define PIN_DAT 36
-#define PIN_WS  37
-#define PIN_BCK 38
+// Pins to monitor - both old (Bank 1) and new (Bank 0) locations
+#define PIN_DAT_NEW 16   // New Bank 0 location
+#define PIN_WS_NEW  17
+#define PIN_BCK_NEW 18
+#define PIN_DAT_OLD 36   // Old Bank 1 location
+#define PIN_WS_OLD  37
+#define PIN_BCK_OLD 38
 
-// We'll use 3 state machines, one per pin
-static PIO pio = pio0;
-static uint sm_dat, sm_ws, sm_bck;
-static uint program_offset;
+// We'll use PIO1 for Bank 0 pins, PIO0 for Bank 1 pins
+static PIO pio_bank0 = pio1;  // For GPIO 16-18
+static PIO pio_bank1 = pio0;  // For GPIO 36-38 (needs gpio_base=16)
+static uint sm_dat_new, sm_ws_new, sm_bck_new;
+static uint sm_dat_old, sm_ws_old, sm_bck_old;
+static uint program_offset_bank0, program_offset_bank1;
 
-static void init_edge_counter(uint sm, uint pin) {
+static void init_edge_counter(PIO pio, uint sm, uint pin, uint offset) {
     pio_sm_config c = pio_get_default_sm_config();
 
-    sm_config_set_wrap(&c, program_offset + pio_edge_counter_wrap_target,
-                          program_offset + pio_edge_counter_wrap);
+    sm_config_set_wrap(&c, offset + pio_edge_counter_wrap_target,
+                          offset + pio_edge_counter_wrap);
 
     // Set input pin
     sm_config_set_in_pins(&c, pin);
@@ -58,15 +63,16 @@ static void init_edge_counter(uint sm, uint pin) {
     // Run at full system clock for maximum resolution
     sm_config_set_clkdiv(&c, 1.0f);
 
-    pio_sm_init(pio, sm, program_offset, &c);
+    pio_sm_init(pio, sm, offset, &c);
 }
 
-// Last read values for delta calculation
-static uint32_t last_x_value[3] = {0, 0, 0};
+// Last read values for delta calculation (indexed by PIO*4 + SM)
+static uint32_t last_x_value[8] = {0};
 
-static uint32_t read_edge_count(uint sm) {
+static uint32_t read_edge_count(PIO pio, uint sm) {
     // Read X register by executing "mov isr, x" then "push"
     // X decrements on each edge, wrapping around
+    uint idx = (pio == pio0 ? 0 : 4) + sm;
 
     // Stop SM briefly to read X
     pio_sm_set_enabled(pio, sm, false);
@@ -91,25 +97,33 @@ static uint32_t read_edge_count(uint sm) {
     pio_sm_set_enabled(pio, sm, true);
 
     // Calculate delta (X counts DOWN, so last - current = edges)
-    uint32_t count = last_x_value[sm] - x_value;
-    last_x_value[sm] = x_value;
+    uint32_t count = last_x_value[idx] - x_value;
+    last_x_value[idx] = x_value;
 
     return count;
 }
 
 static void start_counters(void) {
     // Initialize X to 0 on all SMs (will wrap on first decrement)
-    pio_sm_exec(pio, sm_dat, pio_encode_set(pio_x, 0));
-    pio_sm_exec(pio, sm_ws, pio_encode_set(pio_x, 0));
-    pio_sm_exec(pio, sm_bck, pio_encode_set(pio_x, 0));
-
-    // Initialize last values for delta calculation
-    last_x_value[sm_dat] = 0;
-    last_x_value[sm_ws] = 0;
-    last_x_value[sm_bck] = 0;
+    // Bank 0 (new pins on PIO1)
+    pio_sm_exec(pio_bank0, sm_dat_new, pio_encode_set(pio_x, 0));
+    pio_sm_exec(pio_bank0, sm_ws_new, pio_encode_set(pio_x, 0));
+    pio_sm_exec(pio_bank0, sm_bck_new, pio_encode_set(pio_x, 0));
+    // Bank 1 (old pins on PIO0)
+    pio_sm_exec(pio_bank1, sm_dat_old, pio_encode_set(pio_x, 0));
+    pio_sm_exec(pio_bank1, sm_ws_old, pio_encode_set(pio_x, 0));
+    pio_sm_exec(pio_bank1, sm_bck_old, pio_encode_set(pio_x, 0));
 
     // Start all SMs simultaneously
-    pio_enable_sm_mask_in_sync(pio, (1u << sm_dat) | (1u << sm_ws) | (1u << sm_bck));
+    pio_enable_sm_mask_in_sync(pio_bank0, (1u << sm_dat_new) | (1u << sm_ws_new) | (1u << sm_bck_new));
+    pio_enable_sm_mask_in_sync(pio_bank1, (1u << sm_dat_old) | (1u << sm_ws_old) | (1u << sm_bck_old));
+}
+
+static void print_freq(const char *label, float freq) {
+    printf("%s: ", label);
+    if (freq < 100) printf("%6.1f Hz  ", freq);
+    else if (freq < 100000) printf("%6.2f kHz", freq / 1000);
+    else printf("%6.3f MHz", freq / 1000000);
 }
 
 int main() {
@@ -117,34 +131,40 @@ int main() {
     sleep_ms(2000);
 
     printf("\n");
-    printf("========================================\n");
+    printf("=============================================\n");
     printf("  GPIO Frequency Analyzer (PIO-based)\n");
-    printf("========================================\n");
+    printf("=============================================\n");
     printf("System clock: %lu MHz\n", clock_get_hz(clk_sys) / 1000000);
     printf("\n");
-    printf("Monitoring I2S pins:\n");
-    printf("  GP%d: DAT (serial data)\n", PIN_DAT);
-    printf("  GP%d: WS  (word select / sample rate)\n", PIN_WS);
-    printf("  GP%d: BCK (bit clock)\n", PIN_BCK);
+    printf("Monitoring I2S pins on BOTH banks:\n");
+    printf("  NEW (Bank 0): GP%d=DAT, GP%d=WS, GP%d=BCK\n", PIN_DAT_NEW, PIN_WS_NEW, PIN_BCK_NEW);
+    printf("  OLD (Bank 1): GP%d=DAT, GP%d=WS, GP%d=BCK\n", PIN_DAT_OLD, PIN_WS_OLD, PIN_BCK_OLD);
     printf("\n");
 
-    // Need gpio_base for pins >= 32
-    pio_set_gpio_base(pio, 16);  // Access GPIO 16-47
+    // PIO1 for Bank 0 pins (gpio_base=0, default)
+    program_offset_bank0 = pio_add_program(pio_bank0, &pio_edge_counter_program);
+    sm_dat_new = pio_claim_unused_sm(pio_bank0, true);
+    sm_ws_new = pio_claim_unused_sm(pio_bank0, true);
+    sm_bck_new = pio_claim_unused_sm(pio_bank0, true);
 
-    // Load PIO program
-    program_offset = pio_add_program(pio, &pio_edge_counter_program);
+    // PIO0 for Bank 1 pins (needs gpio_base=16)
+    pio_set_gpio_base(pio_bank1, 16);
+    program_offset_bank1 = pio_add_program(pio_bank1, &pio_edge_counter_program);
+    sm_dat_old = pio_claim_unused_sm(pio_bank1, true);
+    sm_ws_old = pio_claim_unused_sm(pio_bank1, true);
+    sm_bck_old = pio_claim_unused_sm(pio_bank1, true);
 
-    // Claim state machines
-    sm_dat = pio_claim_unused_sm(pio, true);
-    sm_ws = pio_claim_unused_sm(pio, true);
-    sm_bck = pio_claim_unused_sm(pio, true);
+    printf("PIO1 (Bank 0): SM%d=DAT, SM%d=WS, SM%d=BCK\n", sm_dat_new, sm_ws_new, sm_bck_new);
+    printf("PIO0 (Bank 1): SM%d=DAT, SM%d=WS, SM%d=BCK\n", sm_dat_old, sm_ws_old, sm_bck_old);
+    printf("\n");
 
-    printf("PIO configured: SM%d=DAT, SM%d=WS, SM%d=BCK\n\n", sm_dat, sm_ws, sm_bck);
-
-    // Initialize counters (pins need gpio_base offset for >32)
-    init_edge_counter(sm_dat, PIN_DAT);
-    init_edge_counter(sm_ws, PIN_WS);
-    init_edge_counter(sm_bck, PIN_BCK);
+    // Initialize counters
+    init_edge_counter(pio_bank0, sm_dat_new, PIN_DAT_NEW, program_offset_bank0);
+    init_edge_counter(pio_bank0, sm_ws_new, PIN_WS_NEW, program_offset_bank0);
+    init_edge_counter(pio_bank0, sm_bck_new, PIN_BCK_NEW, program_offset_bank0);
+    init_edge_counter(pio_bank1, sm_dat_old, PIN_DAT_OLD, program_offset_bank1);
+    init_edge_counter(pio_bank1, sm_ws_old, PIN_WS_OLD, program_offset_bank1);
+    init_edge_counter(pio_bank1, sm_bck_old, PIN_BCK_OLD, program_offset_bank1);
 
     // Start counting
     start_counters();
@@ -160,32 +180,41 @@ int main() {
         float elapsed_sec = (now - last_time) / 1000000.0f;
         last_time = now;
 
-        // Read counts
-        uint32_t count_dat = read_edge_count(sm_dat);
-        uint32_t count_ws = read_edge_count(sm_ws);
-        uint32_t count_bck = read_edge_count(sm_bck);
+        // Read counts - new pins (Bank 0)
+        uint32_t count_dat_new = read_edge_count(pio_bank0, sm_dat_new);
+        uint32_t count_ws_new = read_edge_count(pio_bank0, sm_ws_new);
+        uint32_t count_bck_new = read_edge_count(pio_bank0, sm_bck_new);
+        // Read counts - old pins (Bank 1)
+        uint32_t count_dat_old = read_edge_count(pio_bank1, sm_dat_old);
+        uint32_t count_ws_old = read_edge_count(pio_bank1, sm_ws_old);
+        uint32_t count_bck_old = read_edge_count(pio_bank1, sm_bck_old);
 
-        // Calculate frequencies (rising edges per second)
-        float freq_dat = count_dat / elapsed_sec;
-        float freq_ws = count_ws / elapsed_sec;
-        float freq_bck = count_bck / elapsed_sec;
+        // Calculate frequencies
+        float freq_dat_new = count_dat_new / elapsed_sec;
+        float freq_ws_new = count_ws_new / elapsed_sec;
+        float freq_bck_new = count_bck_new / elapsed_sec;
+        float freq_dat_old = count_dat_old / elapsed_sec;
+        float freq_ws_old = count_ws_old / elapsed_sec;
+        float freq_bck_old = count_bck_old / elapsed_sec;
 
-        // Print results on same lines (update in place)
-        printf("\r\033[K");  // Clear line
-        printf("DAT: ");
-        if (freq_dat < 100) printf("%.1f Hz    ", freq_dat);
-        else if (freq_dat < 100000) printf("%.2f kHz  ", freq_dat / 1000);
-        else printf("%.3f MHz  ", freq_dat / 1000000);
+        // Print results
+        printf("\033[2K\r");  // Clear line
+        printf("NEW(16-18): ");
+        print_freq("D", freq_dat_new);
+        printf(" ");
+        print_freq("W", freq_ws_new);
+        printf(" ");
+        print_freq("B", freq_bck_new);
+        printf("\n");
 
-        printf("| WS: ");
-        if (freq_ws < 100) printf("%.1f Hz    ", freq_ws);
-        else if (freq_ws < 100000) printf("%.2f kHz  ", freq_ws / 1000);
-        else printf("%.3f MHz  ", freq_ws / 1000000);
-
-        printf("| BCK: ");
-        if (freq_bck < 100) printf("%.1f Hz    ", freq_bck);
-        else if (freq_bck < 100000) printf("%.2f kHz  ", freq_bck / 1000);
-        else printf("%.3f MHz  ", freq_bck / 1000000);
+        printf("\033[2K");  // Clear line
+        printf("OLD(36-38): ");
+        print_freq("D", freq_dat_old);
+        printf(" ");
+        print_freq("W", freq_ws_old);
+        printf(" ");
+        print_freq("B", freq_bck_old);
+        printf("\033[A");  // Move cursor up
 
         fflush(stdout);
     }
