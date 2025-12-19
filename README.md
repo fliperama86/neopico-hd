@@ -26,6 +26,16 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 - **Neo Geo MVS board** - Tested on MV1C
 - **HDMI connector** wired to Pico GPIO
 
+### Hardware Setup & Signal Integrity
+
+To ensure clean audio and video capture, follow these best practices:
+
+1.  **Common Ground**: A solid ground connection between the MVS board and the Pico is **mandatory**. Lack of a shared ground reference is the primary cause of audio "harshness" and missing low-level sound data.
+2.  **Cable Separation**: High-speed video signals (6MHz PCLK) can broadcast noise into audio lines. Physically separate the audio wires (Bank 1) from the video wire bundle.
+3.  **Shielding**: Use a **GND-Signal-GND** pattern when using ribbon cables (e.g., Wire 1: GND, Wire 2: BCK, Wire 3: GND).
+4.  **Series Termination**: Add **33Ω resistors** in series with the MVS PCLK and BCK signals (close to the MVS board) to suppress ringing and EMI.
+5.  **Thick GND**: Use multiple or thick GND wires to prevent "Ground Bounce" when 15 bits of video data switch simultaneously.
+
 ### Pin Configuration
 
 #### Video Capture (Active Active Active)
