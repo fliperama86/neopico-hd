@@ -14,8 +14,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Aligned buffer for DMA ring wrapping (size 512 words = 2048 bytes)
-static uint32_t g_dma_buffer[AP_RING_SIZE] __attribute__((aligned(2048)));
+// DMA buffer must be large enough to hold samples between polls
+// At 55.5 kHz and 60 fps: ~1850 words/frame. Use 4096 for ~2 frames of headroom.
+#define I2S_DMA_BUFFER_SIZE 4096
+#define I2S_DMA_BUFFER_MASK (I2S_DMA_BUFFER_SIZE - 1)
+
+// Aligned buffer for DMA ring wrapping (4096 words = 16384 bytes)
+static uint32_t g_dma_buffer[I2S_DMA_BUFFER_SIZE] __attribute__((aligned(16384)));
 
 bool i2s_capture_init(i2s_capture_t *cap, const i2s_capture_config_t *config, ap_ring_t *ring)
 {
@@ -57,8 +62,8 @@ bool i2s_capture_init(i2s_capture_t *cap, const i2s_capture_config_t *config, ap
     channel_config_set_dreq(&c, pio_get_dreq(config->pio, config->sm, false));
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
 
-    // Enable ring wrapping for destination (2^11 bytes = 2048 bytes = 512 words)
-    channel_config_set_ring(&c, true, 11);
+    // Enable ring wrapping for destination (2^14 bytes = 16384 bytes = 4096 words)
+    channel_config_set_ring(&c, true, 14);
 
     dma_channel_configure(
         cap->dma_chan,
@@ -91,7 +96,7 @@ void i2s_capture_start(i2s_capture_t *cap)
     }
 
     // Clear DMA buffer to be safe
-    memset(cap->dma_buffer, 0, AP_RING_SIZE * sizeof(uint32_t));
+    memset(cap->dma_buffer, 0, I2S_DMA_BUFFER_SIZE * sizeof(uint32_t));
 
     // Start DMA
     dma_channel_set_write_addr(cap->dma_chan, cap->dma_buffer, true);
@@ -132,7 +137,7 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap)
     while (cap->dma_buffer_idx != write_idx)
     {
         // Check if we have at least 2 words (one stereo sample)
-        uint32_t next_idx = (cap->dma_buffer_idx + 1) & AP_RING_MASK;
+        uint32_t next_idx = (cap->dma_buffer_idx + 1) & I2S_DMA_BUFFER_MASK;
         if (next_idx == write_idx)
             break;
 
@@ -140,7 +145,7 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap)
         uint32_t raw_r = cap->dma_buffer[next_idx];
 
         // Move pointer forward by 2
-        cap->dma_buffer_idx = (next_idx + 1) & AP_RING_MASK;
+        cap->dma_buffer_idx = (next_idx + 1) & I2S_DMA_BUFFER_MASK;
 
         // NEO-YSA2 (MV1C) outputs 24-bit frames in Right-Justified format (MODE=1).
         // The 16-bit PCM data is in the lower 16 bits of the 24-bit window.

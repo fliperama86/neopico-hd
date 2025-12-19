@@ -3,11 +3,18 @@
 # =============================================================================
 add_executable(neopico_hd
     main.c
+    audio/audio_buffer.c
+    audio/i2s_capture.c
+    audio/src.c
+    audio/dc_filter.c
+    audio/lowpass.c
 )
 
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/mvs_capture.pio)
+pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
 
 target_include_directories(neopico_hd PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
     ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
 )

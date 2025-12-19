@@ -11,7 +11,8 @@
 #include "audio_common.h"
 
 // Buffer size must be power of 2
-#define AP_RING_SIZE 512
+// At 55.5 kHz and 60 fps: ~925 samples/frame. Need 1024+ for headroom.
+#define AP_RING_SIZE 2048
 #define AP_RING_MASK (AP_RING_SIZE - 1)
 
 typedef struct {

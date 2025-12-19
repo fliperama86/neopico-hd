@@ -25,12 +25,20 @@
 #include "hardware/irq.h"
 #include "hardware/vreg.h"
 #include "hardware/sync.h"
+#include "hardware/dma.h"
 
 #include "dvi.h"
 #include "dvi_serialiser.h"
 #include "audio_ring.h"
 #include "mvs_capture.pio.h"
 #include "neopico_config.h"
+
+// I2S audio capture and processing
+#include "audio/audio_buffer.h"
+#include "audio/i2s_capture.h"
+#include "audio/src.h"
+#include "audio/dc_filter.h"
+#include "audio/lowpass.h"
 
 #define FRAME_WIDTH 320
 #define FRAME_HEIGHT 240  // 480p: 240 * 2 = 480 DVI lines
@@ -81,6 +89,21 @@ static uint audio_sample_count = 0;
 // Forward declaration - called during idle periods
 static void fill_audio_buffer(void);
 
+// =============================================================================
+// I2S Audio Capture (PIO2 - separate from MVS on PIO1)
+// =============================================================================
+
+// I2S pins (directly on RP2350, active low accent on "audio" connector)
+#define I2S_PIN_DAT 36
+#define I2S_PIN_WS  37
+#define I2S_PIN_BCK 38
+
+static ap_ring_t i2s_ring;
+static i2s_capture_t i2s_cap;
+static src_t src;
+static dc_filter_t dc_filter;
+static lowpass_t lowpass;
+
 // Sine wave table (128 samples)
 static const int16_t sine_table[128] = {
     0x0000, 0x0648, 0x0C8C, 0x12C8, 0x18F9, 0x1F1A, 0x2528, 0x2B1F,
@@ -101,21 +124,60 @@ static const int16_t sine_table[128] = {
     0xCF04, 0xD4E1, 0xDAD8, 0xE0E6, 0xE707, 0xED38, 0xF374, 0xF9B8,
 };
 
-// Called during vblank to fill audio buffer without interrupting capture
-static void fill_audio_buffer(void) {
-    int size = get_write_size(&dvi0.audio_ring, false);
-    if (size == 0) return;
+// Poll I2S capture during safe periods
+static void poll_i2s_capture(void) {
+    i2s_capture_poll(&i2s_cap);
+}
 
-    audio_sample_t *audio_ptr = get_write_pointer(&dvi0.audio_ring);
-
-    for (int i = 0; i < size; i++) {
-        int16_t sample = sine_table[audio_sample_count % 128] >> 2;  // Reduce volume
-        audio_ptr->channels[0] = sample;
-        audio_ptr->channels[1] = sample;
-        audio_ptr++;
-        audio_sample_count++;
+// Drain ring buffer (call during safe periods only)
+static void drain_i2s_ring(void) {
+    while (ap_ring_available(&i2s_ring) > 0) {
+        ap_ring_read(&i2s_ring);
     }
-    increase_write_pointer(&dvi0.audio_ring, size);
+}
+
+// Debug: get DMA write index for I2S
+static uint32_t get_i2s_dma_idx(void) {
+    uint32_t write_ptr = dma_hw->ch[i2s_cap.dma_chan].write_addr;
+    return (write_ptr - (uint32_t)i2s_cap.dma_buffer) / sizeof(uint32_t);
+}
+
+// Temporary buffers for SRC processing
+static ap_sample_t src_in_buf[256];
+static ap_sample_t src_out_buf[256];
+
+// Called during vblank to fill HDMI audio buffer from captured I2S samples
+static void fill_audio_buffer(void) {
+    int space = get_write_size(&dvi0.audio_ring, false);
+    if (space == 0) return;
+
+    // Read available samples from I2S ring
+    uint32_t available = ap_ring_available(&i2s_ring);
+    if (available == 0) return;
+
+    uint32_t to_read = (available < 256) ? available : 256;
+    for (uint32_t i = 0; i < to_read; i++) {
+        src_in_buf[i] = ap_ring_read(&i2s_ring);
+    }
+
+    // Apply filters (before SRC, at input sample rate)
+    dc_filter_process_buffer(&dc_filter, src_in_buf, to_read);
+    lowpass_process_buffer(&lowpass, src_in_buf, to_read);
+
+    // Apply SRC (55.5kHz -> 48kHz)
+    uint32_t in_consumed = 0;
+    uint32_t out_max = (space < 256) ? space : 256;
+    uint32_t out_count = src_process(&src, src_in_buf, to_read,
+                                      src_out_buf, out_max, &in_consumed);
+
+    // Write to HDMI audio ring
+    audio_sample_t *audio_ptr = get_write_pointer(&dvi0.audio_ring);
+    for (uint32_t i = 0; i < out_count; i++) {
+        audio_ptr->channels[0] = src_out_buf[i].left;
+        audio_ptr->channels[1] = src_out_buf[i].right;
+        audio_ptr++;
+    }
+    increase_write_pointer(&dvi0.audio_ring, out_count);
 }
 
 // Vertical offset for centering MVS 224 lines in 240 line frame
@@ -179,7 +241,8 @@ static bool wait_for_vsync(PIO pio, uint sm_sync, uint32_t timeout_ms) {
         }
 
         if (pio_sm_is_rx_fifo_empty(pio, sm_sync)) {
-            fill_audio_buffer();  // Use idle time to fill audio
+            // Don't poll I2S here - causes timing issues
+            fill_audio_buffer();
             continue;
         }
 
@@ -291,6 +354,28 @@ int main() {
     // Enable sync detection
     pio_sm_set_enabled(pio_mvs, sm_sync, true);
 
+    // Initialize I2S audio capture on PIO2 (separate from MVS on PIO1)
+    ap_ring_init(&i2s_ring);
+    i2s_capture_config_t i2s_cfg = {
+        .pin_dat = I2S_PIN_DAT,
+        .pin_ws = I2S_PIN_WS,
+        .pin_bck = I2S_PIN_BCK,
+        .pio = pio2,  // Use PIO2 (RP2350 has 3 PIOs!)
+        .sm = 0,
+    };
+    i2s_capture_init(&i2s_cap, &i2s_cfg, &i2s_ring);
+    i2s_capture_start(&i2s_cap);
+
+    // Initialize SRC (55.5kHz -> 48kHz)
+    src_init(&src, SRC_INPUT_RATE_DEFAULT, SRC_OUTPUT_RATE_DEFAULT);
+    src_set_mode(&src, SRC_MODE_LINEAR);  // Linear interpolation for better quality
+
+    // Initialize audio filters
+    dc_filter_init(&dc_filter);
+    dc_filter_set_enabled(&dc_filter, true);
+    lowpass_init(&lowpass);
+    lowpass_set_enabled(&lowpass, true);
+
     printf("Starting line-by-line capture loop\n");
 
     // Frame rate measurement
@@ -309,13 +394,17 @@ int main() {
         fps_frame_count++;
         gpio_put(PICO_DEFAULT_LED_PIN, (frame_count / 30) & 1);
 
-        // Print FPS every second
+        // DEBUG: Set to 1 for stats (causes occasional red line glitch)
+        #if 0
         uint32_t now = time_us_32();
-        if (now - last_time >= 1000000) {
-            printf("FPS: %lu\n", fps_frame_count);
+        if (now - last_time >= 5000000) {
+            printf("FPS: %lu  I2S: %lu Hz\n",
+                   fps_frame_count / 5,
+                   i2s_capture_get_sample_rate(&i2s_cap));
             fps_frame_count = 0;
             last_time = now;
         }
+        #endif
 
         // 1. Wait for vsync
         if (!wait_for_vsync(pio_mvs, sm_sync, 100)) {
@@ -336,12 +425,12 @@ int main() {
         pio_interrupt_clear(pio_mvs, 4);
         pio_sm_exec(pio_mvs, sm_sync, pio_encode_irq_set(false, 4));
 
-        // 4. Skip vertical blanking lines (fill audio while waiting)
+        // 4. Skip vertical blanking lines
         for (int skip_line = 0; skip_line < V_SKIP_LINES; skip_line++) {
             for (int i = 0; i < line_words; i++) {
                 pio_sm_get_blocking(pio_mvs, sm_pixel);
             }
-            fill_audio_buffer();  // Safe to fill between lines
+            fill_audio_buffer();  // Fill HDMI audio buffer only
         }
 
         // 5. Capture active lines
@@ -368,8 +457,9 @@ int main() {
         // 6. Disable pixel capture until next frame
         pio_sm_set_enabled(pio_mvs, sm_pixel, false);
 
-        // 7. Fill audio buffer during vblank (safe - no capture running)
-        fill_audio_buffer();
+        // 7. Poll I2S and fill HDMI audio (safe - no capture running)
+        poll_i2s_capture();
+        fill_audio_buffer();  // Consumes from i2s_ring, outputs to HDMI
     }
 
     return 0;
