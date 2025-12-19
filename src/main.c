@@ -28,6 +28,7 @@
 
 #include "dvi.h"
 #include "dvi_serialiser.h"
+#include "audio_ring.h"
 #include "mvs_capture.pio.h"
 #include "neopico_config.h"
 
@@ -69,6 +70,54 @@ static uint16_t g_framebuf[FRAME_WIDTH * FRAME_HEIGHT];
 
 static volatile uint32_t frame_count = 0;
 
+// =============================================================================
+// Audio - Simple test tone
+// =============================================================================
+
+#define AUDIO_BUFFER_SIZE 1024  // Larger buffer to handle irregular fill timing
+static audio_sample_t audio_buffer[AUDIO_BUFFER_SIZE];
+static uint audio_sample_count = 0;
+
+// Forward declaration - called during idle periods
+static void fill_audio_buffer(void);
+
+// Sine wave table (128 samples)
+static const int16_t sine_table[128] = {
+    0x0000, 0x0648, 0x0C8C, 0x12C8, 0x18F9, 0x1F1A, 0x2528, 0x2B1F,
+    0x30FC, 0x36BA, 0x3C57, 0x41CE, 0x471D, 0x4C40, 0x5134, 0x55F6,
+    0x5A82, 0x5ED7, 0x62F2, 0x66D0, 0x6A6E, 0x6DCA, 0x70E3, 0x73B6,
+    0x7642, 0x7885, 0x7A7D, 0x7C2A, 0x7D8A, 0x7E9D, 0x7F62, 0x7FD9,
+    0x7FFF, 0x7FD9, 0x7F62, 0x7E9D, 0x7D8A, 0x7C2A, 0x7A7D, 0x7885,
+    0x7642, 0x73B6, 0x70E3, 0x6DCA, 0x6A6E, 0x66D0, 0x62F2, 0x5ED7,
+    0x5A82, 0x55F6, 0x5134, 0x4C40, 0x471D, 0x41CE, 0x3C57, 0x36BA,
+    0x30FC, 0x2B1F, 0x2528, 0x1F1A, 0x18F9, 0x12C8, 0x0C8C, 0x0648,
+    0x0000, 0xF9B8, 0xF374, 0xED38, 0xE707, 0xE0E6, 0xDAD8, 0xD4E1,
+    0xCF04, 0xC946, 0xC3A9, 0xBE32, 0xB8E3, 0xB3C0, 0xAECC, 0xAA0A,
+    0xA57E, 0xA129, 0x9D0E, 0x9930, 0x9592, 0x9236, 0x8F1D, 0x8C4A,
+    0x89BE, 0x877B, 0x8583, 0x83D6, 0x8276, 0x8163, 0x809E, 0x8027,
+    0x8001, 0x8027, 0x809E, 0x8163, 0x8276, 0x83D6, 0x8583, 0x877B,
+    0x89BE, 0x8C4A, 0x8F1D, 0x9236, 0x9592, 0x9930, 0x9D0E, 0xA129,
+    0xA57E, 0xAA0A, 0xAECC, 0xB3C0, 0xB8E3, 0xBE32, 0xC3A9, 0xC946,
+    0xCF04, 0xD4E1, 0xDAD8, 0xE0E6, 0xE707, 0xED38, 0xF374, 0xF9B8,
+};
+
+// Called during vblank to fill audio buffer without interrupting capture
+static void fill_audio_buffer(void) {
+    int size = get_write_size(&dvi0.audio_ring, false);
+    if (size == 0) return;
+
+    audio_sample_t *audio_ptr = get_write_pointer(&dvi0.audio_ring);
+
+    for (int i = 0; i < size; i++) {
+        int16_t sample = sine_table[audio_sample_count % 128] >> 2;  // Reduce volume
+        audio_ptr->channels[0] = sample;
+        audio_ptr->channels[1] = sample;
+        audio_ptr++;
+        audio_sample_count++;
+    }
+    increase_write_pointer(&dvi0.audio_ring, size);
+}
+
 // Vertical offset for centering MVS 224 lines in 240 line frame
 static const uint8_t v_offset = (FRAME_HEIGHT - MVS_HEIGHT) / 2;
 
@@ -76,7 +125,9 @@ static const uint8_t v_offset = (FRAME_HEIGHT - MVS_HEIGHT) / 2;
 // DVI Scanline Callback - runs independently on Core 1's timing
 // =============================================================================
 
-static void core1_scanline_callback(void) {
+static void core1_scanline_callback(uint line_num) {
+    (void)line_num;  // We track internally for line doubling
+
     // Discard any scanline pointers passed back
     uint16_t *bufptr;
     while (queue_try_remove_u32(&dvi0.q_colour_free, &bufptr))
@@ -92,7 +143,7 @@ static void core1_scanline_callback(void) {
     bufptr = &g_framebuf[FRAME_WIDTH * scanline];
     queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
 
-    dvi_line = (dvi_line + 1) % 480;
+    dvi_line = (dvi_line + 1) % 480;  // 480p = 480 DVI lines
 }
 
 // =============================================================================
@@ -128,7 +179,7 @@ static bool wait_for_vsync(PIO pio, uint sm_sync, uint32_t timeout_ms) {
         }
 
         if (pio_sm_is_rx_fifo_empty(pio, sm_sync)) {
-            tight_loop_contents();
+            fill_audio_buffer();  // Use idle time to fill audio
             continue;
         }
 
@@ -210,6 +261,13 @@ int main() {
     dvi0.scanline_callback = core1_scanline_callback;
     dvi_init(&dvi0, next_striped_spin_lock_num(), next_striped_spin_lock_num());
 
+    // HDMI Audio setup (no blank_settings, vblank-driven)
+    dvi_audio_sample_buffer_set(&dvi0, audio_buffer, AUDIO_BUFFER_SIZE);
+    dvi_set_audio_freq(&dvi0, 48000, 25200, 6144);
+    // Pre-fill audio buffer before starting DVI
+    for (int i = 0; i < 4; i++) fill_audio_buffer();
+    printf("HDMI audio initialized (test tone, vblank-driven)\n");
+
     // Push first two scanlines to start DVI
     uint16_t *bufptr = g_framebuf;
     queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
@@ -278,11 +336,12 @@ int main() {
         pio_interrupt_clear(pio_mvs, 4);
         pio_sm_exec(pio_mvs, sm_sync, pio_encode_irq_set(false, 4));
 
-        // 4. Skip vertical blanking lines
+        // 4. Skip vertical blanking lines (fill audio while waiting)
         for (int skip_line = 0; skip_line < V_SKIP_LINES; skip_line++) {
             for (int i = 0; i < line_words; i++) {
                 pio_sm_get_blocking(pio_mvs, sm_pixel);
             }
+            fill_audio_buffer();  // Safe to fill between lines
         }
 
         // 5. Capture active lines
@@ -308,6 +367,9 @@ int main() {
 
         // 6. Disable pixel capture until next frame
         pio_sm_set_enabled(pio_mvs, sm_pixel, false);
+
+        // 7. Fill audio buffer during vblank (safe - no capture running)
+        fill_audio_buffer();
     }
 
     return 0;

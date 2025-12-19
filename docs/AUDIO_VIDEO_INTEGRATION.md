@@ -308,16 +308,18 @@ Hypothesis falsified if: Rate drops or varies wildly
 
 **Primary integration blockers:**
 
-1.  PIO1 SM0 conflict - must reassign audio to SM2
-2.  Clock speed difference - must unify at 252 MHz for HDMI audio
-3.  Video capture blocking model - limits where audio processing can run
+1.  ~~PIO1 SM0 conflict - must reassign audio to SM2~~ (still needed for I2S capture)
+2.  ~~Clock speed difference - must unify at 252 MHz for HDMI audio~~ ✅ Done
+3.  ~~Video capture blocking model - limits where audio processing can run~~ ✅ Solved with vblank-driven approach
 
-Recommended integration order:
-1. Verify both work at 252 MHz independently
-2. Fix PIO SM allocation
-3. Add audio capture without processing
-4. Add audio processing during vblank/frame gaps
-5. Enable HDMI audio output
+**Completed phases:**
+- ✅ Phase 1: Clock unification (252 MHz / 480p)
+- ✅ Phase 5: HDMI audio output (test tone working)
+
+**Remaining phases:**
+- Phase 2: PIO SM allocation for I2S capture
+- Phase 3: I2S audio capture
+- Phase 4: Audio processing (DC filter, SRC)
 
 Key insight: Video capture's blocking nature means audio processing CANNOT be interleaved during active line capture. It must happen during vertical blanking (V_SKIP_LINES period) and between frames.
 
@@ -338,6 +340,65 @@ Key insight: Video capture's blocking nature means audio processing CANNOT be in
 
 **Impact on main firmware:**
 - Must switch from 240p to 480p timing
-- FRAME_HEIGHT changes from 240 to 232 (due to blank_settings)
 - System clock: 252 MHz instead of 126 MHz
-- MVS capture timing (H_THRESHOLD) needs adjustment for higher clock
+- H_THRESHOLD stays at 288 (counts external PCLK edges, not system clock)
+
+---
+
+## Key Finding: Scanline Callback Audio Integration
+
+**Tested 2024-12-19:** Successfully integrated HDMI audio with MVS video capture using scanline callback model.
+
+### What Works
+
+| Component | Approach | Result |
+| --------- | -------- | ------ |
+| Video timing | 480p @ 252 MHz | Stable |
+| blank_settings | **Not needed** | Audio works without them |
+| Audio filling | Vblank-driven (no timer) | Clean audio |
+| Buffer size | 1024 samples | Smooths irregular timing |
+
+### Critical Discovery: No Timer Interrupts
+
+**Problem:** Using `add_repeating_timer_ms()` for audio caused horizontal video trembling.
+
+**Root cause:** Timer interrupts Core 0 during MVS capture. The `pio_sm_get_blocking()` calls are timing-critical - any interruption causes PIO FIFO timing jitter.
+
+**Solution:** Fill audio buffer during safe periods only:
+1. During `wait_for_vsync()` when PIO FIFO is empty
+2. Between V_SKIP_LINES (vertical blanking)
+3. After frame capture completes
+
+### Audio Buffer Sizing
+
+- 256 samples: Audio oscillates (buffer runs dry between fills)
+- 1024 samples: Clean audio (enough headroom for irregular fill timing)
+
+At 48kHz output and 60fps, need ~800 samples/frame. Larger buffer absorbs timing variance.
+
+### Code Pattern
+
+```c
+// Fill during vsync wait (in wait_for_vsync)
+if (pio_sm_is_rx_fifo_empty(pio, sm_sync)) {
+    fill_audio_buffer();
+    continue;
+}
+
+// Fill between vblank lines
+for (int skip_line = 0; skip_line < V_SKIP_LINES; skip_line++) {
+    // ... consume line ...
+    fill_audio_buffer();
+}
+
+// Fill after frame capture
+pio_sm_set_enabled(pio_mvs, sm_pixel, false);
+fill_audio_buffer();
+```
+
+### blank_settings Not Required
+
+Originally thought `blank_settings` were needed for HDMI audio data islands. Testing showed:
+- Scanline callback model works without blank_settings
+- Standard horizontal blanking provides enough space for data islands
+- FRAME_HEIGHT stays at 240 (not 232)
