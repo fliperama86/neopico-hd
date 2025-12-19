@@ -1,29 +1,64 @@
 # System Resource & Timing Analysis
 
-## Step 1: System Inventory
+## Step 1: System Inventory (RP2350 / Pico 2)
 
-PIO State Machine Allocation
+**RP2350 has 3 PIO blocks** (not 2 like RP2040), which resolves the SM conflict.
 
-| PIO  | SM  | Usage (main.c - Video Only)      | Usage (audio_pipeline_test - Audio Only) |
-| ---- | --- | -------------------------------- | ---------------------------------------- |
-| PIO0 | 0   | DVI TMDS D0 serializer           | DVI TMDS D0 serializer                   |
-| PIO0 | 1   | DVI TMDS D1 serializer           | DVI TMDS D1 serializer                   |
-| PIO0 | 2   | DVI TMDS D2 serializer           | DVI TMDS D2 serializer                   |
-| PIO0 | 3   | (free)                           | (free)                                   |
-| PIO1 | 0   | MVS sync detection (mvs_sync_4a) | I2S audio capture                        |
-| PIO1 | 1   | MVS pixel capture                | (free)                                   |
-| PIO1 | 2   | (free)                           | (free)                                   |
-| PIO1 | 3   | (free)                           | (free)                                   |
+### GPIO Bank Access via gpio_base
 
-**CRITICAL CONFLICT:** Both video and audio want PIO1 SM0.
+Each PIO can only access 32 GPIOs relative to its `gpio_base` setting:
+- `gpio_base=0`: Access GPIO 0-31
+- `gpio_base=16`: Access GPIO 16-47
+
+### Pin Assignments
+
+| GPIO | Function | Bank |
+| ---- | -------- | ---- |
+| 0 | MVS PCLK | 0 |
+| 1-15 | MVS RGB data | 0 |
+| 22 | MVS CSYNC | 0 |
+| 25-32 | DVI output | 1+ |
+| 36 | I2S DAT | 1+ |
+| 37 | I2S WS (LRCK) | 1+ |
+| 38 | I2S BCK | 1+ |
+
+### PIO Allocation Plan (Integrated)
+
+| PIO  | gpio_base | SM  | Function |
+| ---- | --------- | --- | -------- |
+| PIO0 | 16 | 0 | DVI TMDS D0 |
+| PIO0 | 16 | 1 | DVI TMDS D1 |
+| PIO0 | 16 | 2 | DVI TMDS D2 |
+| PIO0 | 16 | 3 | (free) |
+| PIO1 | 0 | 0 | MVS sync detection |
+| PIO1 | 0 | 1 | MVS pixel capture |
+| PIO1 | 0 | 2 | (free) |
+| PIO1 | 0 | 3 | (free) |
+| **PIO2** | **16** | **0** | **I2S audio capture** |
+| PIO2 | 16 | 1 | (free) |
+| PIO2 | 16 | 2 | (free) |
+| PIO2 | 16 | 3 | (free) |
+
+**No conflict!** PIO2 (RP2350 only) handles I2S with gpio_base=16 for GPIO 36-38.
 
 ### DMA Channel Usage
 
 | Component         | DMA Channels  | Transfer Pattern                                |
 | ----------------- | ------------- | ----------------------------------------------- |
 | DVI (PicoDVI)     | ~3-6 channels | Continuous TMDS streaming, IRQ-driven on Core 1 |
-| I2S Audio Capture | 1 channel     | Continuous ring buffer from PIO1 RX FIFO        |
+| I2S Audio Capture | 1 channel     | Continuous ring buffer from PIO2 RX FIFO        |
 | MVS Video Capture | None          | Polled via pio_sm_get_blocking()                |
+
+### CPU Core Assignment (Integrated)
+
+| Core | Function | Notes |
+| ---- | -------- | ----- |
+| Core 0 | MVS capture loop | Blocking PIO reads, timing-critical |
+| Core 0 | I2S capture polling | During vblank/safe periods only |
+| Core 0 | Audio buffer filling | During vblank/safe periods only |
+| Core 1 | DVI output | IRQ-driven DMA, scanline callback |
+
+**Critical:** All Core 0 audio work must happen during safe periods (vsync wait, vblank lines, after frame capture) to avoid disrupting MVS capture timing.
 
 ### Clock Domains
 
@@ -107,47 +142,20 @@ PIO State Machine Allocation
 
 ## Step 3: Contention & Risk Analysis
 
-### Risk 1: PIO1 State Machine Conflict (CRITICAL)
+### ~~Risk 1: PIO1 State Machine Conflict~~ ✅ RESOLVED
 
 **Problem:** Video uses PIO1 SM0+SM1, Audio uses PIO1 SM0
-Manifestation: Cannot run both simultaneously with current code
-Mitigation: Audio must use PIO1 SM2 or SM3, OR use PIO0 SM3
+**Solution:** Use PIO2 for I2S capture. RP2350 has 3 PIO blocks, eliminating the conflict entirely.
 
-### Risk 2: System Clock Mismatch (HIGH)
+### ~~Risk 2: System Clock Mismatch~~ ✅ RESOLVED
 
-**Problem:**
+**Problem:** Video-only ran at 126 MHz, audio test at 252 MHz.
+**Solution:** Use 480p @ 252 MHz for everything. H_THRESHOLD stays at 288 (counts external PCLK edges, not system clock).
 
-- Video-only: 126 MHz (custom 240p timing)
-- Audio test: 252 MHz (480p timing with HDMI audio)
+### ~~Risk 3: CPU Starvation During Video Capture~~ ✅ RESOLVED
 
-**Manifestation:**
-
-- At 126 MHz, the `H_THRESHOLD` calculation changes
-- PIO timing for audio capture may be affected
-- HDMI audio requires specific blank settings tied to 480p timing
-
-**Integration choice required:** Must pick one timing mode and adapt.
-
-### Risk 3: CPU Starvation During Video Capture (HIGH)
-
-**Problem:** Video capture loop uses `pio_sm_get_blocking()` in tight loops:
-
-```C
-for (int x = 0; x < FRAME_WIDTH; x += 2) {
-  uint32_t word = pio_sm_get_blocking(pio_mvs, sm_pixel); // Blocks!
-  convert_and_store_pixels(word, &dst[x]);
-}
-```
-
-This loop runs for 224 lines × 160 words = 35,840 blocking reads per frame.
-
-**Manifestation:** If we `interleave audio_pipeline_process()` calls:
-
-- Each audio poll takes ~5-20 µs (depending on samples available)
-- 192 words per line × ~166 ns = 32 µs per line
-- Adding audio processing could cause FIFO overflow
-
-**Quantified risk:** Audio processing must complete in < 1.3 µs (FIFO slack) to avoid pixel loss.
+**Problem:** Video capture uses blocking PIO reads - can't interleave audio during active capture.
+**Solution:** Process audio only during safe periods (vsync wait, vblank lines, after frame). Timer interrupts cause video jitter - don't use them.
 
 ### Risk 4: DVI Timing Model Difference (MEDIUM)
 
@@ -158,19 +166,19 @@ This loop runs for 224 lines × 160 words = 35,840 blocking reads per frame.
 
 **Manifestation:** Different synchronization models may have different timing constraints.
 
-### Risk 5: gpio_base Conflict (MEDIUM)
+### ~~Risk 5: gpio_base Conflict~~ ✅ RESOLVED
 
-**Problem:** I2S capture sets `pio_set_gpio_base(pio1, 16)` for Bank 1 access. Video capture uses Bank 0 pins on PIO1.
+**Problem:** I2S needs gpio_base=16 for GPIO 36-38, MVS needs gpio_base=0 for GPIO 0-22.
+**Solution:** Use separate PIOs: PIO1 (gpio_base=0) for MVS, PIO2 (gpio_base=16) for I2S.
 
-**Manifestation:** If gpio_base is set wrong, PIO1 won't see the correct GPIO pins.
+### Ranked Risk Summary (Updated)
 
-### Ranked Risk Summary
-
-1.  PIO1 SM conflict - Cannot proceed without fixing
-2.  System clock mismatch - Must choose timing mode
-3.  CPU starvation - Video blocking reads vs audio polling
-4.  DVI timing model - Different approaches in each firmware
-5.  gpio_base - Must be set correctly for each PIO user
+All major risks resolved:
+- ✅ PIO conflict → Use PIO2 for I2S
+- ✅ Clock mismatch → 480p @ 252 MHz
+- ✅ CPU starvation → Vblank-driven audio
+- ✅ gpio_base → Separate PIOs
+- Risk 4 (DVI model) → Using scanline callback, works fine
 
 ---
 
@@ -308,18 +316,18 @@ Hypothesis falsified if: Rate drops or varies wildly
 
 **Primary integration blockers:**
 
-1.  ~~PIO1 SM0 conflict - must reassign audio to SM2~~ (still needed for I2S capture)
+1.  ~~PIO1 SM0 conflict~~ ✅ Use PIO2 (RP2350 has 3 PIOs)
 2.  ~~Clock speed difference - must unify at 252 MHz for HDMI audio~~ ✅ Done
 3.  ~~Video capture blocking model - limits where audio processing can run~~ ✅ Solved with vblank-driven approach
 
 **Completed phases:**
 - ✅ Phase 1: Clock unification (252 MHz / 480p)
+- ✅ Phase 2: PIO allocation (PIO2 for I2S)
+- ✅ Phase 3: I2S audio capture (verified working at 55.5 kHz)
 - ✅ Phase 5: HDMI audio output (test tone working)
 
 **Remaining phases:**
-- Phase 2: PIO SM allocation for I2S capture
-- Phase 3: I2S audio capture
-- Phase 4: Audio processing (DC filter, SRC)
+- Phase 4: Audio processing (DC filter, SRC) + connect I2S to HDMI output
 
 Key insight: Video capture's blocking nature means audio processing CANNOT be interleaved during active line capture. It must happen during vertical blanking (V_SKIP_LINES period) and between frames.
 
@@ -402,3 +410,68 @@ Originally thought `blank_settings` were needed for HDMI audio data islands. Tes
 - Scanline callback model works without blank_settings
 - Standard horizontal blanking provides enough space for data islands
 - FRAME_HEIGHT stays at 240 (not 232)
+
+---
+
+## Key Finding: I2S Capture Timing Constraints
+
+**Tested 2024-12-19:** I2S capture via PIO2 + DMA works, but polling has strict timing constraints.
+
+### What Works
+
+| Component | Configuration | Result |
+| --------- | ------------- | ------ |
+| PIO2 for I2S | gpio_base=16, SM0 | ✅ No conflict with video |
+| DMA ring buffer | 2048 words (8KB) | ✅ Holds ~18ms of samples |
+| Capture rate | 55554 Hz | ✅ Matches expected MVS rate |
+
+### Critical Timing Constraints
+
+**Problem:** Any I2S polling during active video capture causes visual glitches.
+
+| Polling Location | Video Impact | I2S Rate |
+| ---------------- | ------------ | -------- |
+| During hblank (every 8 lines) | ❌ Horizontal trembling | 55 kHz |
+| During vblank only | ⚠️ Minor instability | 38 kHz |
+| After frame only | ✅ Stable video | 30 kHz |
+
+**Root cause:** Even "fast" polling (just DMA→ring transfer) takes enough time to disrupt the tight 6 MHz pixel capture timing.
+
+### USB Serial Causes Glitches
+
+`printf()` over USB causes visible red line glitches. Disabled in production, use `#if 0` block for debugging.
+
+### Buffer Sizing Solution
+
+At 55.5 kHz stereo:
+- ~925 stereo samples per frame (60 fps)
+- ~1850 DMA words per frame
+
+**Working configuration:**
+| Buffer | Size | Purpose |
+| ------ | ---- | ------- |
+| DMA ring | 4096 words (16KB) | Holds ~2 frames from PIO |
+| ap_ring | 2048 samples (16KB) | Holds ~2 frames for processing |
+
+With these sizes, polling once per frame (after video capture) achieves full 55.5 kHz capture rate.
+
+### Final Working Setup
+
+- Poll I2S + drain ring **only after frame capture** (not during vblank)
+- DMA buffer: 4096 words
+- ap_ring: 2048 samples
+- Result: 55553 Hz capture, stable 60 fps video
+
+---
+
+## Hardware Troubleshooting
+
+### Missing Voices / Audio Channels
+
+**Symptom:** Some audio channels (e.g., voices, specific instruments) are missing from the captured audio.
+
+**Root cause:** Loose cartridge insertion on the MVS board.
+
+**Solution:** Ensure the game cartridge is firmly seated in the MVS slot. The NEO-YSA2 audio chip receives data from the cartridge; a poor connection can cause channel dropouts.
+
+**Note:** This is NOT a software issue - the I2S capture pipeline faithfully reproduces whatever the MVS outputs.
