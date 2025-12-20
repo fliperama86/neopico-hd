@@ -475,3 +475,68 @@ With these sizes, polling once per frame (after video capture) achieves full 55.
 **Solution:** Ensure the game cartridge is firmly seated in the MVS slot. The NEO-YSA2 audio chip receives data from the cartridge; a poor connection can cause channel dropouts.
 
 **Note:** This is NOT a software issue - the I2S capture pipeline faithfully reproduces whatever the MVS outputs.
+
+---
+
+## Audio Noise Investigation - Key Findings
+
+### Confirmed Findings
+
+1. **Falling edge BCK sampling works better than rising edge**
+   - Changed PIO to sample I2S DAT on BCK falling edge instead of rising
+   - Significantly reduced noise when video cables are connected
+   - Root cause: Rising edge timing affected by video signal coupling
+
+2. **Proper frame sync eliminates random noise variation**
+   - Added robust sync: wait for complete WS high→low→high→low cycle before capturing
+   - Without this, noise levels varied randomly with each Pico reset
+   - Now consistently aligned to frame boundary
+
+3. **33pF cap on PCLK (Pico side) removes 99% of noise/crackling**
+   - Cap placed close to Pico GPIO, connected to Pico GND
+   - Slows down 6MHz clock edges, reducing coupling into I2S
+   - Trade-off: Causes 1-pixel horizontal instability in video capture
+
+4. **Noise only appears when video cables are connected to Pico**
+   - Disconnecting video cables = completely clean audio
+   - This is true even in audio_pipeline_test (no video capture code)
+   - Scope shows clean I2S waveforms - noise is internal coupling, not signal integrity
+
+5. **Analog MVS audio output is clean**
+   - The noise is specific to I2S digital path when video GPIOs are loaded
+   - Not a problem with the MVS audio generation itself
+
+6. **CAV reference implementation differences**
+   - CAV: Rising edge sampling, 16-bit capture, FIR filter
+   - CAV: FPGA mounted directly on MVS with short traces
+   - We have: Falling edge, 24-bit capture (extract 16), IIR filters, jumper wires
+
+7. **Power supply concern**
+   - LED on Pico dims significantly when everything is connected
+   - Spotpear (DVI) draws from Pico's 3V3 rail
+   - Pico's internal regulator may be stressed
+
+### Open Questions
+
+1. **Why does main firmware sound "compressed" vs audio_pipeline_test?**
+   - audio_pipeline_test polls audio multiple times per scanline
+   - Main firmware only polls during vblank/after frame capture
+   - May be buffer overflow, irregular processing, or SRC artifacts
+
+2. **Optimal cap value for PCLK?**
+   - 33pF: Great audio, but causes video instability
+   - Need to test 15-22pF for better balance
+   - Alternative: Caps on data lines only, not PCLK
+
+3. **Would series resistors work better than caps?**
+   - 33-100Ω resistor limits current spikes without slowing edges as much
+   - Could combine with smaller cap for RC filter with defined cutoff
+
+4. **Is 3V3 rail droop contributing to noise?**
+   - Unstable power = unstable GPIO thresholds
+   - May need external 3V3 regulator for final design
+
+5. **Can main firmware audio processing be improved?**
+   - More frequent polling during safe windows?
+   - Larger buffers to handle bursty processing?
+   - Different SRC approach?
