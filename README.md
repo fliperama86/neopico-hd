@@ -207,6 +207,7 @@ Detailed technical specifications are in `docs/`:
 - **[CPS2_DIGIAV_REFERENCE.md](docs/CPS2_DIGIAV_REFERENCE.md)** - How cps2_digiav FPGA processes Neo Geo A/V
 - **[DVI_PIN_TESTING.md](docs/DVI_PIN_TESTING.md)** - RP2350 DVI pin constraints and solutions
 - **[PCB_DESIGN_GUIDE.md](docs/PCB_DESIGN_GUIDE.md)** - Hardware design considerations
+- **[HSTX_AUDIO_RESEARCH.md](docs/HSTX_AUDIO_RESEARCH.md)** - RP2350 HSTX as PicoDVI alternative
 
 ## References
 
