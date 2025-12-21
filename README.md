@@ -83,6 +83,12 @@ The MV1C uses **right-justified I2S** with 16-bit linear PCM:
 Requires [Pico SDK](https://github.com/raspberrypi/pico-sdk) with `PICO_SDK_PATH` environment variable set.
 
 ```bash
+# Clone with submodules
+git clone --recursive https://github.com/eduardofilo/neopico-hd.git
+
+# Or if already cloned:
+git submodule update --init --recursive
+
 # Build all targets
 ./scripts/build.sh
 
