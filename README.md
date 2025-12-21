@@ -8,7 +8,7 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 - **15-bit RGB capture** (32,768 colors) from MVS digital video bus
 - **Digital audio capture** from I2S bus (before DAC) with 48kHz HDMI output
 - **Line-by-line processing** - minimal latency, no frame buffer lag
-- **Perfect for retro HDMI scalers** - RetroTINK 4K, OSSC PRO, Morth4K
+- **Perfect for HDMI retro scalers** - RetroTINK 4K, OSSC PRO, Morth4K
 
 ## Status
 
