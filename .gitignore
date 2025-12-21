@@ -24,5 +24,4 @@ screenlog.*
 
 .obsidian
 hardware/neopico-hd/neopico-hd-backups
-reference/
 *.lck
