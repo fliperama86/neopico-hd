@@ -7,3 +7,6 @@
 [submodule "lib/PicoDVI"]
 	path = lib/PicoDVI
 	url = https://github.com/Wren6991/PicoDVI.git
+[submodule "reference/pico-examples"]
+	path = reference/pico-examples
+	url = https://github.com/raspberrypi/pico-examples.git
