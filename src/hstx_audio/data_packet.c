@@ -259,6 +259,17 @@ void packet_set_avi_infoframe(data_packet_t *packet, uint8_t vic) {
     compute_all_parity(packet);
 }
 
+// Get Channel Status bit for a given frame in the 192-frame block
+// See IEC60958-3 for details
+static bool get_channel_status(int frame_idx) {
+    // Consumer, PCM, No copyright, 48kHz
+    switch (frame_idx) {
+        case 2:  return 1; // Bit 2: 1 = No copyright
+        case 25: return 1; // Bit 25: 1 = 48kHz (Bits 24-27 = 0100)
+        default: return 0;
+    }
+}
+
 int packet_set_audio_samples(data_packet_t *packet, const audio_sample_t *samples,
                               int num_samples, int frame_count) {
     packet_init(packet);
@@ -272,16 +283,18 @@ int packet_set_audio_samples(data_packet_t *packet, const audio_sample_t *sample
     uint8_t sample_present = (1 << num_samples) - 1;
 
     // B bits indicate start of IEC60958 192-sample block
-    // B flag is set for each sample that starts a new 192-sample block
     uint8_t b_flags = 0;
+    uint8_t c_bits = 0;
+    
+    int temp_frame_count = frame_count;
     for (int i = 0; i < num_samples; i++) {
-        if (frame_count == 0) {
-            b_flags |= (1 << i);  // Set B flag for this sample
+        if (temp_frame_count == 0) {
+            b_flags |= (1 << i);
         }
-        frame_count++;
-        if (frame_count >= 192) {
-            frame_count = 0;
+        if (get_channel_status(temp_frame_count)) {
+            c_bits |= (1 << i);
         }
+        temp_frame_count = (temp_frame_count + 1) % 192;
     }
 
     packet->header[0] = 0x02;
@@ -295,13 +308,6 @@ int packet_set_audio_samples(data_packet_t *packet, const audio_sample_t *sample
         int16_t left = samples[i].left;
         int16_t right = samples[i].right;
 
-        // IEC60958 subframe format:
-        // Byte 0: [3:0] = aux/unused, [7:4] = sample LSBs (not used for 16-bit)
-        // Bytes 1-2: Left sample (16-bit)
-        // Byte 3: [3:0] = aux/unused
-        // Bytes 4-5: Right sample (16-bit)
-        // Byte 6: V/U/C/P bits
-
         d[0] = 0x00;
         d[1] = left & 0xFF;
         d[2] = (left >> 8) & 0xFF;
@@ -311,13 +317,17 @@ int packet_set_audio_samples(data_packet_t *packet, const audio_sample_t *sample
 
         // Validity, User, Channel Status, Parity bits
         // IEC60958: V=0 means valid audio, V=1 means invalid (mute)
-        // Note: pico_lib uses vuc=1 but that marks samples as invalid!
-        // Let's try V=0 for valid audio
-        uint8_t vuc = 0;  // V=0 (valid), U=0, C=0
-        bool p_left = compute_parity3(d[1], d[2], vuc);
-        bool p_right = compute_parity3(d[4], d[5], vuc);
+        uint8_t v = 0; // Valid
+        uint8_t u = 0; // User
+        uint8_t c = (c_bits >> i) & 1;
+        
+        uint8_t vuc_left = (v << 0) | (u << 1) | (c << 2);
+        uint8_t vuc_right = (v << 0) | (u << 1) | (c << 2);
+        
+        bool p_left = compute_parity3(d[1], d[2], vuc_left);
+        bool p_right = compute_parity3(d[4], d[5], vuc_right);
 
-        d[6] = (vuc << 0) | (p_left << 3) | (vuc << 4) | (p_right << 7);
+        d[6] = (vuc_left) | (p_left << 3) | (vuc_right << 4) | (p_right << 7);
         compute_subpacket_parity(packet, i);
     }
 
@@ -326,7 +336,7 @@ int packet_set_audio_samples(data_packet_t *packet, const audio_sample_t *sample
         memset(packet->subpacket[i], 0, 8);
     }
 
-    return frame_count;
+    return temp_frame_count;
 }
 
 // ============================================================================
