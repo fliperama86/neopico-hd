@@ -99,6 +99,7 @@ mkdir build && cd build && cmake .. && make
 make neopico_hd          # Main firmware (video + audio capture → HDMI)
 make audio_pipeline_test # Audio capture test (color bars + audio status)
 make dvi_test            # HDMI output test (color bars only, no capture)
+make hstx_test           # HSTX output test (color bars via hardware TMDS)
 make gpio_freq_analyzer  # GPIO/clock analyzer (debug wiring)
 ```
 
@@ -180,7 +181,8 @@ cd viewer && python3 main.py
 ```
 src/
   main.c                # Main firmware (neopico_hd)
-  dvi_test.c            # HDMI output test
+  dvi_test.c            # HDMI output test (PicoDVI)
+  hstx_test.c           # HSTX output test (hardware TMDS)
   audio_pipeline_test.c # Audio capture test
   gpio_freq_analyzer.c  # GPIO/clock analyzer
   neopico_config.h      # Pin definitions
@@ -201,7 +203,10 @@ docs/
 lib/
   PicoDVI/              # DVI output library (submodule)
 reference/
-  cps2_digiav/          # FPGA reference for Neo Geo audio
+  cps2_digiav/          # FPGA A/V processing (Neo Geo audio format)
+  hsdaoh-rp2350/        # HSTX data streaming reference
+  pico-examples/        # Official Raspberry Pi examples (HSTX DVI)
+  intro.flac            # Test audio file
 ```
 
 ## Documentation
@@ -214,12 +219,28 @@ Detailed technical specifications are in `docs/`:
 - **[DVI_PIN_TESTING.md](docs/DVI_PIN_TESTING.md)** - RP2350 DVI pin constraints and solutions
 - **[PCB_DESIGN_GUIDE.md](docs/PCB_DESIGN_GUIDE.md)** - Hardware design considerations
 - **[HSTX_AUDIO_RESEARCH.md](docs/HSTX_AUDIO_RESEARCH.md)** - RP2350 HSTX as PicoDVI alternative
+- **[HSTX_HDMI_AUDIO_PLAN.md](docs/HSTX_HDMI_AUDIO_PLAN.md)** - Implementation plan for HDMI audio via HSTX
 
 ## References
 
-- [PicoDVI](https://github.com/Wren6991/PicoDVI) - DVI/HDMI output library
-- [PicoDVI-N64](https://github.com/kbeckmann/PicoDVI-N64) - Architecture inspiration
-- [cps2_digiav](https://github.com/marqs85/cps2_digiav) - Neo Geo audio format reference
+### Libraries (submodules in `lib/`)
+
+- [PicoDVI](https://github.com/Wren6991/PicoDVI) - DVI/HDMI output library with audio support
+
+### Reference Implementations (submodules in `reference/`)
+
+- [pico-examples](https://github.com/raspberrypi/pico-examples) - Official Raspberry Pi examples
+  - `hstx/dvi_out_hstx_encoder/` - HSTX hardware TMDS encoder for DVI output
+- [cps2_digiav](https://github.com/marqs85/cps2_digiav) - FPGA-based A/V processing for arcade hardware
+  - Neo Geo audio format reference (right-justified I2S)
+  - MVS video timing reference
+- [hsdaoh-rp2350](https://github.com/steve-m/hsdaoh-rp2350) - High-speed data acquisition over HDMI
+  - HSTX peripheral usage patterns
+  - Non-standard 1080p timing for data streaming (not for display)
+
+### Other Inspiration
+
+- [PicoDVI-N64](https://github.com/kbeckmann/PicoDVI-N64) - Architecture inspiration for console capture
 
 ## License
 

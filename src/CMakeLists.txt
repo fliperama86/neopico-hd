@@ -143,3 +143,51 @@ target_link_libraries(gpio_freq_analyzer
 pico_enable_stdio_usb(gpio_freq_analyzer 1)
 pico_enable_stdio_uart(gpio_freq_analyzer 0)
 pico_add_extra_outputs(gpio_freq_analyzer)
+
+# =============================================================================
+# HSTX Test (color bars via hardware TMDS encoder - no PicoDVI)
+# Target: RP2350A (pico2) with custom Spotpear pinout
+#
+# Build for pico2:
+#   rm -rf build && mkdir build && cd build
+#   cmake -DPICO_BOARD=pico2 .. && make hstx_test
+# =============================================================================
+add_executable(hstx_test
+    hstx_test.c
+)
+
+target_link_libraries(hstx_test
+    pico_stdlib
+    hardware_dma
+    hardware_gpio
+    hardware_irq
+)
+
+pico_enable_stdio_usb(hstx_test 1)
+pico_enable_stdio_uart(hstx_test 0)
+pico_add_extra_outputs(hstx_test)
+
+# =============================================================================
+# HSTX Audio Test (HSTX video + HDMI audio via Data Islands)
+# Target: RP2350A (pico2) with custom Spotpear pinout
+# =============================================================================
+add_executable(hstx_audio_test
+    hstx_audio_test.c
+    hstx_audio/data_packet.c
+)
+
+target_include_directories(hstx_audio_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/hstx_audio
+)
+
+target_link_libraries(hstx_audio_test
+    pico_stdlib
+    hardware_dma
+    hardware_gpio
+    hardware_irq
+)
+
+pico_enable_stdio_usb(hstx_audio_test 1)
+pico_enable_stdio_uart(hstx_audio_test 0)
+pico_add_extra_outputs(hstx_audio_test)
