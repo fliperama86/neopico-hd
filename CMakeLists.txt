@@ -12,13 +12,14 @@ endif()
 
 # For SDK 2.x, ensure the platform is set before project() to help toolchain selection
 if(PICO_BOARD MATCHES "rp2350")
-    set(PICO_PLATFORM rp2350-arm-s CACHE STRING "Pico platform")
+    set(PICO_PLATFORM rp2350 CACHE STRING "Pico platform" FORCE)
 endif()
 
 # Initialize the SDK
 include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(neopico_hd C CXX ASM)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 

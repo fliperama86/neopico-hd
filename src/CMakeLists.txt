@@ -3,6 +3,8 @@
 # =============================================================================
 add_executable(neopico_hd
     main.c
+    video/video_capture.c
+    video/video_output.c
     audio/audio_buffer.c
     audio/i2s_capture.c
     audio/src.c
@@ -10,7 +12,7 @@ add_executable(neopico_hd
     audio/lowpass.c
 )
 
-pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/mvs_capture.pio)
+pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
 
 target_include_directories(neopico_hd PRIVATE
