@@ -52,10 +52,10 @@ To ensure clean audio and video capture, follow these best practices:
 
 | Function | GPIO       |
 | -------- | ---------- |
-| DVI D0   | GPIO 25-26 |
-| DVI D1   | GPIO 27-28 |
-| DVI D2   | GPIO 29-30 |
-| DVI CLK  | GPIO 31-32 |
+| DVI CLK  | GPIO 12-13 |
+| DVI D0   | GPIO 14-15 |
+| DVI D1   | GPIO 16-17 |
+| DVI D2   | GPIO 18-19 |
 
 #### Audio Capture (Bank 1 - isolated from video noise)
 
