@@ -26,20 +26,18 @@
 #include "pins.h"
 
 // Video modules
+#include "video/video_config.h"
 #include "video/video_capture.h"
 #include "video/video_output.h"
 
 // Audio modules
+#include "audio/audio_config.h"
 #include "audio/audio_pipeline.h"
 #include "audio/audio_output.h"
 
-#define FRAME_WIDTH 320
-#define FRAME_HEIGHT 240  // 480p: 240 * 2 = 480 DVI lines
-#define MVS_HEIGHT 224
-#define VREG_VSEL VREG_VOLTAGE_1_20
-
-// Use 480p timing (252 MHz) - required for HDMI audio
-#define DVI_TIMING dvi_timing_640x480p_60hz
+// System configuration
+#define VREG_VSEL VREG_VOLTAGE_1_20  // Voltage regulator setting
+#define DVI_TIMING dvi_timing_640x480p_60hz  // 480p timing for HDMI audio
 
 // =============================================================================
 // Framebuffer
@@ -50,8 +48,6 @@ static uint16_t g_framebuf[FRAME_WIDTH * FRAME_HEIGHT];
 // =============================================================================
 // Audio
 // =============================================================================
-
-#define AUDIO_BUFFER_SIZE 1024  // HDMI audio buffer
 
 static audio_sample_t audio_buffer[AUDIO_BUFFER_SIZE];
 static audio_pipeline_t audio_pipeline;
@@ -91,7 +87,7 @@ int main() {
     // Initialize HDMI audio output
     struct dvi_inst *dvi = video_output_get_dvi();
     dvi_audio_sample_buffer_set(dvi, audio_buffer, AUDIO_BUFFER_SIZE);
-    audio_output_init(dvi, 48000);
+    audio_output_init(dvi, AUDIO_OUTPUT_RATE);
     printf("HDMI audio initialized\n");
 
     // Initialize audio pipeline (I2S capture → filters → SRC)
