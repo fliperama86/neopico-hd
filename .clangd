@@ -1,0 +1,36 @@
+CompileFlags:
+  Add:
+    - -mcpu=cortex-m33
+    - -mthumb
+    - -DPICO_RP2350=1
+    - -DPICO_BOARD="pico2"
+    - -DDVI_USE_PIO_CLOCK=1
+    - -DDVI_VERTICAL_REPEAT=1
+    - -I/Users/dudu/Projects/neopico-hd/src
+    - -I/Users/dudu/Projects/neopico-hd/build/src
+    - -I/Users/dudu/Projects/neopico-hd/lib/PicoDVI/software/include
+    - -I/Users/dudu/Projects/neopico-hd/lib/PicoDVI/software/libdvi
+    - -I/Users/dudu/pico-sdk/src/common/pico_stdlib_headers/include
+    - -I/Users/dudu/pico-sdk/src/rp2_common/hardware_gpio/include
+    - -I/Users/dudu/pico-sdk/src/common/pico_base_headers/include
+    - -I/Users/dudu/pico-sdk/src/boards/include
+    - -I/Users/dudu/pico-sdk/src/rp2350/pico_platform/include
+    - -I/Users/dudu/pico-sdk/src/rp2350/hardware_regs/include
+    - -I/Users/dudu/pico-sdk/src/rp2350/hardware_structs/include
+    - -I/Users/dudu/pico-sdk/src/rp2_common/hardware_base/include
+    - -I/Users/dudu/pico-sdk/src/rp2_common/pico_platform_common/include
+    - -I/Users/dudu/pico-sdk/src/rp2_common/hardware_sync/include
+    - -I/Users/dudu/pico-sdk/src/rp2_common/hardware_irq/include
+    - -I/Users/dudu/pico-sdk/src/rp2_common/hardware_clocks/include
+    - -I/Users/dudu/pico-sdk/src/rp2_common/hardware_vreg/include
+    - -I/Users/dudu/pico-sdk/src/rp2_common/hardware_timer/include
+    - -I/Users/dudu/pico-sdk/src/rp2_common/hardware_dma/include
+    - -I/Users/dudu/pico-sdk/src/rp2_common/hardware_pio/include
+    - -I/Users/dudu/pico-sdk/src/rp2_common/pico_multicore/include
+    - -I/Users/dudu/pico-sdk/src/common/pico_sync/include
+    - -I/Users/dudu/pico-sdk/src/common/pico_time/include
+    - -I/Users/dudu/pico-sdk/lib/tinyusb/src
+    - -I/Users/dudu/Projects/neopico-hd/build/generated/pico_base
+  Remove:
+    - -mfloat-abi=*
+    - -mcmse
