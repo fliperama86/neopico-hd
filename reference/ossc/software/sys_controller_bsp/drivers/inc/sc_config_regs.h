@@ -1,0 +1,1 @@
+../../../../ip/sc_config/inc/sc_config_regs.h

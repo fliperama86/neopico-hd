@@ -1,0 +1,1 @@
+../../../../ip/i2c_opencores/HAL/inc/i2c_opencores.h

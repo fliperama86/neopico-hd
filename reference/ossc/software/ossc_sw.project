@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CodeLite_Project Name="ossc_sw" InternalType="" Version="11000">
+  <Plugins>
+    <Plugin Name="qmake">
+      <![CDATA[00020001N0005Debug0000000000000001N0007Release000000000000]]>
+    </Plugin>
+    <Plugin Name="CMakePlugin">
+      <![CDATA[[{
+  "name": "Debug",
+  "enabled": false,
+  "buildDirectory": "build",
+  "sourceDirectory": "$(ProjectPath)",
+  "generator": "",
+  "buildType": "",
+  "arguments": [],
+  "parentProject": ""
+ }, {
+  "name": "Release",
+  "enabled": false,
+  "buildDirectory": "build",
+  "sourceDirectory": "$(ProjectPath)",
+  "generator": "",
+  "buildType": "",
+  "arguments": [],
+  "parentProject": ""
+ }]]]>
+    </Plugin>
+  </Plugins>
+  <VirtualDirectory Name="sys_controller">
+    <VirtualDirectory Name="fatfs">
+      <VirtualDirectory Name="source">
+        <File Name="sys_controller/fatfs/source/ffsystem.c"/>
+        <File Name="sys_controller/fatfs/source/ff.h"/>
+        <File Name="sys_controller/fatfs/source/ff.c"/>
+        <File Name="sys_controller/fatfs/source/diskio.h"/>
+        <File Name="sys_controller/fatfs/source/diskio.c"/>
+        <File Name="sys_controller/fatfs/source/ffunicode.c"/>
+      </VirtualDirectory>
+    </VirtualDirectory>
+    <File Name="sys_controller/av_controller.c"/>
+    <VirtualDirectory Name="src">
+      <File Name="sys_controller/src/file.c"/>
+      <File Name="sys_controller/src/sdcard.c"/>
+      <File Name="sys_controller/src/firmware.c"/>
+      <File Name="sys_controller/src/controls.c"/>
+      <File Name="sys_controller/src/avconfig.c"/>
+      <File Name="sys_controller/src/userdata.c"/>
+      <File Name="sys_controller/src/flash.c"/>
+      <File Name="sys_controller/src/menu.c"/>
+      <File Name="sys_controller/src/utils.c"/>
+      <File Name="sys_controller/src/video_modes_list.c"/>
+      <File Name="sys_controller/src/video_modes.c"/>
+      <File Name="sys_controller/src/fat16_export.c"/>
+      <File Name="sys_controller/src/lcd.c"/>
+      <File Name="sys_controller/src/lumacode_palettes.c"/>
+      <File Name="sys_controller/src/shmask_arrays.c"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="ic_drivers">
+      <VirtualDirectory Name="pcm1862">
+        <File Name="sys_controller/ic_drivers/pcm1862/pcm1862_regs.h"/>
+        <File Name="sys_controller/ic_drivers/pcm1862/pcm1862.c"/>
+        <File Name="sys_controller/ic_drivers/pcm1862/pcm1862.h"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="st7032">
+        <File Name="sys_controller/ic_drivers/st7032/st7032.c"/>
+        <File Name="sys_controller/ic_drivers/st7032/st7032.h"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="tvp7002">
+        <File Name="sys_controller/ic_drivers/tvp7002/tvp7002.c"/>
+        <File Name="sys_controller/ic_drivers/tvp7002/tvp7002.h"/>
+        <File Name="sys_controller/ic_drivers/tvp7002/tvp7002_regs.h"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="it6613">
+        <File Name="sys_controller/ic_drivers/it6613/typedef.h"/>
+        <File Name="sys_controller/ic_drivers/it6613/edid.h"/>
+        <File Name="sys_controller/ic_drivers/it6613/it6613_sys.c"/>
+        <File Name="sys_controller/ic_drivers/it6613/it6613.h"/>
+        <File Name="sys_controller/ic_drivers/it6613/hdmitx.h"/>
+        <File Name="sys_controller/ic_drivers/it6613/HDMI_COMMON.h"/>
+        <File Name="sys_controller/ic_drivers/it6613/it6613_sys.h"/>
+        <File Name="sys_controller/ic_drivers/it6613/EDID.c"/>
+        <File Name="sys_controller/ic_drivers/it6613/hdmitx_nios2.c"/>
+        <File Name="sys_controller/ic_drivers/it6613/it6613_drv.h"/>
+        <File Name="sys_controller/ic_drivers/it6613/it6613.c"/>
+        <File Name="sys_controller/ic_drivers/it6613/HDMI_TX.h"/>
+        <File Name="sys_controller/ic_drivers/it6613/HDMI_TX.c"/>
+        <File Name="sys_controller/ic_drivers/it6613/it6613_drv.c"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="sh1107">
+        <File Name="sys_controller/ic_drivers/sh1107/font12.h"/>
+        <File Name="sys_controller/ic_drivers/sh1107/sh1107.h"/>
+        <File Name="sys_controller/ic_drivers/sh1107/sh1107.c"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="ths7353">
+        <File Name="sys_controller/ic_drivers/ths7353/ths7353.c"/>
+        <File Name="sys_controller/ic_drivers/ths7353/ths7353.h"/>
+      </VirtualDirectory>
+    </VirtualDirectory>
+    <VirtualDirectory Name="ulibSD">
+      <File Name="sys_controller/ulibSD/sd_io.c"/>
+      <File Name="sys_controller/ulibSD/integer.h"/>
+      <File Name="sys_controller/ulibSD/spi_io.c"/>
+      <File Name="sys_controller/ulibSD/sd_io.h"/>
+      <File Name="sys_controller/ulibSD/spi_io.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="inc">
+      <File Name="sys_controller/inc/file.h"/>
+      <File Name="sys_controller/inc/firmware.h"/>
+      <File Name="sys_controller/inc/controls.h"/>
+      <File Name="sys_controller/inc/av_controller.h"/>
+      <File Name="sys_controller/inc/menu.h"/>
+      <File Name="sys_controller/inc/sdcard.h"/>
+      <File Name="sys_controller/inc/utils.h"/>
+      <File Name="sys_controller/inc/avconfig.h"/>
+      <File Name="sys_controller/inc/video_modes.h"/>
+      <File Name="sys_controller/inc/fat16_export.h"/>
+      <File Name="sys_controller/inc/flash.h"/>
+      <File Name="sys_controller/inc/userdata.h"/>
+      <File Name="sys_controller/inc/lcd.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="config">
+      <File Name="sys_controller/config/ffconf.h"/>
+      <File Name="sys_controller/config/sysconfig.h"/>
+    </VirtualDirectory>
+  </VirtualDirectory>
+  <Reconciliation>
+    <Regexes/>
+    <Excludepaths/>
+    <Ignorefiles/>
+    <Extensions>
+      <![CDATA[*.cpp;*.c;*.h;*.hpp;*.xrc;*.wxcp;*.fbp]]>
+    </Extensions>
+    <Topleveldir>/home/markus/Code/ossc/software/</Topleveldir>
+  </Reconciliation>
+  <Description/>
+  <Dependencies/>
+  <Dependencies Name="Debug"/>
+  <Dependencies Name="Release"/>
+  <Settings Type="Executable">
+    <GlobalSettings>
+      <Compiler Options="" C_Options="" Assembler="">
+        <IncludePath Value="."/>
+      </Compiler>
+      <Linker Options="">
+        <LibraryPath Value="."/>
+      </Linker>
+      <ResourceCompiler Options=""/>
+    </GlobalSettings>
+    <Configuration Name="Debug" CompilerType="GCC" DebuggerType="GNU gdb debugger" Type="Executable" BuildCmpWithGlobalSettings="append" BuildLnkWithGlobalSettings="append" BuildResWithGlobalSettings="append">
+      <Compiler Options="-g" C_Options="-g" Assembler="" Required="yes" PreCompiledHeader="" PCHInCommandLine="no" PCHFlags="" PCHFlagsPolicy="0">
+        <IncludePath Value="."/>
+      </Compiler>
+      <Linker Options="" Required="yes"/>
+      <ResourceCompiler Options="" Required="no"/>
+      <General OutputFile="" IntermediateDirectory="./Debug" Command="../../scripts/reprogram.sh" CommandArguments="jtag_uart" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(ProjectPath)/sys_controller" PauseExecWhenProcTerminates="no" IsGUIProgram="no" IsEnabled="yes"/>
+      <BuildSystem Name="Default"/>
+      <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
+        <![CDATA[]]>
+      </Environment>
+      <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="" IsExtended="no">
+        <DebuggerSearchPaths/>
+        <PostConnectCommands/>
+        <StartupCommands/>
+      </Debugger>
+      <PreBuild/>
+      <PostBuild/>
+      <CustomBuild Enabled="yes">
+        <Target Name="compile_image_debug">make APP_CFLAGS_DEBUG_LEVEL="-DDEBUG" generate_hex</Target>
+        <Target Name="compile_image_aud-debug">make ENABLE_AUDIO=y APP_CFLAGS_DEBUG_LEVEL="-DDEBUG" generate_hex</Target>
+        <Target Name="Ack BSP update">cd ../sys_controller_bsp &amp;&amp; touch bsp_timestamp</Target>
+        <RebuildCommand/>
+        <CleanCommand>make clean</CleanCommand>
+        <BuildCommand>make ENABLE_AUDIO=y APP_CFLAGS_DEBUG_LEVEL="-DDEBUG"</BuildCommand>
+        <PreprocessFileCommand/>
+        <SingleFileCommand/>
+        <MakefileGenerationCommand/>
+        <ThirdPartyToolName>None</ThirdPartyToolName>
+        <WorkingDirectory>$(ProjectPath)/sys_controller</WorkingDirectory>
+      </CustomBuild>
+      <AdditionalRules>
+        <CustomPostBuild/>
+        <CustomPreBuild/>
+      </AdditionalRules>
+      <Completion EnableCpp11="no" EnableCpp14="no">
+        <ClangCmpFlagsC/>
+        <ClangCmpFlags/>
+        <ClangPP/>
+        <SearchPaths/>
+      </Completion>
+    </Configuration>
+    <Configuration Name="Release" CompilerType="GCC" DebuggerType="GNU gdb debugger" Type="Executable" BuildCmpWithGlobalSettings="append" BuildLnkWithGlobalSettings="append" BuildResWithGlobalSettings="append">
+      <Compiler Options="" C_Options="" Assembler="" Required="yes" PreCompiledHeader="" PCHInCommandLine="no" PCHFlags="" PCHFlagsPolicy="0">
+        <IncludePath Value="."/>
+      </Compiler>
+      <Linker Options="-O2" Required="yes"/>
+      <ResourceCompiler Options="" Required="no"/>
+      <General OutputFile="" IntermediateDirectory="./Release" Command="../../scripts/reprogram.sh" CommandArguments="" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(ProjectPath)/sys_controller" PauseExecWhenProcTerminates="no" IsGUIProgram="no" IsEnabled="yes"/>
+      <BuildSystem Name="Default"/>
+      <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
+        <![CDATA[]]>
+      </Environment>
+      <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="" IsExtended="no">
+        <DebuggerSearchPaths/>
+        <PostConnectCommands/>
+        <StartupCommands/>
+      </Debugger>
+      <PreBuild/>
+      <PostBuild/>
+      <CustomBuild Enabled="yes">
+        <Target Name="compile_image_jp">make OSDLANG=JP generate_hex</Target>
+        <Target Name="compile_image_aud_jp">make ENABLE_AUDIO=y OSDLANG=JP generate_hex</Target>
+        <Target Name="compile_image_aud">make ENABLE_AUDIO=y generate_hex</Target>
+        <Target Name="compile_image">make generate_hex</Target>
+        <Target Name="Build_jp">make OSDLANG=JP</Target>
+        <Target Name="Build_audio">make ENABLE_AUDIO=y</Target>
+        <Target Name="Ack BSP update">cd ../sys_controller_bsp &amp;&amp; touch bsp_timestamp</Target>
+        <RebuildCommand/>
+        <CleanCommand>make clean</CleanCommand>
+        <BuildCommand>make ENABLE_AUDIO=y</BuildCommand>
+        <PreprocessFileCommand/>
+        <SingleFileCommand/>
+        <MakefileGenerationCommand/>
+        <ThirdPartyToolName>None</ThirdPartyToolName>
+        <WorkingDirectory>$(ProjectPath)/sys_controller</WorkingDirectory>
+      </CustomBuild>
+      <AdditionalRules>
+        <CustomPostBuild/>
+        <CustomPreBuild/>
+      </AdditionalRules>
+      <Completion EnableCpp11="no" EnableCpp14="no">
+        <ClangCmpFlagsC/>
+        <ClangCmpFlags/>
+        <ClangPP/>
+        <SearchPaths/>
+      </Completion>
+    </Configuration>
+  </Settings>
+</CodeLite_Project>
