@@ -1,5 +1,5 @@
-#ifndef NEOPICO_CONFIG_H
-#define NEOPICO_CONFIG_H
+#ifndef HARDWARE_CONFIG_H
+#define HARDWARE_CONFIG_H
 
 #include "dvi_serialiser.h"
 
@@ -48,4 +48,4 @@ static inline void neopico_dvi_gpio_setup(void) {
     // No setup required for GPIO 12-19 (default PIO GPIO base works)
 }
 
-#endif // NEOPICO_CONFIG_H
+#endif // HARDWARE_CONFIG_H
