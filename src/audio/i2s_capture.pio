@@ -1,5 +1,10 @@
 .program i2s_capture
 
+; Default pins (configurable via init function):
+;   pin_dat: GPIO 36 (PIN_I2S_DAT from pins.h)
+;   pin_ws:  GPIO 37 (PIN_I2S_WS from pins.h)
+;   pin_bck: GPIO 38 (PIN_I2S_BCK from pins.h)
+;
 ; Pin offsets from in_base:
 ;   DAT = in_base + 0 (sampled with `in pins, 1`)
 ;   WS  = in_base + 1 (wait pin 1)

@@ -26,4 +26,3 @@ screenlog.*
 hardware/neopico-hd/neopico-hd-backups
 *.lck
 .cache/
-compile_commands.json

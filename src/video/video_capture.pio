@@ -83,6 +83,11 @@ void mvs_sync_4a_program_init(PIO pio, uint sm, uint offset, uint pin_csync, uin
 ;
 ; MVS Pixel Capture - 16-bit RGB
 ;
+; Default pins (configurable via init function):
+;   pin_base:  GPIO 0  (PIN_MVS_BASE from pins.h)
+;   pin_csync: GPIO 22 (PIN_MVS_CSYNC from pins.h)
+;   pin_pclk:  GPIO 0  (PIN_MVS_PCLK from pins.h)
+;
 ; Captures 16 bits per pixel clock:
 ;   GPIO 0:     PCLK (ignored in data, but captured for alignment)
 ;   GPIO 1-5:   G4-G0 (5 green bits, reversed order)

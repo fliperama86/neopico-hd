@@ -2,19 +2,14 @@
 #define HARDWARE_CONFIG_H
 
 #include "dvi_serialiser.h"
+#include "../pins.h"
 
 // =============================================================================
-// MVS Pin Configuration
+// MVS Pin Aliases (for compatibility)
 // =============================================================================
-// GPIO 0:     PCLK (C2)
-// GPIO 1-5:   G4-G0 (Green, reversed bit order)
-// GPIO 6-10:  B0-B4 (Blue)
-// GPIO 11-15: R0-R4 (Red)
-// GPIO 22:    CSYNC
-
-#define PIN_BASE  0    // Base pin for 16-bit capture (PCLK + RGB data)
-#define PIN_PCLK  0    // Pixel clock
-#define PIN_CSYNC 22   // Composite sync
+#define PIN_BASE  PIN_MVS_BASE
+#define PIN_PCLK  PIN_MVS_PCLK
+#define PIN_CSYNC PIN_MVS_CSYNC
 
 // Lookup table to reverse 5-bit green value (G4G3G2G1G0 -> G0G1G2G3G4)
 static const uint8_t green_reverse_lut[32] = {
@@ -25,21 +20,14 @@ static const uint8_t green_reverse_lut[32] = {
 };
 
 // =============================================================================
-// DVI Pin Configuration
+// DVI Configuration
 // =============================================================================
-// GPIO 12-13: DVI Clock (CLK-/CLK+)
-// GPIO 14-15: DVI D0 (D0-/D0+)
-// GPIO 16-17: DVI D1 (D1-/D1+)
-// GPIO 18-19: DVI D2 (D2-/D2+)
-//
-// Requirements:
-//   - Add DVI_USE_PIO_CLOCK=1 compile flag
 
 static const struct dvi_serialiser_cfg neopico_dvi_cfg = {
     .pio = pio0,
     .sm_tmds = {0, 1, 2},
-    .pins_tmds = {14, 16, 18},   // D0=GP14-15, D1=GP16-17, D2=GP18-19
-    .pins_clk = 12,              // Clock=GP12-13
+    .pins_tmds = {PIN_DVI_D0, PIN_DVI_D1, PIN_DVI_D2},
+    .pins_clk = PIN_DVI_CLK,
     .invert_diffpairs = true     // GP(n)=-, GP(n+1)=+
 };
 
