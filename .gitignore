@@ -23,6 +23,56 @@ screenlog.*
 *.bin
 
 .obsidian
-hardware/neopico-hd/neopico-hd-backups
-*.lck
 .cache/
+
+# =============================================================================
+# KiCad
+# =============================================================================
+
+# Backup files
+*-backups/
+*.bak
+*.bck
+*-bak
+*-save.kicad_pcb
+*-save.kicad_sch
+*.kicad_pcb-bak
+*.kicad_sch-bak
+
+# Cache and temporary files
+*-cache.lib
+*.cache
+fp-info-cache
+sym-lib-table.backup
+
+# Lock files
+*.lck
+*.lock
+~*.lck
+
+# Project local settings (user-specific)
+*.kicad_prl
+
+# Auto-saved files
+*.000
+*.bak
+
+# Gerber job files (generated)
+*-job.gbrjob
+
+# Drill files backup
+*.drl.bak
+
+# Reports (optional - uncomment if you don't want these in git)
+# *.rpt
+# *.csv
+# *.txt
+
+# 3D models cache
+*.wrl.cache
+*.step.cache
+
+# Fabrication outputs (optional - uncomment if generated locally)
+# gerbers/
+# fabrication/
+# *-gerbers/
