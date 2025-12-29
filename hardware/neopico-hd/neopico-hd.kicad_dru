@@ -1,0 +1,4 @@
+(version 1)
+(rule "HDMI_clearance"
+  (condition "A.NetClass == 'HDMI'")
+  (constraint clearance (min 0.1mm)))
