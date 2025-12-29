@@ -10,3 +10,6 @@
 [submodule "reference/pico-examples"]
 	path = reference/pico-examples
 	url = https://github.com/raspberrypi/pico-examples.git
+[submodule "reference/pico_lib"]
+	path = reference/pico_lib
+	url = https://github.com/shuichitakano/pico_lib.git

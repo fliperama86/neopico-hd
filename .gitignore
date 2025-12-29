@@ -76,3 +76,7 @@ sym-lib-table.backup
 # gerbers/
 # fabrication/
 # *-gerbers/
+# Prevent large media files in reference/
+reference/*.wav
+reference/*.flac
+reference/*.mp3
