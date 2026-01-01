@@ -22,9 +22,9 @@ def split_markdown(full_md_path, output_dir):
     with open(full_md_path, "r", encoding="utf-8") as f:
         content = f.read()
         
-    # Split by major headers like "## 1. Introduction", "## 2. System bus"
-    # Looking for "## [Number]. [Title]"
-    chapters = re.split(r'\n(## \d+\. .*)\n', content)
+    # Split by major headers like "## Chapter 1. Introduction", "## Chapter 2. System bus"
+    # Looking for "## Chapter [Number]. [Title]"
+    chapters = re.split(r'\n(## Chapter \d+\. .*)\n', content)
     
     # The first element is the preamble (TOC, Colophon etc)
     preamble = chapters[0]
@@ -36,14 +36,14 @@ def split_markdown(full_md_path, output_dir):
         body = chapters[i+1] if i+1 < len(chapters) else ""
         
         # Clean header for filename
-        # e.g., "## 1. Introduction" -> "01_introduction"
-        match = re.search(r'## (\d+)\. (.*)', header)
+        # e.g., "## Chapter 1. Introduction" -> "01_introduction"
+        match = re.search(r'## Chapter (\d+)\. (.*)', header)
         if match:
             num = match.group(1).zfill(2)
             title = match.group(2).lower().replace(" ", "_").replace("/", "_")
             # Remove non-alphanumeric chars from title
             title = re.sub(r'[^a-z0-9_]', '', title)
-            filename = f"{num}_{title}.md"
+            filename = f"ch{num}_{title}.md"
             
             with open(os.path.join(output_dir, filename), "w", encoding="utf-8") as f:
                 f.write(header + "\n" + body)
