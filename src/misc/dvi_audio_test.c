@@ -19,7 +19,7 @@
 
 #include "dvi.h"
 #include "audio_ring.h"
-#include "neopico_config.h"
+#include "video/hardware_config.h"  // For neopico_dvi_cfg and pin definitions
 
 // =============================================================================
 // Mode Selection

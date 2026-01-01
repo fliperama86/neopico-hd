@@ -11,13 +11,32 @@
 #define PIN_PCLK  PIN_MVS_PCLK
 #define PIN_CSYNC PIN_MVS_CSYNC
 
-// Lookup table to reverse 5-bit green value (G4G3G2G1G0 -> G0G1G2G3G4)
-static const uint8_t green_reverse_lut[32] = {
-    0x00, 0x10, 0x08, 0x18, 0x04, 0x14, 0x0C, 0x1C,
-    0x02, 0x12, 0x0A, 0x1A, 0x06, 0x16, 0x0E, 0x1E,
-    0x01, 0x11, 0x09, 0x19, 0x05, 0x15, 0x0D, 0x1D,
-    0x03, 0x13, 0x0B, 0x1B, 0x07, 0x17, 0x0F, 0x1F
-};
+// =============================================================================
+// GP25-42 Contiguous Bit Field Extraction (FAST!)
+// =============================================================================
+// PIO reads GP25-42 (18 pins), with PCLK at position 0 and CONTIGUOUS RGB fields
+//
+// 18-bit capture layout (RGB order):
+//   Bit 0:      GP25 (PCLK - ignored)
+//   Bits 1-5:   GP26-30 (Red R0-R4, contiguous)
+//   Bits 6-10:  GP31-35 (Green G0-G4, contiguous)
+//   Bits 11-15: GP36-40 (Blue B0-B4, contiguous)
+//   Bit 16:     GP41 (DARK - not used yet)
+//   Bit 17:     GP42 (SHADOW - not used yet)
+//
+// This matches the working Bank 0 architecture: contiguous fields = fast extraction!
+// RGB555 format: RRRRR GGGGG BBBBB (bits 14-10: R, 9-5: G, 4-0: B)
+
+static inline uint16_t extract_rgb555_contiguous(uint32_t gpio_data) {
+    // BABY STEP #2: Revert to original positions - SDK should fix IN_BASE
+    // If IN_BASE is correctly set to GP25, these positions will be right:
+    uint8_t r = (gpio_data >> 1) & 0x1F;   // Bits 1-5: Red (GP26-30)
+    uint8_t g = (gpio_data >> 6) & 0x1F;   // Bits 6-10: Green (GP31-35)
+    uint8_t b = (gpio_data >> 11) & 0x1F;  // Bits 11-15: Blue (GP36-40)
+
+    // Combine into RGB555: RRRRR GGGGG BBBBB
+    return (r << 10) | (g << 5) | b;
+}
 
 // =============================================================================
 // DVI Configuration

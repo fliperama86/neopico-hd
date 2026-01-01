@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "neopico-hd")(type "KiCad")(uri "${KIPRJMOD}/neopico-hd.kicad_sym")(options "")(descr ""))
+)
