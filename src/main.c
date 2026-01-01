@@ -23,6 +23,9 @@
 #include "audio/audio_output.h"
 #include "audio/audio_pipeline.h"
 
+// Test utilities
+#include "misc/test_patterns.h"
+
 // System configuration
 #define VREG_VSEL VREG_VOLTAGE_1_20         // Voltage regulator setting
 #define DVI_TIMING dvi_timing_640x480p_60hz // 480p timing for HDMI audio
@@ -48,6 +51,31 @@ static void audio_output_callback(const ap_sample_t *samples, uint32_t count,
 }
 
 // =============================================================================
+// USB Frame Output (for Python viewer)
+// =============================================================================
+
+#define ENABLE_USB_FRAME_OUTPUT 0  // Disabled for GPIO debug (binary data clutters serial output)
+
+#define SYNC_BYTE_1 0x55
+#define SYNC_BYTE_2 0xAA
+
+static void send_frame_usb(const uint16_t *framebuf, uint width, uint height) {
+  // Send sync header (little-endian: 0xAA55, 0x55AA)
+  putchar_raw(SYNC_BYTE_1);
+  putchar_raw(SYNC_BYTE_2);
+  putchar_raw(SYNC_BYTE_2);
+  putchar_raw(SYNC_BYTE_1);
+
+  // Send frame data as RGB565 (little-endian, 2 bytes per pixel)
+  const uint8_t *bytes = (const uint8_t *)framebuf;
+  uint32_t frame_bytes = width * height * 2;
+
+  for (uint32_t i = 0; i < frame_bytes; i++) {
+    putchar_raw(bytes[i]);
+  }
+}
+
+// =============================================================================
 // Main - Coordinator
 // =============================================================================
 
@@ -56,16 +84,23 @@ int main() {
   sleep_ms(10);
   set_sys_clock_khz(DVI_TIMING.bit_clk_khz, true);
 
-  stdio_init_all();
+  // stdio_init_all();  // DISABLED - USB serial causes glitches
+  // sleep_ms(5000);
+
+  // Set PIO GPIO bases (no printf to avoid USB overhead)
+  pio_set_gpio_base(pio0, 0);
+  pio_set_gpio_base(pio1, 0);
+  pio_set_gpio_base(pio2, 0);
 
   gpio_init(PICO_DEFAULT_LED_PIN);
   gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
   gpio_put(PICO_DEFAULT_LED_PIN, 1);
 
-  printf("NeoPico-HD: MVS Capture + DVI Output (Line-by-line 60fps)\n");
-
   // Initialize framebuffer to black
   memset(g_framebuf, 0, sizeof(g_framebuf));
+
+  // Color bars test (disabled - HDMI verified working)
+  // fill_color_bars(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT);
 
   // Initialize video output (DVI)
   video_output_init(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT);
@@ -73,47 +108,64 @@ int main() {
   // Initialize video capture (MVS)
   video_capture_init(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, MVS_HEIGHT);
 
-  // Initialize HDMI audio output
-  struct dvi_inst *dvi = video_output_get_dvi();
-  dvi_audio_sample_buffer_set(dvi, audio_buffer, AUDIO_BUFFER_SIZE);
-  audio_output_init(dvi, AUDIO_OUTPUT_RATE);
-  printf("HDMI audio initialized\n");
-
-  // Initialize audio pipeline (I2S capture → filters → SRC)
-  audio_pipeline_config_t audio_cfg = {
-      .pin_dat = PIN_I2S_DAT,
-      .pin_ws = PIN_I2S_WS,
-      .pin_bck = PIN_I2S_BCK,
-      .pio = pio2, // Use PIO2 (RP2350 has 3 PIOs!)
-      .sm = 0,
-      .pin_btn1 = 0, // No buttons for now
-      .pin_btn2 = 0,
-  };
-  if (!audio_pipeline_init(&audio_pipeline, &audio_cfg)) {
-    printf("ERROR: Failed to initialize audio pipeline\n");
-    return 1;
-  }
-  audio_pipeline_start(&audio_pipeline);
-  printf("Audio pipeline started\n");
+  // ... audio skipped ...
 
   // Start DVI output on Core 1
-  printf("Starting Core 1 (DVI)\n");
   video_output_start();
 
-  printf("Starting line-by-line capture loop\n");
+  // Sync header for viewer
+  const uint8_t sync_header[] = {0x55, 0xAA, 0xAA, 0x55};
 
   // Main capture loop
+  uint32_t timeout_count = 0;
   while (true) {
     uint32_t frame_count = video_capture_get_frame_count();
-    gpio_put(PICO_DEFAULT_LED_PIN, (frame_count / 30) & 1);
+    gpio_put(PICO_DEFAULT_LED_PIN, (frame_count / 10) & 1); // Blink 3x faster
 
     // Capture one frame (blocks until complete)
     if (!video_capture_frame()) {
+      timeout_count++;
+      // MINIMAL OVERHEAD TEST: Diagnostics disabled
+      /*
+      if (timeout_count % 10 == 0) {
+        printf("Frame capture timeout (count: %lu)\n", timeout_count);
+      }
+      if (timeout_count % 100 == 0 && timeout_count > 0) {
+        // Print diagnostic once to help debug
+        extern PIO g_pio_mvs;  // Declare external from video_capture.c
+        if (g_pio_mvs) {
+          // Read ACTUAL GPIOBASE register (RP2350 offset 0x168)
+          uint32_t actual_gpiobase = *(volatile uint32_t*)((uintptr_t)g_pio_mvs + 0x168);
+          printf("*** GPIOBASE DIAGNOSTIC ***\n");
+          printf("  RP2350 ACTUAL GPIOBASE: %lu (Expected: 16)\n", actual_gpiobase);
+          printf("  PIO Instance: PIO%d\n", pio_get_index(g_pio_mvs));
+        }
+      }
+      */
       continue; // Timeout, try again
     }
 
+    // MINIMAL OVERHEAD TEST: Diagnostics disabled
+    /*
+    if (timeout_count > 0) {
+      printf("Frame captured after %lu timeouts!\n", timeout_count);
+      timeout_count = 0;
+    }
+    */
+    timeout_count = 0;
+
+    // USB frame output for Python viewer
+#if ENABLE_USB_FRAME_OUTPUT
+    if (frame_count % 10 == 0) {
+      fwrite(sync_header, 1, 4, stdout);
+      fwrite(g_framebuf, 1, FRAME_WIDTH * FRAME_HEIGHT * 2, stdout);
+      fflush(stdout);
+    }
+#endif
+
     // Process audio: I2S → filters → SRC → HDMI
-    audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
+    // TEMPORARILY DISABLED
+    // audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
   }
 
   return 0;

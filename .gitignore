@@ -80,3 +80,4 @@ sym-lib-table.backup
 reference/*.wav
 reference/*.flac
 reference/*.mp3
+venv/
