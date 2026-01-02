@@ -184,3 +184,27 @@ target_compile_definitions(dvi_audio_test PRIVATE
 pico_enable_stdio_usb(dvi_audio_test 1)
 pico_enable_stdio_uart(dvi_audio_test 0)
 pico_add_extra_outputs(dvi_audio_test)
+
+# =============================================================================
+# HSTX Lab - HSTX-based DVI with HDMI audio
+# =============================================================================
+add_executable(hstx_lab
+    ../misc/hstx_lab/src/main.c
+    ../misc/hstx_lab/src/data_packet.c
+)
+
+target_include_directories(hstx_lab PRIVATE
+    ../misc/hstx_lab/include
+)
+
+target_link_libraries(hstx_lab
+    pico_stdlib
+    hardware_dma
+    hardware_gpio
+    hardware_irq
+    hardware_clocks
+)
+
+pico_enable_stdio_usb(hstx_lab 1)
+pico_enable_stdio_uart(hstx_lab 0)
+pico_add_extra_outputs(hstx_lab)
