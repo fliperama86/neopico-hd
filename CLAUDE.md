@@ -4,7 +4,7 @@ Instructions for Claude Code (claude.ai/code) when working with this repository.
 
 ## Architecture Context
 
-NeoPico-HD is a cinema-quality Neo Geo MVS capture system using the RP2350B.
+NeoPico-HD is a pure digital Neo Geo MVS capture system using the RP2350B.
 
 - **Core 0**: Handles pixel-perfect video capture (PIO+DMA) and digital audio processing (I2S+SRC).
 - **Core 1**: Dedicated to the PicoDVI stack, rendering 240p video doubled to 480p for HDMI compatibility.
