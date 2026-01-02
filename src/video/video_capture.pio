@@ -55,6 +55,7 @@ check_pin:
 pixel_loop:
     wait 0 pin 0               ; GP25 (PCLK) LOW
     wait 1 pin 0               ; PCLK HIGH (rising edge)
-    in pins, 18                ; Sample GP25-42
+    nop                        ; Setup time delay
+    in pins, 18                ; Sample GP25-42 with delay after rising edge
     jmp x-- pixel_loop         ; Loop until line complete
 .wrap

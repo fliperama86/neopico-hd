@@ -186,15 +186,22 @@ pico_enable_stdio_uart(dvi_audio_test 0)
 pico_add_extra_outputs(dvi_audio_test)
 
 # =============================================================================
-# HSTX Lab - HSTX-based DVI with HDMI audio
+# HSTX Lab - HSTX-based DVI with HDMI audio + MVS capture
 # =============================================================================
 add_executable(hstx_lab
     misc/hstx_lab/src/main.c
     misc/hstx_lab/src/data_packet.c
+    video/video_capture.c
 )
 
+# Generate PIO header for video capture
+pico_generate_pio_header(hstx_lab ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
+
+# IMPORTANT: hstx_lab/include comes FIRST to shadow hardware_config.h
 target_include_directories(hstx_lab PRIVATE
     misc/hstx_lab/include
+    ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/video
 )
 
 target_link_libraries(hstx_lab
@@ -204,6 +211,11 @@ target_link_libraries(hstx_lab
     hardware_gpio
     hardware_irq
     hardware_clocks
+    hardware_pio
+)
+
+target_compile_definitions(hstx_lab PRIVATE
+    HSTX_LAB_BUILD=1
 )
 
 pico_enable_stdio_usb(hstx_lab 1)

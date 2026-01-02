@@ -1,7 +1,9 @@
 #ifndef HARDWARE_CONFIG_H
 #define HARDWARE_CONFIG_H
 
+#ifndef HSTX_LAB_BUILD
 #include "dvi_serialiser.h"
+#endif
 #include "../pins.h"
 
 // =============================================================================
@@ -39,9 +41,10 @@ static inline uint16_t extract_rgb555_contiguous(uint32_t gpio_data) {
 }
 
 // =============================================================================
-// DVI Configuration
+// DVI Configuration (PicoDVI only, not used by HSTX Lab)
 // =============================================================================
 
+#ifndef HSTX_LAB_BUILD
 static const struct dvi_serialiser_cfg neopico_dvi_cfg = {
     .pio = pio0,
     .sm_tmds = {0, 1, 2},
@@ -54,5 +57,6 @@ static const struct dvi_serialiser_cfg neopico_dvi_cfg = {
 static inline void neopico_dvi_gpio_setup(void) {
     // No setup required for GPIO 12-19 (default PIO GPIO base works)
 }
+#endif // HSTX_LAB_BUILD
 
 #endif // HARDWARE_CONFIG_H

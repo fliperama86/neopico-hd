@@ -28,6 +28,7 @@
 #include "pico/multicore.h"
 #include "data_packet.h"
 #include "pico/stdlib.h"
+#include "video_capture.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -201,7 +202,7 @@ static void update_audio_ring_buffer(void) {
 // Framebuffer (320×240 MVS native, 2×2 doubled to 640×480, RGB565)
 // ============================================================================
 
-static uint16_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH];
+static uint16_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH] __attribute__((aligned(4)));
 
 // Line buffer for horizontal pixel doubling (320 → 640 pixels, RGB565)
 // Aligned for fast DMA access
@@ -482,14 +483,10 @@ void __scratch_x("") dma_irq_handler() {
     const uint16_t *src = &framebuf[fb_line * FRAMEBUF_WIDTH];
     uint32_t *dst32 = (uint32_t *)line_buffer;
 
-    // Horizontal pixel doubling: 320 → 640 pixels (RGB565, optimized)
-    // Process 2 pixels at a time (2×16-bit = 32-bit word)
-    for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i += 2) {
-      uint32_t p0 = src[i];      // 16-bit pixel
-      uint32_t p1 = src[i + 1];  // 16-bit pixel
-      // Each pixel doubled: p0 p0 p1 p1
-      dst32[i * 2 / 2] = (p0) | (p0 << 16);
-      dst32[i * 2 / 2 + 1] = (p1) | (p1 << 16);
+    // Normal 2x pixel doubling (320→640 horizontal, 240→480 vertical via fb_line/2)
+    for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i++) {
+      uint32_t p = src[i];
+      dst32[i] = p | (p << 16);
     }
 
     if (audio_sample_accum >= (4 << 16) && audio_ring_tail != audio_ring_head) {
@@ -631,7 +628,10 @@ int main(void) {
   gpio_init(PICO_DEFAULT_LED_PIN);
   gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
-  sleep_ms(2000);
+  sleep_ms(1000);
+
+  // Flush any pending output
+  stdio_flush();
 
   printf("\n\n");
   printf("================================\n");
@@ -639,6 +639,7 @@ int main(void) {
   printf("================================\n");
   printf("Core 0: Available for capture\n");
   printf("Core 1: HSTX output (640x480)\n\n");
+  stdio_flush();
 
   // Initialize shared resources before launching Core 1
   init_background();  // Pre-calculate rainbow gradient
@@ -649,53 +650,37 @@ int main(void) {
       vblank_di_ping, hstx_get_null_data_island(true, false), false, false);
   memcpy(vblank_di_pong, vblank_di_ping, sizeof(vblank_di_ping));
 
-  // Launch Core 1 for HSTX output
+  // Claim DMA channels for HSTX before launching Core 1
+  dma_channel_claim(DMACH_PING);
+  dma_channel_claim(DMACH_PONG);
+
+  // Launch Core 1 for HSTX output first
   printf("Launching Core 1 for HSTX...\n");
   multicore_launch_core1(core1_entry);
-
-  // Give Core 1 time to start
   sleep_ms(100);
-  printf("Core 1 running. HSTX output active.\n\n");
+  printf("Core 1 running.\n\n");
 
-  uint32_t last_frame = 0;
-  uint32_t last_vframe = 0;
+  // Initialize video capture
+  printf("Initializing video capture...\n");
+  video_capture_init(framebuf, FRAMEBUF_WIDTH, FRAMEBUF_HEIGHT, 224);
+  printf("Starting continuous capture...\n");
+
+  // Continuous capture loop - Core 0 captures, Core 1 displays
   uint32_t led_toggle_frame = 0;
   bool led_state = false;
+  uint32_t capture_count = 0;
 
-  // Core 0 main loop: update framebuffer during vblank
   while (1) {
-    // Wait for vsync (safe time to update framebuffer)
-    while (video_frame_count == last_vframe) {
-      tight_loop_contents();
+    // Capture next frame
+    if (video_capture_frame()) {
+      capture_count++;
     }
-    last_vframe = video_frame_count;
 
-    // Now update framebuffer during vblank (DMA not reading it)
-    update_box();
-    draw_frame();
-
-    // LED heartbeat at 2Hz (toggle every 30 frames @ 60fps = 0.5s)
+    // LED heartbeat at 2Hz
     if (video_frame_count >= led_toggle_frame + 30) {
       led_state = !led_state;
       gpio_put(PICO_DEFAULT_LED_PIN, led_state);
       led_toggle_frame = video_frame_count;
-    }
-
-    // Status and error checking every second
-    if (video_frame_count >= last_frame + 60) {
-      int buffer_fill = (audio_ring_head - audio_ring_tail + AUDIO_RING_BUFFER_SIZE) % AUDIO_RING_BUFFER_SIZE;
-
-      // Warn instead of asserting (for debugging)
-      if (buffer_fill <= 10) {
-        printf("WARNING: Audio buffer underrun! (%d packets)\n", buffer_fill);
-      }
-      if (buffer_fill >= 250) {
-        printf("WARNING: Audio buffer overflow! (%d packets)\n", buffer_fill);
-      }
-
-      printf("Frame %u, audio buffer: %d/%d packets\n",
-             (unsigned int)video_frame_count, buffer_fill, AUDIO_RING_BUFFER_SIZE);
-      last_frame = video_frame_count;
     }
   }
 
