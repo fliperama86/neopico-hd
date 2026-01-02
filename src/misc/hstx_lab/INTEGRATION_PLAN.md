@@ -1,5 +1,9 @@
 # HSTX Lab + MVS Video Capture Integration Plan
 
+## Status: COMPLETE ✓
+
+All phases successfully implemented. Live MVS video capture working via HSTX output.
+
 ## Overview
 
 Integrate MVS video capture from the main neopico-hd firmware into the HSTX lab,
@@ -9,10 +13,10 @@ enabling real Neo Geo video display via the RP2350's native HSTX peripheral.
 
 | Resource | Video Capture | HSTX Output | Conflict? |
 |----------|---------------|-------------|-----------|
-| **Core** | Core 0 (blocking) | Core 0 (IRQ-driven) | **YES** |
+| **Core** | Core 0 | Core 1 | No (separated) |
 | **PIO** | PIO1 (SM0, SM1) | HSTX peripheral | No |
 | **GPIOs** | 25-43 (Bank 1) | 12-19 (Bank 0) | No |
-| **DMA** | 1 channel (dynamic) | Channels 0, 1 | Need care |
+| **DMA** | Channel 2+ | Channels 0, 1 | No (claimed first) |
 | **Clock** | Works at any clock | Needs 126MHz | No |
 
 ## Architecture
@@ -43,57 +47,60 @@ enabling real Neo Geo video display via the RP2350's native HSTX peripheral.
 
 ## Implementation Phases
 
-### Phase 1: Make HSTX Multicore
+### Phase 1: Make HSTX Multicore ✓
 
 **Goal**: Move HSTX output to Core 1, freeing Core 0 for capture.
 
 **Changes**:
-1. Create `core1_entry()` function containing all HSTX initialization
-2. Move DMA IRQ handler registration to Core 1
+1. Created `core1_entry()` function containing all HSTX initialization
+2. Moved DMA IRQ handler registration to Core 1
 3. Launch Core 1 via `multicore_launch_core1()`
-4. Core 0 main loop handles framebuffer updates (for now, test pattern)
+4. Made `video_frame_count` volatile for cross-core visibility
 
-**Validation**: Rainbow gradient + bouncing box still works after change.
+**Result**: Rainbow gradient displays correctly with Core 1 handling output.
 
-### Phase 2: Port Video Capture
+### Phase 2: Port Video Capture ✓
 
 **Goal**: Add MVS capture capability to Core 0.
 
-**Files to add**:
-- `video_capture.c` (ported from main firmware)
-- `video_capture.h` (ported from main firmware)
-- `video_capture.pio` (copied from main firmware)
-
 **Changes**:
-1. Add PIO header generation to CMakeLists.txt
-2. Initialize PIO1 on Core 0
-3. Claim DMA channel 2 (avoid 0/1 used by HSTX)
-4. Apply GPIOBASE=16 hack for Bank 1 GPIO access
+1. Added `video_capture.c` to hstx_lab build in CMakeLists.txt
+2. Added PIO header generation for `video_capture.pio`
+3. Added `HSTX_LAB_BUILD` define to exclude PicoDVI dependencies
+4. Modified `hardware_config.h` with `#ifndef HSTX_LAB_BUILD` guards
+5. Claim DMA channels 0,1 for HSTX BEFORE Core 1 launch
 
-**Validation**: Capture initializes without crashing HSTX output.
+**Result**: Capture initializes without crashing HSTX output.
 
-### Phase 3: Single Frame Capture Test
+### Phase 3: Single Frame Capture Test ✓
 
 **Goal**: Capture one MVS frame and display it.
 
-**Changes**:
-1. Core 0: Call `video_capture_init()` after Core 1 launches
-2. Core 0: Call `video_capture_frame()` once
-3. Captured frame appears in shared `framebuf[]`
-4. Core 1 displays it via HSTX (already running)
-5. Stop capture, leave display running with static image
+**Key Discovery**: Pixel sampling timing was incorrect. Added NOP delay after
+PCLK rising edge in PIO program to allow data setup time.
 
-**Validation**: Real MVS video frame visible on HDMI output.
+**Changes to video_capture.pio**:
+```
+pixel_loop:
+    wait 0 pin 0               ; Wait for PCLK LOW
+    wait 1 pin 0               ; Wait for PCLK HIGH (rising edge)
+    nop                        ; Data setup time (MVS needs ~1 cycle after edge)
+    in pins, 18                ; Sample GP25-42
+    jmp x-- pixel_loop
+```
 
-### Phase 4: Continuous Capture (Future)
+**Result**: Sharp, artifact-free single frame capture displayed via HSTX.
+
+### Phase 4: Continuous Capture ✓
 
 **Goal**: Live video feed from MVS.
 
-**Considerations**:
-- Frame buffer race condition (Core 0 writes, Core 1 reads)
-- MVS 59.19Hz vs HDMI 60Hz timing mismatch
-- Double-buffering or vsync coordination needed
-- Frame drop/repeat strategy for rate conversion
+**Implementation**: Simple continuous capture loop on Core 0.
+
+**Key Finding**: Double-buffering NOT required! Single shared framebuffer works
+without visible tearing. Both cores access framebuf concurrently with no issues.
+
+**Result**: Smooth live video from MVS displayed on HDMI.
 
 ## Technical Details
 
@@ -101,32 +108,40 @@ enabling real Neo Geo video display via the RP2350's native HSTX peripheral.
 
 | Aspect | Video Capture | HSTX Output | Match? |
 |--------|---------------|-------------|--------|
-| Resolution | 320x224 (+padding = 320x240) | 320x240 | Yes |
+| Resolution | 320x224 (+padding = 320x240) | 640x480 (2x scaled) | Yes |
 | Pixel Format | RGB565 (converted from RGB555) | RGB565 | Yes |
-| Frame Rate | ~59.19 Hz | 60 Hz | Close |
+| Frame Rate | ~59.19 Hz | 60 Hz | Close enough |
 
-### Memory Bandwidth
+### Pixel Scaling
 
-- HSTX DMA: ~15 MB/s (640x480x2x60)
-- Capture DMA: ~7 MB/s (384x224x4x60)
-- Total: ~22 MB/s vs RP2350 bus (~200+ MB/s) - acceptable
+- Horizontal: 320→640 via `p | (p << 16)` packing (each pixel duplicated)
+- Vertical: 240→480 via `fb_line = active_line / 2` (each line shown twice)
+
+### Memory Layout
+
+```
+framebuf[320x240]:
+  Lines 0-7:    Gradient background (unused MVS padding)
+  Lines 8-231:  Captured MVS content (224 lines)
+  Lines 232-239: Gradient background (unused MVS padding)
+```
 
 ### DMA Channel Allocation
 
-- Channel 0: HSTX ping
-- Channel 1: HSTX pong
-- Channel 2+: Video capture (claimed dynamically)
+- Channel 0: HSTX ping (claimed before Core 1 launch)
+- Channel 1: HSTX pong (claimed before Core 1 launch)
+- Channel 2+: Video capture (claimed dynamically by video_capture_init)
 
-## Key Risks
+## Key Learnings
 
-1. **IRQ Latency**: Core 1 DMA IRQ must be serviced every ~3.17us
-   - Mitigation: IRQ handler in scratch RAM, DMA bus priority
+1. **Timing Matters**: MVS pixel data needs setup time after PCLK rising edge.
+   Adding a single NOP (~8ns at 126MHz) fixed all capture artifacts.
 
-2. **Frame Tearing**: Core 0 writes while Core 1 reads
-   - Mitigation: Double-buffer in Phase 4, acceptable for Phase 3
+2. **No Double Buffer Needed**: Despite theoretical race conditions, single
+   framebuffer works perfectly. RP2350's memory bandwidth handles both cores.
 
-3. **Clock Stability**: 126MHz required for HDMI timing
-   - Mitigation: PIO capture works at any system clock
+3. **Core Separation Works Well**: PIO1 capture on Core 0 + HSTX on Core 1
+   run completely independently without resource conflicts.
 
-4. **GPIOBASE Hack**: Bank 1 access requires manual register writes
-   - Mitigation: Proven working in main firmware
+4. **HSTX is Simpler**: Compared to PIO-based PicoDVI, HSTX requires less
+   code and runs at lower system clock (126MHz vs 252MHz).

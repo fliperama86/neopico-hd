@@ -53,9 +53,9 @@ check_pin:
     ; 2. Sample NEO_H_TOTAL pixels
     mov x, y                   ; Reset pixel counter
 pixel_loop:
-    wait 0 pin 0               ; GP25 (PCLK) LOW
-    wait 1 pin 0               ; PCLK HIGH (rising edge)
-    nop                        ; Setup time delay
-    in pins, 18                ; Sample GP25-42 with delay after rising edge
+    wait 0 pin 0               ; Wait for PCLK LOW
+    wait 1 pin 0               ; Wait for PCLK HIGH (rising edge)
+    nop                        ; Data setup time (MVS needs ~1 cycle after edge)
+    in pins, 18                ; Sample GP25-42 (PCLK + RGB + DARK + SHADOW)
     jmp x-- pixel_loop         ; Loop until line complete
 .wrap

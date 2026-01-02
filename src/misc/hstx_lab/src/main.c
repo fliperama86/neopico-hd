@@ -1,21 +1,26 @@
 /**
- * HSTX Audio Test - Video + HDMI Audio via Data Islands
+ * HSTX Lab - MVS Video Capture + HDMI Output
  *
- * Copied from neopico-hd/hstx_audio_test.c (produces popcorning audio)
- * Outputs 640x480 @ 60Hz with HDMI audio (48kHz stereo).
+ * Captures live video from Neo Geo MVS and outputs via HSTX to HDMI.
+ * Uses RP2350's hardware HSTX encoder instead of PIO-based PicoDVI.
  *
- * HSTX Pin Assignment (GPIO 12-19) - Custom Spotpear wiring:
+ * Architecture:
+ *   Core 0: Continuous MVS video capture (PIO1 + DMA)
+ *   Core 1: HSTX HDMI output at 640x480 @ 60Hz (2x scaled from 320x240)
+ *
+ * HSTX Pin Assignment (GPIO 12-19):
  *     GPIO 12: CLKN    GPIO 13: CLKP
  *     GPIO 14: D0N     GPIO 15: D0P  (Lane 0 - Blue)
  *     GPIO 16: D1N     GPIO 17: D1P  (Lane 1 - Green)
  *     GPIO 18: D2N     GPIO 19: D2P  (Lane 2 - Red)
  *
- * Audio implementation:
- * - Data Islands inserted during hsync pulse in vblank
- * - ACR packet sent once per frame
- * - Audio InfoFrame sent once per frame
+ * MVS Capture (GPIO 25-43 via PIO1):
+ *     GPIO 25: PCLK, GPIO 26-30: Red, GPIO 31-35: Green,
+ *     GPIO 36-40: Blue, GPIO 41: DARK, GPIO 42: SHADOW, GPIO 43: CSYNC
  *
- * Target: RP2350A (Pico 2)
+ * Audio: 48kHz stereo via HDMI Data Islands (test tone)
+ *
+ * Target: RP2350B (WeAct Studio board)
  */
 
 #include "hardware/clocks.h"
@@ -634,11 +639,11 @@ int main(void) {
   stdio_flush();
 
   printf("\n\n");
-  printf("================================\n");
-  printf("HSTX Lab - Multicore Edition\n");
-  printf("================================\n");
-  printf("Core 0: Available for capture\n");
-  printf("Core 1: HSTX output (640x480)\n\n");
+  printf("=================================\n");
+  printf("HSTX Lab - MVS Capture + HDMI\n");
+  printf("=================================\n");
+  printf("Core 0: MVS video capture\n");
+  printf("Core 1: HSTX 640x480 output\n\n");
   stdio_flush();
 
   // Initialize shared resources before launching Core 1
@@ -665,18 +670,15 @@ int main(void) {
   video_capture_init(framebuf, FRAMEBUF_WIDTH, FRAMEBUF_HEIGHT, 224);
   printf("Starting continuous capture...\n");
 
-  // Continuous capture loop - Core 0 captures, Core 1 displays
+  // Main loop: Core 0 captures frames, Core 1 displays them
+  // No double-buffering needed - single framebuffer works without visible tearing
   uint32_t led_toggle_frame = 0;
   bool led_state = false;
-  uint32_t capture_count = 0;
 
   while (1) {
-    // Capture next frame
-    if (video_capture_frame()) {
-      capture_count++;
-    }
+    video_capture_frame();
 
-    // LED heartbeat at 2Hz
+    // LED heartbeat (toggles every 0.5s based on display frame count)
     if (video_frame_count >= led_toggle_frame + 30) {
       led_state = !led_state;
       gpio_put(PICO_DEFAULT_LED_PIN, led_state);
