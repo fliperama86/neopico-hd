@@ -4,6 +4,7 @@
  */
 
 #include "video_capture.h"
+#include "hardware/dma.h"
 #include "hardware/pio.h"
 #include "hardware_config.h"
 #include "pico/stdlib.h"
@@ -18,8 +19,8 @@
 #define H_THRESHOLD 288
 #define NEO_H_TOTAL 384
 #define NEO_H_ACTIVE 320
-#define H_SKIP_START 28  // Working version value
-#define H_SKIP_END 36    // Working version value
+#define H_SKIP_START 28 // Working version value
+#define H_SKIP_END 36   // Working version value
 #define V_SKIP_LINES 16
 #define NEO_V_ACTIVE 224
 
@@ -38,6 +39,10 @@ static uint g_sm_sync = 0;
 static uint g_offset_sync = 0;
 static uint g_sm_pixel = 0;
 static uint g_offset_pixel = 0;
+
+static int g_dma_chan = -1;
+static uint32_t
+    g_line_buffers[2][NEO_H_TOTAL]; // Ping-pong buffers for line capture
 
 static volatile uint32_t g_frame_count = 0;
 
@@ -138,9 +143,9 @@ static inline void convert_and_store_pixel(uint32_t word, uint16_t *dst) {
   uint16_t rgb555 = extract_rgb555_contiguous(word);
 
   // Convert RGB555 to RGB565 (expand green from 5 to 6 bits)
-  uint8_t r = (rgb555 >> 10) & 0x1F;  // Red (5 bits)
-  uint8_t g = (rgb555 >> 5) & 0x1F;   // Green (5 bits)
-  uint8_t b = rgb555 & 0x1F;          // Blue (5 bits)
+  uint8_t r = (rgb555 >> 10) & 0x1F; // Red (5 bits)
+  uint8_t g = (rgb555 >> 5) & 0x1F;  // Green (5 bits)
+  uint8_t b = rgb555 & 0x1F;         // Blue (5 bits)
 
   // Expand green: duplicate MSB as LSB (5-bit -> 6-bit)
   uint8_t g6 = (g << 1) | (g >> 4);
@@ -162,13 +167,14 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   g_v_offset = (frame_height - mvs_height) / 2;
 
   // 18-bit capture: 1 pixel per word (not 2 like before!)
-  g_skip_start_words = H_SKIP_START;      // Each word = 1 pixel now
-  g_active_words = frame_width;           // 320 pixels = 320 words
+  g_skip_start_words = H_SKIP_START; // Each word = 1 pixel now
+  g_active_words = frame_width;      // 320 pixels = 320 words
   g_skip_end_words = H_SKIP_END;
-  g_line_words = NEO_H_TOTAL;             // 384 pixels = 384 words
+  g_line_words = NEO_H_TOTAL; // 384 pixels = 384 words
 
   // MINIMAL OVERHEAD TEST: Diagnostics disabled
-  // printf("Initializing Video Capture on PIO1 (Manual Register Control)...\n");
+  // printf("Initializing Video Capture on PIO1 (Manual Register
+  // Control)...\n");
   g_pio_mvs = pio1;
 
   // 1. Force GPIOBASE to 16
@@ -178,7 +184,8 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   pio_clear_instruction_memory(g_pio_mvs);
   g_offset_sync = pio_add_program(g_pio_mvs, &mvs_sync_4a_program);
   g_offset_pixel = pio_add_program(g_pio_mvs, &mvs_pixel_capture_program);
-  // printf("  Programs loaded at sync=%u, pixel=%u\n", g_offset_sync, g_offset_pixel);
+  // printf("  Programs loaded at sync=%u, pixel=%u\n", g_offset_sync,
+  // g_offset_pixel);
 
   // 3. Claim SMs
   g_sm_sync = (uint)pio_claim_unused_sm(g_pio_mvs, true);
@@ -209,11 +216,10 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   pio_sm_config pc =
       mvs_pixel_capture_program_get_default_config(g_offset_pixel);
   sm_config_set_clkdiv(&pc, 1.0f);
-  
+
   // shift_right=false (Shift Left) to place 18 bits in ISR[17:0]
   // This matches extract_rgb555_contiguous extraction logic
   sm_config_set_in_shift(&pc, false, true, 18);
-  sm_config_set_fifo_join(&pc, PIO_FIFO_JOIN_RX);
 
   pio_sm_init(g_pio_mvs, g_sm_pixel, g_offset_pixel, &pc);
 
@@ -229,6 +235,18 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   pio_sm_set_enabled(g_pio_mvs, g_sm_sync, true);
   pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, true);
 
+  // 7a. Initialize Pixel SM with pixel count
+  pio_sm_put_blocking(g_pio_mvs, g_sm_pixel, NEO_H_TOTAL - 1);
+
+  // 8. Configure DMA for Async Pixel Capture
+  g_dma_chan = dma_claim_unused_channel(true);
+  dma_channel_config dc = dma_channel_get_default_config(g_dma_chan);
+  channel_config_set_read_increment(&dc, false);
+  channel_config_set_write_increment(&dc, true);
+  channel_config_set_dreq(&dc, pio_get_dreq(g_pio_mvs, g_sm_pixel, false));
+  dma_channel_configure(g_dma_chan, &dc, g_line_buffers[0],
+                        &g_pio_mvs->rxf[g_sm_pixel], 0, false);
+
   // MINIMAL OVERHEAD TEST: All diagnostics disabled
   /*
   printf("Video Capture Initialized: PIO1 SyncSM=%u PixelSM=%u\n", g_sm_sync,
@@ -236,7 +254,8 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
 
   // DIAGNOSTIC: Check PIO state after init
   printf("\n=== PIO DIAGNOSTIC ===\n");
-  printf("GPIOBASE: %lu\n", *(volatile uint32_t *)((uintptr_t)g_pio_mvs + 0x168));
+  printf("GPIOBASE: %lu\n", *(volatile uint32_t *)((uintptr_t)g_pio_mvs +
+  0x168));
 
   uint32_t sync_pc = g_pio_mvs->sm[g_sm_sync].addr & 0x1F;
   uint32_t sync_instr = g_pio_mvs->instr_mem[sync_pc];
@@ -250,7 +269,8 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   printf("  IN_BASE=%lu (GP%lu), JMP_PIN=%lu (GP%lu)\n",
          in_base, 16 + in_base, jmp_pin, 16 + jmp_pin);
 
-  printf("  FIFO: %s\n", pio_sm_is_rx_fifo_empty(g_pio_mvs, g_sm_sync) ? "EMPTY" : "HAS DATA");
+  printf("  FIFO: %s\n", pio_sm_is_rx_fifo_empty(g_pio_mvs, g_sm_sync) ? "EMPTY"
+  : "HAS DATA");
 
   // Wait 100ms and check if PC advances
   sleep_ms(100);
@@ -291,9 +311,9 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   printf("\nTiming Configuration:\n");
   printf("  H_SKIP_START=%d, H_SKIP_END=%d, NEO_H_TOTAL=%d\n",
          H_SKIP_START, H_SKIP_END, NEO_H_TOTAL);
-  printf("  Skip start words=%d, Active words=%d, Skip end words=%d, Line words=%d\n",
-         g_skip_start_words, g_active_words, g_skip_end_words, g_line_words);
-  printf("  Frame dimensions: %ux%u, MVS height=%u\n",
+  printf("  Skip start words=%d, Active words=%d, Skip end words=%d, Line
+  words=%d\n", g_skip_start_words, g_active_words, g_skip_end_words,
+  g_line_words); printf("  Frame dimensions: %ux%u, MVS height=%u\n",
          g_frame_width, g_frame_height, g_mvs_height);
   printf("===================\n\n");
   */
@@ -306,65 +326,53 @@ bool video_capture_frame(void) {
 
   drain_sync_fifo(g_pio_mvs, g_sm_sync);
 
+  // 1. Reset Pixel Capture SM to ensure start-of-frame alignment
+  // This clears any garbage from the vsync period and forces a re-sync to
+  // start-of-frame.
   pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
   pio_sm_clear_fifos(g_pio_mvs, g_sm_pixel);
-  pio_sm_restart(g_pio_mvs, g_sm_pixel);
-  pio_sm_exec(g_pio_mvs, g_sm_pixel, pio_encode_jmp(g_offset_pixel));
+  // Jump to the IRQ wait instruction (instruction index 2)
+  pio_sm_exec(g_pio_mvs, g_sm_pixel, pio_encode_jmp(g_offset_pixel + 2));
   pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, true);
 
+  // 2. Prepare first DMA capture before triggering PIO
+  dma_channel_set_trans_count(g_dma_chan, g_line_words, false);
+  dma_channel_set_write_addr(g_dma_chan, g_line_buffers[0], true);
+
+  // 3. Trigger Pixel Capture SM via IRQ 4
   pio_interrupt_clear(g_pio_mvs, 4);
   pio_sm_exec(g_pio_mvs, g_sm_sync, pio_encode_irq_set(false, 4));
 
   for (int skip_line = 0; skip_line < V_SKIP_LINES; skip_line++) {
-    for (int i = 0; i < g_line_words; i++) {
-      pio_sm_get_blocking(g_pio_mvs, g_sm_pixel);
-    }
+    dma_channel_wait_for_finish_blocking(g_dma_chan);
+    // Restart DMA for next skip line
+    dma_channel_set_trans_count(g_dma_chan, g_line_words, false);
+    dma_channel_set_write_addr(g_dma_chan, g_line_buffers[0], true);
   }
-
-  // MINIMAL OVERHEAD TEST: FIFO diagnostics disabled
-  /*
-  static uint32_t drain_count = 0;
-  static uint32_t max_drain = 0;
-  drain_count = 0;
-  max_drain = 0;
-  */
 
   for (uint line = 0; line < g_mvs_height; line++) {
     uint16_t *dst = &g_framebuffer[(g_v_offset + line) * g_frame_width];
 
-    // Read line: 1 pixel per word now (18-bit capture)
-    for (int i = 0; i < g_skip_start_words; i++)
-      pio_sm_get_blocking(g_pio_mvs, g_sm_pixel);
+    // 1. Wait for current line to finish capture
+    dma_channel_wait_for_finish_blocking(g_dma_chan);
+
+    // 2. IMMEDIATELY start next line DMA into the OTHER buffer (ping-pong)
+    uint32_t *current_buffer = g_line_buffers[line % 2];
+    if (line + 1 < g_mvs_height) {
+      dma_channel_set_trans_count(g_dma_chan, g_line_words, false);
+      dma_channel_set_write_addr(g_dma_chan, g_line_buffers[(line + 1) % 2],
+                                 true);
+    }
+
+    // 3. Process raw words from the buffer we just filled
     for (int i = 0; i < g_active_words; i++) {
-      uint32_t word = pio_sm_get_blocking(g_pio_mvs, g_sm_pixel);
-      convert_and_store_pixel(word, &dst[i]);  // 1 pixel per word
+      uint32_t word = current_buffer[g_skip_start_words + i];
+      convert_and_store_pixel(word, &dst[i]);
     }
-    for (int i = 0; i < g_skip_end_words; i++)
-      pio_sm_get_blocking(g_pio_mvs, g_sm_pixel);
-
-    // MINIMAL OVERHEAD TEST: FIFO drainage disabled
-    /*
-    // Clear FIFO at end of each line and count extra words
-    uint32_t drained = 0;
-    while (!pio_sm_is_rx_fifo_empty(g_pio_mvs, g_sm_pixel)) {
-      pio_sm_get(g_pio_mvs, g_sm_pixel);
-      drained++;
-    }
-    if (drained > 0) {
-      drain_count++;
-      if (drained > max_drain) max_drain = drained;
-    }
-    */
   }
 
-  // MINIMAL OVERHEAD TEST: Diagnostics disabled
-  /*
-  // Log FIFO drainage stats every 60 frames
-  if ((g_frame_count % 60) == 0 && drain_count > 0) {
-    printf("[Frame %lu] Drained FIFO on %lu/%u lines, max=%lu words\n",
-           g_frame_count, drain_count, g_mvs_height, max_drain);
-  }
-  */
+  // 4. Disable SM until next frame to prevent pick-up of vsync pulses
+  pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
 
   return true;
 }

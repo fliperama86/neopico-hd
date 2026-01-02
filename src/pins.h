@@ -75,17 +75,17 @@
 #define PIN_DVI_D2    18   // Data 2 pair base (18=D2-, 19=D2+)
 
 // =============================================================================
-// I2S Audio Input Pins (GPIO 21-23)
+// I2S Audio Input Pins (GPIO 0-2)
 // =============================================================================
 // Captures digital audio from MVS
 //
-// GPIO 21: I2S DAT (Data)
-// GPIO 22: I2S WS  (Word Select / LRCK)
-// GPIO 23: I2S BCK (Bit Clock)
+// GPIO 0: I2S DAT (Data)
+// GPIO 1: I2S WS  (Word Select / LRCK)
+// GPIO 2: I2S BCK (Bit Clock)
 
-#define PIN_I2S_DAT   21   // I2S data
-#define PIN_I2S_WS    22   // I2S word select
-#define PIN_I2S_BCK   23   // I2S bit clock
+#define PIN_I2S_DAT   0    // I2S data
+#define PIN_I2S_WS    1    // I2S word select
+#define PIN_I2S_BCK   2    // I2S bit clock
 
 // =============================================================================
 // Pin Usage Summary

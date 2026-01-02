@@ -37,24 +37,24 @@ check_pin:
 
 .program mvs_pixel_capture
 
-    ; Wait for trigger signal from C code (IRQ 4)
+    ; One-time initialization: C code will push (NEO_H_TOTAL - 1)
+    pull block
+    mov y, osr
+
+    ; Wait for trigger signal from C code (IRQ 4) at start of frame
+    ; Moving this OUTSIDE the wrap target so it only happens once per frame.
     wait 1 irq 4
 
-    ; Sync to line start
-    wait 0 pin 18              ; Wait for CSYNC LOW (GP43 is +18 from GP25)
-    wait 1 pin 18              ; Wait for CSYNC HIGH (start of new line)
-
-    ; Sync to pixel clock
-    wait 0 pin 0               ; GP25 (PCLK)
-    wait 1 pin 0               ; PCLK rising edge
-
 .wrap_target
-    ; Wait for PCLK rising edge
-    wait 0 pin 0               ; GP25 (PCLK)
-    wait 1 pin 0               ; PCLK rising edge
+    ; 1. Sync to line start (CSYNC GP43 is at offset 18 from IN_BASE=GP25)
+    wait 0 pin 18              ; Wait for CSYNC LOW
+    wait 1 pin 18              ; Wait for CSYNC HIGH
 
-    ; Sample 18 bits: GP25-42 (PCLK + RGB555 + DARK + SHADOW)
-    ; PCLK at bit 0, contiguous RGB fields for fast extraction
-    ; Autopush at 18 bits = 1 pixel per word
-    in pins, 18
+    ; 2. Sample NEO_H_TOTAL pixels
+    mov x, y                   ; Reset pixel counter
+pixel_loop:
+    wait 0 pin 0               ; GP25 (PCLK) LOW
+    wait 1 pin 0               ; PCLK HIGH (rising edge)
+    in pins, 18                ; Sample GP25-42
+    jmp x-- pixel_loop         ; Loop until line complete
 .wrap

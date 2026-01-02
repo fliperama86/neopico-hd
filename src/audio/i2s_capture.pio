@@ -1,43 +1,35 @@
 .program i2s_capture
 
-; Default pins (configurable via init function):
-;   pin_dat: GPIO 36 (PIN_I2S_DAT from pins.h)
-;   pin_ws:  GPIO 37 (PIN_I2S_WS from pins.h)
-;   pin_bck: GPIO 38 (PIN_I2S_BCK from pins.h)
-;
 ; Pin offsets from in_base:
 ;   DAT = in_base + 0 (sampled with `in pins, 1`)
 ;   WS  = in_base + 1 (wait pin 1)
 ;   BCK = in_base + 2 (wait pin 2)
 
-; Robust sync: wait for a complete WS cycle to ensure clean frame boundary
-    wait 1 pin 1                ; Wait for WS high (left channel)
-    wait 0 pin 1                ; Wait for WS low (right channel)
-    wait 1 pin 1                ; Wait for WS high again - now we're at a clean frame start
-    wait 0 pin 1                ; Back to low, ready for the loop to catch rising edge
+    ; Simple sync: Wait for WS to go high then low to start at Right channel
+    wait 1 pin 1
+    wait 0 pin 1
 
 .wrap_target
-    ; === LEFT CHANNEL (WS HIGH for MV1C) ===
-    wait 1 pin 1                ; Wait for WS rising edge (LEFT starts)
-
-    set x, 23                   ; Capture all 24 bits
-left_loop:
-    wait 1 pin 2                ; BCK high
-    wait 0 pin 2                ; BCK low - falling edge (try this instead)
-    in pins, 1                  ; Sample DAT
-    jmp x-- left_loop
-    push noblock                ; Push 24 bits (Left)
-
-    ; === RIGHT CHANNEL (WS LOW for MV1C) ===
-    wait 0 pin 1                ; Wait for WS falling edge (RIGHT starts)
-
-    set x, 23                   ; Capture all 24 bits
+    ; === RIGHT CHANNEL (WS LOW) ===
+    set x, 23                   ; Capture 24 bits
 right_loop:
-    wait 1 pin 2                ; BCK high
-    wait 0 pin 2                ; BCK low - falling edge
+    wait 0 pin 2                ; BCK Low
+    wait 1 pin 2                ; BCK High (Rising Edge)
     in pins, 1                  ; Sample DAT
     jmp x-- right_loop
-    push noblock                ; Push 24 bits (Right)
+    push noblock                ; Push 24 bits
+
+    ; === LEFT CHANNEL (WS HIGH) ===
+    wait 1 pin 1                ; Wait for WS to go High
+    set x, 23                   ; Capture 24 bits
+left_loop:
+    wait 0 pin 2                ; BCK Low
+    wait 1 pin 2                ; BCK High (Rising Edge)
+    in pins, 1                  ; Sample DAT
+    jmp x-- left_loop
+    push noblock                ; Push 24 bits
+
+    wait 0 pin 1                ; Wait for WS to go Low again for next frame
 .wrap
 
 % c-sdk {
@@ -48,12 +40,12 @@ right_loop:
 #define I2S_PIO_PIN_WS  37
 #define I2S_PIO_PIN_BCK 38
 
-static inline void i2s_capture_program_init(PIO pio, uint sm, uint offset) {
+static inline void i2s_capture_program_init(PIO pio, uint sm, uint offset, uint pin_dat, uint pin_ws, uint pin_bck) {
     pio_sm_config c = i2s_capture_program_get_default_config(offset);
 
     // Set IN pin base to DAT. 
-    // On RP2350, with pio_set_gpio_base(16), absolute pin 36 is the correct base.
-    sm_config_set_in_pins(&c, I2S_PIO_PIN_DAT);
+    // The PIO code expects WS at +1 and BCK at +2 from in_base.
+    sm_config_set_in_pins(&c, pin_dat);
 
     // Shift LEFT (MSB first), no autopush.
     // Data arrives MSB first and shifts into ISR bit 0, moving up.
@@ -63,12 +55,12 @@ static inline void i2s_capture_program_init(PIO pio, uint sm, uint offset) {
     // Join FIFOs for 8-word RX depth
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
 
-    pio_gpio_init(pio, I2S_PIO_PIN_DAT);
-    pio_gpio_init(pio, I2S_PIO_PIN_BCK);
-    pio_gpio_init(pio, I2S_PIO_PIN_WS);
+    pio_gpio_init(pio, pin_dat);
+    pio_gpio_init(pio, pin_bck);
+    pio_gpio_init(pio, pin_ws);
 
     pio_sm_set_pindirs_with_mask64(pio, sm, 0,
-        (1ull << I2S_PIO_PIN_DAT) | (1ull << I2S_PIO_PIN_BCK) | (1ull << I2S_PIO_PIN_WS));
+        (1ull << pin_dat) | (1ull << pin_bck) | (1ull << pin_ws));
 
     sm_config_set_clkdiv(&c, 1.0f);
     pio_sm_init(pio, sm, offset, &c);

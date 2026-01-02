@@ -7,10 +7,13 @@
 #include "hardware/clocks.h"
 #include "hardware/vreg.h"
 #include "pico/stdlib.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "audio_ring.h"
 #include "dvi.h"
+#include "dvi_serialiser.h"
 #include "pins.h"
 
 // Video modules
@@ -18,13 +21,17 @@
 #include "video/video_config.h"
 #include "video/video_output.h"
 
-// Audio modules
+// Audiomodules
 #include "audio/audio_config.h"
 #include "audio/audio_output.h"
 #include "audio/audio_pipeline.h"
 
 // Test utilities
 #include "misc/test_patterns.h"
+#include "misc/debug_render.h"
+
+// Debug configuration
+#define DEBUG_AUDIO_INFO 1 // Set to 1 to enable audio debug screen
 
 // System configuration
 #define VREG_VSEL VREG_VOLTAGE_1_20         // Voltage regulator setting
@@ -54,7 +61,8 @@ static void audio_output_callback(const ap_sample_t *samples, uint32_t count,
 // USB Frame Output (for Python viewer)
 // =============================================================================
 
-#define ENABLE_USB_FRAME_OUTPUT 0  // Disabled for GPIO debug (binary data clutters serial output)
+#define ENABLE_USB_FRAME_OUTPUT                                                \
+  0 // Disabled for GPIO debug (binary data clutters serial output)
 
 #define SYNC_BYTE_1 0x55
 #define SYNC_BYTE_2 0xAA
@@ -84,10 +92,10 @@ int main() {
   sleep_ms(10);
   set_sys_clock_khz(DVI_TIMING.bit_clk_khz, true);
 
-  // stdio_init_all();  // DISABLED - USB serial causes glitches
-  // sleep_ms(5000);
+  stdio_init_all(); // Re-enabled for software reset
+  sleep_ms(2000);   // Brief delay for USB
 
-  // Set PIO GPIO bases (no printf to avoid USB overhead)
+  // Set PIO GPIO bases
   pio_set_gpio_base(pio0, 0);
   pio_set_gpio_base(pio1, 0);
   pio_set_gpio_base(pio2, 0);
@@ -105,10 +113,25 @@ int main() {
   // Initialize video output (DVI)
   video_output_init(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT);
 
+  // Initialize HDMI audio output
+  dvi_audio_sample_buffer_set(video_output_get_dvi(), audio_buffer,
+                              AUDIO_BUFFER_SIZE);
+  audio_output_init(video_output_get_dvi(), AUDIO_OUTPUT_RATE);
+
   // Initialize video capture (MVS)
   video_capture_init(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, MVS_HEIGHT);
 
-  // ... audio skipped ...
+  // Initialize audio pipeline (I2S capture → processing → HDMI)
+  audio_pipeline_config_t audio_cfg = {
+      .pin_dat = PIN_I2S_DAT, // GP0
+      .pin_ws = PIN_I2S_WS,   // GP1
+      .pin_bck = PIN_I2S_BCK, // GP2
+      .pin_btn1 = 0,          // Buttons disabled for now
+      .pin_btn2 = 0,
+      .pio = pio2, // Use PIO2 for audio (PIO0=DVI, PIO1=video)
+      .sm = 0};
+  audio_pipeline_init(&audio_pipeline, &audio_cfg);
+  audio_pipeline_start(&audio_pipeline);
 
   // Start DVI output on Core 1
   video_output_start();
@@ -122,36 +145,121 @@ int main() {
     uint32_t frame_count = video_capture_get_frame_count();
     gpio_put(PICO_DEFAULT_LED_PIN, (frame_count / 10) & 1); // Blink 3x faster
 
+#if DEBUG_AUDIO_INFO
+    // Replace game video with audio debug info
+    audio_pipeline_status_t status;
+    audio_pipeline_get_status(&audio_pipeline, &status);
+
+    // Clear background
+    memset(g_framebuf, 0, sizeof(g_framebuf));
+
+    char buf[64];
+    int y = 10;
+    int x = 10;
+
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "--- AUDIO DEBUG INFO ---", DEBUG_COLOR_YELLOW, 0);
+    y += 12;
+
+    // Hardware Probing (Direct silicon counters)
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[HARDWARE PROBE]", DEBUG_COLOR_GREEN, 0);
+    y += 10;
+
+    // Use simple logic to check for pin toggling (direct GPIO read)
+    // Frequency counters are complex to setup for arbitrary GPIOs on RP2350
+    static uint32_t ws_toggles = 0;
+    static uint32_t bck_toggles = 0;
+    static bool last_ws = false;
+    static bool last_bck = false;
+    
+    for(int i=0; i<1000; i++) {
+        bool ws = gpio_get(PIN_I2S_WS);
+        bool bck = gpio_get(PIN_I2S_BCK);
+        if (ws != last_ws) { ws_toggles++; last_ws = ws; }
+        if (bck != last_bck) { bck_toggles++; last_bck = bck; }
+    }
+
+    sprintf(buf, "GP1 (WS) ACTIVITY:  %s", ws_toggles > 0 ? "YES" : "NO");
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, ws_toggles > 0 ? DEBUG_COLOR_WHITE : DEBUG_COLOR_RED, 0);
+    y += 9;
+
+    sprintf(buf, "GP2 (BCK) ACTIVITY: %s", bck_toggles > 0 ? "YES" : "NO");
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, bck_toggles > 0 ? DEBUG_COLOR_WHITE : DEBUG_COLOR_RED, 0);
+    y += 12;
+
+    // PIO Internals
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[PIO INTERNALS]", DEBUG_COLOR_GREEN, 0);
+    y += 10;
+
+    uint32_t pio_pc = pio_sm_get_pc(audio_pipeline.config.pio, audio_pipeline.config.sm);
+    sprintf(buf, "PIO PC:   %lu", pio_pc);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    y += 9;
+
+    uint32_t dma_addr = dma_hw->ch[audio_pipeline.capture.dma_chan].write_addr;
+    sprintf(buf, "DMA ADDR: %08lX", dma_addr);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    y += 12;
+
+    // Capture Stats (PIO Processing)
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[PIO CAPTURE]", DEBUG_COLOR_GREEN, 0);
+    y += 10;
+    
+    sprintf(buf, "LRCK (MEAS): %lu HZ", status.capture_sample_rate);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    y += 9;
+
+    sprintf(buf, "SAMPLES:     %lu", status.samples_captured);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    y += 9;
+
+    sprintf(buf, "OVERFLOWS:   %lu", status.capture_overflows);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, 
+                      status.capture_overflows > 0 ? DEBUG_COLOR_RED : DEBUG_COLOR_WHITE, 0);
+    y += 12;
+
+    // Processing Stats
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[PIPELINE]", DEBUG_COLOR_GREEN, 0);
+    y += 10;
+
+    sprintf(buf, "DC FILTER: %s", status.dc_filter_enabled ? "ON" : "OFF");
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    y += 9;
+
+    sprintf(buf, "LOWPASS:   %s", status.lowpass_enabled ? "ON" : "OFF");
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    y += 9;
+
+    const char* src_modes[] = {"NONE", "DROP", "LINEAR"};
+    sprintf(buf, "SRC MODE:  %s", src_modes[status.src_mode]);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    y += 12;
+
+    // Output Stats
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[OUTPUT]", DEBUG_COLOR_GREEN, 0);
+    y += 10;
+
+    sprintf(buf, "RATE: %lu HZ", status.output_sample_rate);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    y += 9;
+
+    sprintf(buf, "SAMPLES:   %lu", status.samples_output);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    y += 9;
+
+    sprintf(buf, "UNDERRUNS: %lu", status.output_underruns);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      status.output_underruns > 0 ? DEBUG_COLOR_RED : DEBUG_COLOR_WHITE, 0);
+
+    // Maintain ~60fps loop rate when capture is disabled
+    sleep_ms(16);
+#else
     // Capture one frame (blocks until complete)
     if (!video_capture_frame()) {
       timeout_count++;
-      // MINIMAL OVERHEAD TEST: Diagnostics disabled
-      /*
-      if (timeout_count % 10 == 0) {
-        printf("Frame capture timeout (count: %lu)\n", timeout_count);
-      }
-      if (timeout_count % 100 == 0 && timeout_count > 0) {
-        // Print diagnostic once to help debug
-        extern PIO g_pio_mvs;  // Declare external from video_capture.c
-        if (g_pio_mvs) {
-          // Read ACTUAL GPIOBASE register (RP2350 offset 0x168)
-          uint32_t actual_gpiobase = *(volatile uint32_t*)((uintptr_t)g_pio_mvs + 0x168);
-          printf("*** GPIOBASE DIAGNOSTIC ***\n");
-          printf("  RP2350 ACTUAL GPIOBASE: %lu (Expected: 16)\n", actual_gpiobase);
-          printf("  PIO Instance: PIO%d\n", pio_get_index(g_pio_mvs));
-        }
-      }
-      */
       continue; // Timeout, try again
     }
+#endif
 
-    // MINIMAL OVERHEAD TEST: Diagnostics disabled
-    /*
-    if (timeout_count > 0) {
-      printf("Frame captured after %lu timeouts!\n", timeout_count);
-      timeout_count = 0;
-    }
-    */
     timeout_count = 0;
 
     // USB frame output for Python viewer
@@ -163,9 +271,16 @@ int main() {
     }
 #endif
 
-    // Process audio: I2S → filters → SRC → HDMI
-    // TEMPORARILY DISABLED
-    // audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
+    // Process all available audio samples to avoid ring buffer overflow
+    // The capture rate is 55.5kHz, so we need to drain the ring frequently.
+    // Kick the process once to trigger the hardware poll
+    audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
+    
+    uint32_t audio_available;
+    while ((audio_available = ap_ring_available(&audio_pipeline.capture_ring)) >
+           0) {
+      audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
+    }
   }
 
   return 0;
