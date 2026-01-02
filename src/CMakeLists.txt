@@ -199,6 +199,7 @@ target_include_directories(hstx_lab PRIVATE
 
 target_link_libraries(hstx_lab
     pico_stdlib
+    pico_multicore
     hardware_dma
     hardware_gpio
     hardware_irq

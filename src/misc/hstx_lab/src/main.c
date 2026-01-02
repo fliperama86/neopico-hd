@@ -25,6 +25,7 @@
 #include "hardware/structs/bus_ctrl.h"
 #include "hardware/structs/hstx_ctrl.h"
 #include "hardware/structs/hstx_fifo.h"
+#include "pico/multicore.h"
 #include "data_packet.h"
 #include "pico/stdlib.h"
 #include <math.h>
@@ -94,7 +95,7 @@
 #define TONE_AMPLITUDE 8000 // ~25% of int16 max
 
 // Audio state
-static uint32_t video_frame_count = 0;
+static volatile uint32_t video_frame_count = 0;  // volatile: updated on Core 1, read on Core 0
 static int audio_frame_counter = 0; // IEC60958 frame counter (0-191)
 static uint32_t audio_phase = 0x40000000; // Start at 1/4 cycle (90 degrees)
 
@@ -538,41 +539,10 @@ void __scratch_x("") dma_irq_handler() {
 }
 
 // ============================================================================
-// Main
+// Core 1: HSTX Output (runs independently on Core 1)
 // ============================================================================
 
-int main(void) {
-  // Set system clock to 126 MHz for exact 25.2 MHz pixel clock
-  // Pixel clock = System clock / CLKDIV = 126 MHz / 5 = 25.2 MHz
-  // This matches PicoDVI's 25.2 MHz pixel clock (though they use 252 MHz with PIO)
-  set_sys_clock_khz(126000, true);
-
-  stdio_init_all();
-
-  // Initialize LED for heartbeat
-  gpio_init(PICO_DEFAULT_LED_PIN);
-  gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
-
-  sleep_ms(2000);
-
-  printf("\n\n");
-  printf("================================\n");
-  printf("HSTX Audio Test (from neopico-hd)\n");
-  printf("================================\n");
-  printf("640x480 @ 60Hz with HDMI audio\n\n");
-
-  init_background();  // Pre-calculate rainbow gradient
-  init_sine_table();
-  init_audio_packets();
-
-  // Timer-based audio generation disabled - causes video glitches
-  // Using main loop generation instead
-  // add_repeating_timer_ms(2, audio_timer_callback, NULL, &audio_timer);
-
-  vblank_di_len = build_line_with_di(
-      vblank_di_ping, hstx_get_null_data_island(true, false), false, false);
-  memcpy(vblank_di_pong, vblank_di_ping, sizeof(vblank_di_ping));
-
+static void core1_entry(void) {
   // Configure HSTX TMDS encoder for RGB565
   // Red [15:11] = 5 bits, rotate by 8 to align with [7:3]
   // Green [10:5] = 6 bits, rotate by 3 to align with [7:2]
@@ -635,18 +605,67 @@ int main(void) {
 
   bus_ctrl_hw->priority = BUSCTRL_BUS_PRIORITY_DMA_W_BITS | BUSCTRL_BUS_PRIORITY_DMA_R_BITS;
 
-  printf("Starting HSTX output...\n");
   dma_channel_start(DMACH_PING);
+
+  // Core 1 main loop: handle audio ring buffer
+  // Framebuffer updates now happen on Core 0
+  while (1) {
+    update_audio_ring_buffer();
+    tight_loop_contents();
+  }
+}
+
+// ============================================================================
+// Main (Core 0)
+// ============================================================================
+
+int main(void) {
+  // Set system clock to 126 MHz for exact 25.2 MHz pixel clock
+  // Pixel clock = System clock / CLKDIV = 126 MHz / 5 = 25.2 MHz
+  // This matches PicoDVI's 25.2 MHz pixel clock (though they use 252 MHz with PIO)
+  set_sys_clock_khz(126000, true);
+
+  stdio_init_all();
+
+  // Initialize LED for heartbeat
+  gpio_init(PICO_DEFAULT_LED_PIN);
+  gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+
+  sleep_ms(2000);
+
+  printf("\n\n");
+  printf("================================\n");
+  printf("HSTX Lab - Multicore Edition\n");
+  printf("================================\n");
+  printf("Core 0: Available for capture\n");
+  printf("Core 1: HSTX output (640x480)\n\n");
+
+  // Initialize shared resources before launching Core 1
+  init_background();  // Pre-calculate rainbow gradient
+  init_sine_table();
+  init_audio_packets();
+
+  vblank_di_len = build_line_with_di(
+      vblank_di_ping, hstx_get_null_data_island(true, false), false, false);
+  memcpy(vblank_di_pong, vblank_di_ping, sizeof(vblank_di_ping));
+
+  // Launch Core 1 for HSTX output
+  printf("Launching Core 1 for HSTX...\n");
+  multicore_launch_core1(core1_entry);
+
+  // Give Core 1 time to start
+  sleep_ms(100);
+  printf("Core 1 running. HSTX output active.\n\n");
 
   uint32_t last_frame = 0;
   uint32_t last_vframe = 0;
   uint32_t led_toggle_frame = 0;
   bool led_state = false;
 
+  // Core 0 main loop: update framebuffer during vblank
   while (1) {
     // Wait for vsync (safe time to update framebuffer)
     while (video_frame_count == last_vframe) {
-      update_audio_ring_buffer();
       tight_loop_contents();
     }
     last_vframe = video_frame_count;
@@ -654,7 +673,6 @@ int main(void) {
     // Now update framebuffer during vblank (DMA not reading it)
     update_box();
     draw_frame();
-    update_audio_ring_buffer();
 
     // LED heartbeat at 2Hz (toggle every 30 frames @ 60fps = 0.5s)
     if (video_frame_count >= led_toggle_frame + 30) {
