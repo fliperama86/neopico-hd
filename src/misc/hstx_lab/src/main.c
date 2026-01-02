@@ -53,7 +53,7 @@
 #define PREAMBLE_V0_H0 (TMDS_CTRL_00 | (TMDS_CTRL_01 << 10) | (TMDS_CTRL_01 << 20))
 #define PREAMBLE_V1_H0 (TMDS_CTRL_10 | (TMDS_CTRL_01 << 10) | (TMDS_CTRL_01 << 20))
 
-// 480p timing
+// 480p timing (output resolution with 2×2 pixel doubling)
 #define MODE_H_FRONT_PORCH 16
 #define MODE_H_SYNC_WIDTH 96
 #define MODE_H_BACK_PORCH 48
@@ -63,6 +63,10 @@
 #define MODE_V_SYNC_WIDTH 2
 #define MODE_V_BACK_PORCH 33
 #define MODE_V_ACTIVE_LINES 480
+
+// Internal framebuffer resolution (MVS native, 2×2 doubled to 640×480)
+#define FRAMEBUF_WIDTH 320
+#define FRAMEBUF_HEIGHT 240
 
 #define MODE_H_TOTAL_PIXELS \
   (MODE_H_FRONT_PORCH + MODE_H_SYNC_WIDTH + MODE_H_BACK_PORCH + MODE_H_ACTIVE_PIXELS)
@@ -193,30 +197,34 @@ static void update_audio_ring_buffer(void) {
 }
 
 // ============================================================================
-// Framebuffer
+// Framebuffer (320×240 MVS native, 2×2 doubled to 640×480)
 // ============================================================================
 
-static uint8_t framebuf[MODE_V_ACTIVE_LINES * MODE_H_ACTIVE_PIXELS];
+static uint8_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH];
+
+// Line buffer for horizontal pixel doubling (320 → 640 pixels)
+// Aligned for fast DMA access
+static uint8_t line_buffer[MODE_H_ACTIVE_PIXELS] __attribute__((aligned(4)));
 
 static inline uint8_t rgb332(uint8_t r, uint8_t g, uint8_t b) {
   return ((r & 0xe0) >> 0) | ((g & 0xe0) >> 3) | ((b & 0xc0) >> 6);
 }
 
-// Bouncing box state
+// Bouncing box state (proper 2×2 scaling, no hacks needed!)
 #define BOX_SIZE 64
-static int box_x = 100, box_y = 100;
-static int box_dx = 3, box_dy = 2;
+static int box_x = 50, box_y = 50;
+static int box_dx = 2, box_dy = 1;
 
 static void draw_frame(void) {
   uint8_t bg = rgb332(0, 0, 64);
   uint8_t box = rgb332(255, 255, 0);
 
-  for (int y = 0; y < MODE_V_ACTIVE_LINES; y++) {
-    for (int x = 0; x < MODE_H_ACTIVE_PIXELS; x++) {
+  for (int y = 0; y < FRAMEBUF_HEIGHT; y++) {
+    for (int x = 0; x < FRAMEBUF_WIDTH; x++) {
       if (x >= box_x && x < box_x + BOX_SIZE && y >= box_y && y < box_y + BOX_SIZE) {
-        framebuf[y * MODE_H_ACTIVE_PIXELS + x] = box;
+        framebuf[y * FRAMEBUF_WIDTH + x] = box;
       } else {
-        framebuf[y * MODE_H_ACTIVE_PIXELS + x] = bg;
+        framebuf[y * FRAMEBUF_WIDTH + x] = bg;
       }
     }
   }
@@ -226,13 +234,21 @@ static void update_box(void) {
   box_x += box_dx;
   box_y += box_dy;
 
-  if (box_x <= 0 || box_x + BOX_SIZE >= MODE_H_ACTIVE_PIXELS) {
+  // Proper boundary checking with clamping
+  if (box_x < 0) {
+    box_x = 0;
     box_dx = -box_dx;
-    box_x += box_dx;
+  } else if (box_x + BOX_SIZE >= FRAMEBUF_WIDTH) {  // >= to catch at boundary
+    box_x = FRAMEBUF_WIDTH - BOX_SIZE;
+    box_dx = -box_dx;
   }
-  if (box_y <= 0 || box_y + BOX_SIZE >= MODE_V_ACTIVE_LINES) {
+
+  if (box_y < 0) {
+    box_y = 0;
     box_dy = -box_dy;
-    box_y += box_dy;
+  } else if (box_y + BOX_SIZE >= FRAMEBUF_HEIGHT) {  // >= to catch at boundary
+    box_y = FRAMEBUF_HEIGHT - BOX_SIZE;
+    box_dy = -box_dy;
   }
 }
 
@@ -408,6 +424,22 @@ void __scratch_x("") dma_irq_handler() {
   } else if (active_video && !vactive_cmdlist_posted) {
     audio_sample_accum += SAMPLES_PER_LINE_FP;
 
+    // Prepare pixel-doubled line BEFORE DMA reads it (critical for glitch-free output!)
+    uint32_t active_line = v_scanline - (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES);
+    uint32_t fb_line = active_line / 2;  // Vertical: each line shown twice
+    const uint8_t *src = &framebuf[fb_line * FRAMEBUF_WIDTH];
+    uint32_t *dst32 = (uint32_t *)line_buffer;
+
+    // Horizontal pixel doubling: 320 → 640 pixels (optimized, happens NOW)
+    for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i += 4) {
+      uint32_t p0 = src[i];
+      uint32_t p1 = src[i + 1];
+      uint32_t p2 = src[i + 2];
+      uint32_t p3 = src[i + 3];
+      dst32[i * 2 / 4] = (p0) | (p0 << 8) | (p1 << 16) | (p1 << 24);
+      dst32[i * 2 / 4 + 1] = (p2) | (p2 << 8) | (p3 << 16) | (p3 << 24);
+    }
+
     if (audio_sample_accum >= (4 << 16) && audio_ring_tail != audio_ring_head) {
       audio_sample_accum -= (4 << 16);
       uint32_t *buf = dma_pong ? vactive_di_ping : vactive_di_pong;
@@ -423,8 +455,8 @@ void __scratch_x("") dma_irq_handler() {
     }
     vactive_cmdlist_posted = true;
   } else if (active_video && vactive_cmdlist_posted) {
-    ch->read_addr = (uintptr_t)&framebuf[(v_scanline - (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES)) *
-                                         MODE_H_ACTIVE_PIXELS];
+    // Data phase: DMA reads the line_buffer we prepared earlier
+    ch->read_addr = (uintptr_t)line_buffer;
     ch->transfer_count = MODE_H_ACTIVE_PIXELS / sizeof(uint32_t);
     vactive_cmdlist_posted = false;
   } else {
