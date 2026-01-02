@@ -197,17 +197,17 @@ static void update_audio_ring_buffer(void) {
 }
 
 // ============================================================================
-// Framebuffer (320×240 MVS native, 2×2 doubled to 640×480)
+// Framebuffer (320×240 MVS native, 2×2 doubled to 640×480, RGB565)
 // ============================================================================
 
-static uint8_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH];
+static uint16_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH];
 
-// Line buffer for horizontal pixel doubling (320 → 640 pixels)
+// Line buffer for horizontal pixel doubling (320 → 640 pixels, RGB565)
 // Aligned for fast DMA access
-static uint8_t line_buffer[MODE_H_ACTIVE_PIXELS] __attribute__((aligned(4)));
+static uint16_t line_buffer[MODE_H_ACTIVE_PIXELS] __attribute__((aligned(4)));
 
-static inline uint8_t rgb332(uint8_t r, uint8_t g, uint8_t b) {
-  return ((r & 0xe0) >> 0) | ((g & 0xe0) >> 3) | ((b & 0xc0) >> 6);
+static inline uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
+  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3);
 }
 
 // Bouncing box state (proper 2×2 scaling, no hacks needed!)
@@ -216,8 +216,8 @@ static int box_x = 50, box_y = 50;
 static int box_x_old = 50, box_y_old = 50;  // Track previous position
 static int box_dx = 2, box_dy = 1;
 
-// Background buffer (pre-calculated gradient)
-static uint8_t background[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH];
+// Background buffer (pre-calculated gradient, RGB565)
+static uint16_t background[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH];
 
 // Pre-calculate rainbow gradient background (called once at init)
 static void init_background(void) {
@@ -248,7 +248,7 @@ static void init_background(void) {
           r = 255; g = 0; b = 255 - t;
           break;
       }
-      background[y * FRAMEBUF_WIDTH + x] = rgb332(r, g, b);
+      background[y * FRAMEBUF_WIDTH + x] = rgb565(r, g, b);
     }
   }
   // Copy background to framebuf initially
@@ -256,7 +256,7 @@ static void init_background(void) {
 }
 
 static void draw_frame(void) {
-  uint8_t box_color = rgb332(0, 0, 0);  // Black box
+  uint16_t box_color = rgb565(0, 0, 0);  // Black box
 
   // Restore old box area from background
   for (int y = 0; y < BOX_SIZE; y++) {
@@ -478,17 +478,17 @@ void __scratch_x("") dma_irq_handler() {
     // Prepare pixel-doubled line BEFORE DMA reads it (critical for glitch-free output!)
     uint32_t active_line = v_scanline - (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES);
     uint32_t fb_line = active_line / 2;  // Vertical: each line shown twice
-    const uint8_t *src = &framebuf[fb_line * FRAMEBUF_WIDTH];
+    const uint16_t *src = &framebuf[fb_line * FRAMEBUF_WIDTH];
     uint32_t *dst32 = (uint32_t *)line_buffer;
 
-    // Horizontal pixel doubling: 320 → 640 pixels (optimized, happens NOW)
-    for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i += 4) {
-      uint32_t p0 = src[i];
-      uint32_t p1 = src[i + 1];
-      uint32_t p2 = src[i + 2];
-      uint32_t p3 = src[i + 3];
-      dst32[i * 2 / 4] = (p0) | (p0 << 8) | (p1 << 16) | (p1 << 24);
-      dst32[i * 2 / 4 + 1] = (p2) | (p2 << 8) | (p3 << 16) | (p3 << 24);
+    // Horizontal pixel doubling: 320 → 640 pixels (RGB565, optimized)
+    // Process 2 pixels at a time (2×16-bit = 32-bit word)
+    for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i += 2) {
+      uint32_t p0 = src[i];      // 16-bit pixel
+      uint32_t p1 = src[i + 1];  // 16-bit pixel
+      // Each pixel doubled: p0 p0 p1 p1
+      dst32[i * 2 / 2] = (p0) | (p0 << 16);
+      dst32[i * 2 / 2 + 1] = (p1) | (p1 << 16);
     }
 
     if (audio_sample_accum >= (4 << 16) && audio_ring_tail != audio_ring_head) {
@@ -508,7 +508,7 @@ void __scratch_x("") dma_irq_handler() {
   } else if (active_video && vactive_cmdlist_posted) {
     // Data phase: DMA reads the line_buffer we prepared earlier
     ch->read_addr = (uintptr_t)line_buffer;
-    ch->transfer_count = MODE_H_ACTIVE_PIXELS / sizeof(uint32_t);
+    ch->transfer_count = (MODE_H_ACTIVE_PIXELS * sizeof(uint16_t)) / sizeof(uint32_t);  // RGB565: 640 pixels * 2 bytes / 4
     vactive_cmdlist_posted = false;
   } else {
     audio_sample_accum += SAMPLES_PER_LINE_FP;
@@ -573,16 +573,20 @@ int main(void) {
       vblank_di_ping, hstx_get_null_data_island(true, false), false, false);
   memcpy(vblank_di_pong, vblank_di_ping, sizeof(vblank_di_ping));
 
-  // Configure HSTX TMDS encoder for RGB332
-  hstx_ctrl_hw->expand_tmds = 2 << HSTX_CTRL_EXPAND_TMDS_L2_NBITS_LSB |
-                              0 << HSTX_CTRL_EXPAND_TMDS_L2_ROT_LSB |
-                              2 << HSTX_CTRL_EXPAND_TMDS_L1_NBITS_LSB |
-                              29 << HSTX_CTRL_EXPAND_TMDS_L1_ROT_LSB |
-                              1 << HSTX_CTRL_EXPAND_TMDS_L0_NBITS_LSB |
-                              26 << HSTX_CTRL_EXPAND_TMDS_L0_ROT_LSB;
+  // Configure HSTX TMDS encoder for RGB565
+  // Red [15:11] = 5 bits, rotate by 8 to align with [7:3]
+  // Green [10:5] = 6 bits, rotate by 3 to align with [7:2]
+  // Blue [4:0] = 5 bits, rotate by 13 to align with [7:3]
+  hstx_ctrl_hw->expand_tmds = 4 << HSTX_CTRL_EXPAND_TMDS_L2_NBITS_LSB |  // Red: 5 bits
+                              8 << HSTX_CTRL_EXPAND_TMDS_L2_ROT_LSB |
+                              5 << HSTX_CTRL_EXPAND_TMDS_L1_NBITS_LSB |  // Green: 6 bits
+                              3 << HSTX_CTRL_EXPAND_TMDS_L1_ROT_LSB |
+                              4 << HSTX_CTRL_EXPAND_TMDS_L0_NBITS_LSB |  // Blue: 5 bits
+                              13 << HSTX_CTRL_EXPAND_TMDS_L0_ROT_LSB;
 
-  hstx_ctrl_hw->expand_shift = 4 << HSTX_CTRL_EXPAND_SHIFT_ENC_N_SHIFTS_LSB |
-                               8 << HSTX_CTRL_EXPAND_SHIFT_ENC_SHIFT_LSB |
+  // RGB565: 2 shifts × 16 bits = 32 bits per word = 2 pixels
+  hstx_ctrl_hw->expand_shift = 2 << HSTX_CTRL_EXPAND_SHIFT_ENC_N_SHIFTS_LSB |
+                               16 << HSTX_CTRL_EXPAND_SHIFT_ENC_SHIFT_LSB |  // 16-bit pixels
                                1 << HSTX_CTRL_EXPAND_SHIFT_RAW_N_SHIFTS_LSB |
                                0 << HSTX_CTRL_EXPAND_SHIFT_RAW_SHIFT_LSB;
 
