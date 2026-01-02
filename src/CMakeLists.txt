@@ -13,6 +13,7 @@ add_executable(neopico_hd
     audio/dc_filter.c
     audio/lowpass.c
     misc/test_patterns.c
+    misc/debug_render.c
 )
 
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)

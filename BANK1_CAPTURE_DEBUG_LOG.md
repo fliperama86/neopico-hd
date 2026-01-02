@@ -1,4 +1,5 @@
 # Bank 1 Video Capture Debugging Log
+
 **Date:** 2026-01-01
 **Status:** Colors correct, pixels scrambled horizontally
 
@@ -13,9 +14,11 @@ Successfully captured video from MVS using RP2350 Bank 1 GPIOs (GP31-46), but pi
 ## Key Findings
 
 ### ✅ **SOLVED: Color Mapping**
+
 **Issue:** Background was red-brownish instead of black
 **Root Cause:** Incorrect pin mapping - R4 was mapped to GP46 (CSYNC pin) instead of GP45
 **Fix:** Updated `pins.h` and `hardware_config.h`:
+
 ```c
 // BEFORE (WRONG):
 #define PIN_MVS_R4 46  // This is CSYNC!
@@ -25,11 +28,13 @@ r |= ((gpio_data >> 15) & 1) << 4;  // GP46 → R4 (WRONG)
 #define PIN_MVS_R4 45  // Correct R4 pin
 r |= ((gpio_data >> 14) & 1) << 4;  // GP45 → R4 (CORRECT)
 ```
+
 **Result:** Colors now perfect - black background, white grid, correct blue borders
 
 ---
 
 ### ✅ **WORKING: Bank 1 GPIO Access**
+
 - **GPIOBASE=16** correctly set for PIO1 (offset 0x168)
 - **gpio_get()** works on Bank 1:
   - GP29 (6MHz PCLK): 317k toggles/100ms = 26% capture efficiency ✓
@@ -40,7 +45,9 @@ r |= ((gpio_data >> 14) & 1) << 4;  // GP45 → R4 (CORRECT)
 ---
 
 ### ✅ **WORKING: Bit Remapping**
+
 **GPIO → RGB555 mapping verified correct:**
+
 - All 16 GPIOs (GP31-46) map correctly to RGB bits
 - Remapping function `remap_gpio_to_rgb555()` produces correct colors
 - RGB555 → RGB565 conversion works
@@ -48,32 +55,38 @@ r |= ((gpio_data >> 14) & 1) << 4;  // GP45 → R4 (CORRECT)
 ---
 
 ### ✅ **SOLVED: Horizontal Pixel Scrambling**
+
 **Issue:** Diagonal streaks and inconsistent horizontal alignment.
 **Root Cause:** `WAIT GPIO <n>` instructions in PIO are relative to `GPIOBASE`.
+
 - `WAIT 1 GPIO 43` (CSYNC) was being interpreted as index 11 (43-32=11).
 - In the `GPIOBASE=16` window, index 11 is **GP27 (Red 1)**.
 - The PIO was syncing to the Red data toggles instead of CSYNC.
-**Fix:** 
+  **Fix:**
+
 1. Switched to `WAIT PIN <n>` in PIO, which is relative to the `IN_BASE` register.
 2. Manually configured `IN_BASE` and `JMP_PIN` via direct register writes to point to Bank 1 indices (e.g., 27 for GP43).
-**Result:** Rock-solid horizontal alignment.
+   **Result:** Rock-solid horizontal alignment.
 
 ---
 
 ### ✅ **SOLVED: "Only Blue" Channel / Missing Colors**
+
 **Issue:** Only blue bits were visible; red/green were black.
 **Root Cause:** Mismatch between PIO `shift_right` and bit extraction logic.
+
 - `shift_right = true` + `autopush = 18` placed the 18-bit pixel at `word[31:14]`.
 - Extraction logic expected data at `word[17:0]`.
 - Only the "Blue" channel (bits 11-15) saw any data (specifically bit 14/15).
-**Fix:** Set `shift_right = false` (Shift Left) in Pixel SM configuration.
-**Result:** All colors now perfectly captured and correctly mapped.
+  **Fix:** Set `shift_right = false` (Shift Left) in Pixel SM configuration.
+  **Result:** All colors now perfectly captured and correctly mapped.
 
 ---
 
 ## Final Hardware Configuration
 
 ### Pin Mapping (Verified Correct)
+
 ```
 Bank 0:
   GP29: PCLK (6 MHz)
@@ -86,6 +99,7 @@ Bank 1 (GP31-46):
 ```
 
 ### PIO Configuration
+
 ```c
 PIO1 (video capture):
   GPIOBASE: 16 (window GP16-47)
@@ -95,6 +109,7 @@ PIO1 (video capture):
 ```
 
 ### Timing Constants
+
 ```c
 H_SKIP_START: 30 pixels (was 28, adjusted)
 H_SKIP_END: 34 pixels (was 36, adjusted)
@@ -135,6 +150,7 @@ Active capture: 320 pixels (160 words)
 ## Code Changes Made
 
 ### Files Modified:
+
 - `src/pins.h` - Fixed R4 pin (GP46→GP45)
 - `src/video/hardware_config.h` - Updated bit remapping for R4
 - `src/video/video_capture.c` - Added diagnostics, adjusted H_SKIP
@@ -144,6 +160,7 @@ Active capture: 320 pixels (160 words)
 - `viewer/run.sh` - Created viewer launch script (NEW)
 
 ### Files Created:
+
 - `src/misc/gpio_activity_map.c`
 - `src/misc/bank1_gpio_speed_test.c`
 - `src/misc/pio_pc_tracker.c`
@@ -152,5 +169,5 @@ Active capture: 320 pixels (160 words)
 
 ---
 
-*Last updated: 2026-01-01*
-*Autonomous debugging session by Claude Code*
+_Last updated: 2026-01-01_
+_Autonomous debugging session by Claude Code_
