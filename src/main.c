@@ -27,11 +27,11 @@
 #include "audio/audio_pipeline.h"
 
 // Test utilities
-#include "misc/test_patterns.h"
 #include "misc/debug_render.h"
+#include "misc/test_patterns.h"
 
 // Debug configuration
-#define DEBUG_AUDIO_INFO 1 // Set to 1 to enable audio debug screen
+#define DEBUG_AUDIO_INFO 0 // Set to 1 to enable audio debug screen
 
 // System configuration
 #define VREG_VSEL VREG_VOLTAGE_1_20         // Voltage regulator setting
@@ -157,11 +157,13 @@ int main() {
     int y = 10;
     int x = 10;
 
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "--- AUDIO DEBUG INFO ---", DEBUG_COLOR_YELLOW, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y,
+                      "--- AUDIO DEBUG INFO ---", DEBUG_COLOR_YELLOW, 0);
     y += 12;
 
     // Hardware Probing (Direct silicon counters)
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[HARDWARE PROBE]", DEBUG_COLOR_GREEN, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y,
+                      "[HARDWARE PROBE]", DEBUG_COLOR_GREEN, 0);
     y += 10;
 
     // Use simple logic to check for pin toggling (direct GPIO read)
@@ -170,85 +172,109 @@ int main() {
     static uint32_t bck_toggles = 0;
     static bool last_ws = false;
     static bool last_bck = false;
-    
-    for(int i=0; i<1000; i++) {
-        bool ws = gpio_get(PIN_I2S_WS);
-        bool bck = gpio_get(PIN_I2S_BCK);
-        if (ws != last_ws) { ws_toggles++; last_ws = ws; }
-        if (bck != last_bck) { bck_toggles++; last_bck = bck; }
+
+    for (int i = 0; i < 1000; i++) {
+      bool ws = gpio_get(PIN_I2S_WS);
+      bool bck = gpio_get(PIN_I2S_BCK);
+      if (ws != last_ws) {
+        ws_toggles++;
+        last_ws = ws;
+      }
+      if (bck != last_bck) {
+        bck_toggles++;
+        last_bck = bck;
+      }
     }
 
     sprintf(buf, "GP1 (WS) ACTIVITY:  %s", ws_toggles > 0 ? "YES" : "NO");
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, ws_toggles > 0 ? DEBUG_COLOR_WHITE : DEBUG_COLOR_RED, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      ws_toggles > 0 ? DEBUG_COLOR_WHITE : DEBUG_COLOR_RED, 0);
     y += 9;
 
     sprintf(buf, "GP2 (BCK) ACTIVITY: %s", bck_toggles > 0 ? "YES" : "NO");
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, bck_toggles > 0 ? DEBUG_COLOR_WHITE : DEBUG_COLOR_RED, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      bck_toggles > 0 ? DEBUG_COLOR_WHITE : DEBUG_COLOR_RED, 0);
     y += 12;
 
     // PIO Internals
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[PIO INTERNALS]", DEBUG_COLOR_GREEN, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y,
+                      "[PIO INTERNALS]", DEBUG_COLOR_GREEN, 0);
     y += 10;
 
-    uint32_t pio_pc = pio_sm_get_pc(audio_pipeline.config.pio, audio_pipeline.config.sm);
+    uint32_t pio_pc =
+        pio_sm_get_pc(audio_pipeline.config.pio, audio_pipeline.config.sm);
     sprintf(buf, "PIO PC:   %lu", pio_pc);
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      DEBUG_COLOR_WHITE, 0);
     y += 9;
 
     uint32_t dma_addr = dma_hw->ch[audio_pipeline.capture.dma_chan].write_addr;
     sprintf(buf, "DMA ADDR: %08lX", dma_addr);
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      DEBUG_COLOR_WHITE, 0);
     y += 12;
 
     // Capture Stats (PIO Processing)
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[PIO CAPTURE]", DEBUG_COLOR_GREEN, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y,
+                      "[PIO CAPTURE]", DEBUG_COLOR_GREEN, 0);
     y += 10;
-    
+
     sprintf(buf, "LRCK (MEAS): %lu HZ", status.capture_sample_rate);
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      DEBUG_COLOR_WHITE, 0);
     y += 9;
 
     sprintf(buf, "SAMPLES:     %lu", status.samples_captured);
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      DEBUG_COLOR_WHITE, 0);
     y += 9;
 
     sprintf(buf, "OVERFLOWS:   %lu", status.capture_overflows);
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, 
-                      status.capture_overflows > 0 ? DEBUG_COLOR_RED : DEBUG_COLOR_WHITE, 0);
+    debug_draw_string(
+        g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+        status.capture_overflows > 0 ? DEBUG_COLOR_RED : DEBUG_COLOR_WHITE, 0);
     y += 12;
 
     // Processing Stats
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[PIPELINE]", DEBUG_COLOR_GREEN, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[PIPELINE]",
+                      DEBUG_COLOR_GREEN, 0);
     y += 10;
 
     sprintf(buf, "DC FILTER: %s", status.dc_filter_enabled ? "ON" : "OFF");
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      DEBUG_COLOR_WHITE, 0);
     y += 9;
 
     sprintf(buf, "LOWPASS:   %s", status.lowpass_enabled ? "ON" : "OFF");
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      DEBUG_COLOR_WHITE, 0);
     y += 9;
 
-    const char* src_modes[] = {"NONE", "DROP", "LINEAR"};
+    const char *src_modes[] = {"NONE", "DROP", "LINEAR"};
     sprintf(buf, "SRC MODE:  %s", src_modes[status.src_mode]);
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      DEBUG_COLOR_WHITE, 0);
     y += 12;
 
     // Output Stats
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[OUTPUT]", DEBUG_COLOR_GREEN, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x, y, "[OUTPUT]",
+                      DEBUG_COLOR_GREEN, 0);
     y += 10;
 
     sprintf(buf, "RATE: %lu HZ", status.output_sample_rate);
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      DEBUG_COLOR_WHITE, 0);
     y += 9;
 
     sprintf(buf, "SAMPLES:   %lu", status.samples_output);
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf, DEBUG_COLOR_WHITE, 0);
+    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+                      DEBUG_COLOR_WHITE, 0);
     y += 9;
 
     sprintf(buf, "UNDERRUNS: %lu", status.output_underruns);
-    debug_draw_string(g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
-                      status.output_underruns > 0 ? DEBUG_COLOR_RED : DEBUG_COLOR_WHITE, 0);
+    debug_draw_string(
+        g_framebuf, FRAME_WIDTH, FRAME_HEIGHT, x + 8, y, buf,
+        status.output_underruns > 0 ? DEBUG_COLOR_RED : DEBUG_COLOR_WHITE, 0);
 
     // Maintain ~60fps loop rate when capture is disabled
     sleep_ms(16);
@@ -275,7 +301,7 @@ int main() {
     // The capture rate is 55.5kHz, so we need to drain the ring frequently.
     // Kick the process once to trigger the hardware poll
     audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
-    
+
     uint32_t audio_available;
     while ((audio_available = ap_ring_available(&audio_pipeline.capture_ring)) >
            0) {
