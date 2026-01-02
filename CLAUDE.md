@@ -26,18 +26,22 @@ screen /dev/tty.usbmodem* 115200
 ## Maintenance Guidelines
 
 ### Audio Pipeline
+
 - **I2S Format**: Right-justified, WS High = Left, BCK Rising Edge.
 - **Sample Rate**: Input ~55.5kHz, Output 48kHz (SRC required).
 - **Polling**: Must call `audio_pipeline_process` frequently to avoid ring buffer overflow.
 
 ### Video Capture
+
 - **Sync**: Self-synchronizes to CSYNC falling edge per line.
 - **DMA**: Uses a ping-pong scheme. Do NOT block Core 0 for long periods during active frame capture.
 
 ### Diagnostics
+
 - Use the built-in OSD for debugging. Key metrics: `LRCK MEAS` (should be 55555Hz), `PIO PC` (should be changing), and `DMA ADDR` (should be moving).
 
 ### RP2350B Pin Mapping
+
 - **Audio**: GPIO 0-2 (PIO2)
 - **Video**: GPIO 25-43 (PIO1)
 - **DVI**: GPIO 12-19 (PIO0)
