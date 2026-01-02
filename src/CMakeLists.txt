@@ -189,12 +189,12 @@ pico_add_extra_outputs(dvi_audio_test)
 # HSTX Lab - HSTX-based DVI with HDMI audio
 # =============================================================================
 add_executable(hstx_lab
-    ../misc/hstx_lab/src/main.c
-    ../misc/hstx_lab/src/data_packet.c
+    misc/hstx_lab/src/main.c
+    misc/hstx_lab/src/data_packet.c
 )
 
 target_include_directories(hstx_lab PRIVATE
-    ../misc/hstx_lab/include
+    misc/hstx_lab/include
 )
 
 target_link_libraries(hstx_lab

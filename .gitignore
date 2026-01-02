@@ -83,4 +83,4 @@ reference/*.mp3
 venv/
 
 # hstx_lab dependencies
-misc/hstx_lab/lib/
+src/misc/hstx_lab/lib/
