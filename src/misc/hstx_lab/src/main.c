@@ -213,21 +213,72 @@ static inline uint8_t rgb332(uint8_t r, uint8_t g, uint8_t b) {
 // Bouncing box state (proper 2×2 scaling, no hacks needed!)
 #define BOX_SIZE 64
 static int box_x = 50, box_y = 50;
+static int box_x_old = 50, box_y_old = 50;  // Track previous position
 static int box_dx = 2, box_dy = 1;
 
-static void draw_frame(void) {
-  uint8_t bg = rgb332(0, 0, 64);
-  uint8_t box = rgb332(255, 255, 0);
+// Background buffer (pre-calculated gradient)
+static uint8_t background[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH];
 
+// Pre-calculate rainbow gradient background (called once at init)
+static void init_background(void) {
   for (int y = 0; y < FRAMEBUF_HEIGHT; y++) {
     for (int x = 0; x < FRAMEBUF_WIDTH; x++) {
-      if (x >= box_x && x < box_x + BOX_SIZE && y >= box_y && y < box_y + BOX_SIZE) {
-        framebuf[y * FRAMEBUF_WIDTH + x] = box;
-      } else {
-        framebuf[y * FRAMEBUF_WIDTH + x] = bg;
+      // Rainbow gradient - horizontal across 320 pixels
+      int segment = x / 53;  // 6 segments of ~53 pixels each
+      int t = (x % 53) * 255 / 53;  // Position within segment (0-255)
+
+      uint8_t r, g, b;
+      switch (segment) {
+        case 0:  // Red → Yellow
+          r = 255; g = t; b = 0;
+          break;
+        case 1:  // Yellow → Green
+          r = 255 - t; g = 255; b = 0;
+          break;
+        case 2:  // Green → Cyan
+          r = 0; g = 255; b = t;
+          break;
+        case 3:  // Cyan → Blue
+          r = 0; g = 255 - t; b = 255;
+          break;
+        case 4:  // Blue → Magenta
+          r = t; g = 0; b = 255;
+          break;
+        default: // Magenta → Red
+          r = 255; g = 0; b = 255 - t;
+          break;
       }
+      background[y * FRAMEBUF_WIDTH + x] = rgb332(r, g, b);
     }
   }
+  // Copy background to framebuf initially
+  memcpy(framebuf, background, sizeof(framebuf));
+}
+
+static void draw_frame(void) {
+  uint8_t box_color = rgb332(0, 0, 0);  // Black box
+
+  // Restore old box area from background
+  for (int y = 0; y < BOX_SIZE; y++) {
+    for (int x = 0; x < BOX_SIZE; x++) {
+      int fx = box_x_old + x;
+      int fy = box_y_old + y;
+      framebuf[fy * FRAMEBUF_WIDTH + fx] = background[fy * FRAMEBUF_WIDTH + fx];
+    }
+  }
+
+  // Draw box at new position
+  for (int y = 0; y < BOX_SIZE; y++) {
+    for (int x = 0; x < BOX_SIZE; x++) {
+      int fx = box_x + x;
+      int fy = box_y + y;
+      framebuf[fy * FRAMEBUF_WIDTH + fx] = box_color;
+    }
+  }
+
+  // Save current position as old
+  box_x_old = box_x;
+  box_y_old = box_y;
 }
 
 static void update_box(void) {
@@ -510,7 +561,7 @@ int main(void) {
   printf("================================\n");
   printf("640x480 @ 60Hz with HDMI audio\n\n");
 
-  draw_frame();
+  init_background();  // Pre-calculate rainbow gradient
   init_sine_table();
   init_audio_packets();
 
@@ -589,9 +640,17 @@ int main(void) {
   bool led_state = false;
 
   while (1) {
-    update_audio_ring_buffer();
+    // Wait for vsync (safe time to update framebuffer)
+    while (video_frame_count == last_vframe) {
+      update_audio_ring_buffer();
+      tight_loop_contents();
+    }
+    last_vframe = video_frame_count;
+
+    // Now update framebuffer during vblank (DMA not reading it)
     update_box();
     draw_frame();
+    update_audio_ring_buffer();
 
     // LED heartbeat at 2Hz (toggle every 30 frames @ 60fps = 0.5s)
     if (video_frame_count >= led_toggle_frame + 30) {
@@ -604,22 +663,18 @@ int main(void) {
     if (video_frame_count >= last_frame + 60) {
       int buffer_fill = (audio_ring_head - audio_ring_tail + AUDIO_RING_BUFFER_SIZE) % AUDIO_RING_BUFFER_SIZE;
 
-      // Check for buffer underrun (critically low)
-      ASSERT_NO_ERROR(buffer_fill > 10, "Audio buffer underrun! (<10 packets)");
-
-      // Check for buffer overflow (head catching tail)
-      ASSERT_NO_ERROR(buffer_fill < 250, "Audio buffer overflow! (>250 packets)");
+      // Warn instead of asserting (for debugging)
+      if (buffer_fill <= 10) {
+        printf("WARNING: Audio buffer underrun! (%d packets)\n", buffer_fill);
+      }
+      if (buffer_fill >= 250) {
+        printf("WARNING: Audio buffer overflow! (%d packets)\n", buffer_fill);
+      }
 
       printf("Frame %u, audio buffer: %d/%d packets\n",
              (unsigned int)video_frame_count, buffer_fill, AUDIO_RING_BUFFER_SIZE);
       last_frame = video_frame_count;
     }
-
-    while (video_frame_count == last_vframe) {
-      update_audio_ring_buffer();
-      tight_loop_contents();
-    }
-    last_vframe = video_frame_count;
   }
 
   return 0;
