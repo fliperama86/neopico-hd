@@ -2,40 +2,42 @@
 
 Instructions for Claude Code (claude.ai/code) when working with this repository.
 
-## Important
+## Architecture Context
 
-**Always read `README.md` first** for project documentation, architecture, pin configurations, and build instructions. Update `README.md` when documenting important changes or new features.
+NeoPico-HD is a cinema-quality Neo Geo MVS capture system using the RP2350B.
 
-## Quick Reference
+- **Core 0**: Handles pixel-perfect video capture (PIO+DMA) and digital audio processing (I2S+SRC).
+- **Core 1**: Dedicated to the PicoDVI stack, rendering 240p video doubled to 480p for HDMI compatibility.
+- **Hardware**: Specifically designed for the WeAct RP2350B board using both Bank 0 and Bank 1 GPIOs.
+
+## High-Priority Commands
 
 ```bash
-# Build
-./scripts/build.sh
-# or: cd build && make neopico_hd
+# Full Build & Flash
+./scripts/build.sh && ./scripts/flash.sh
 
-# Flash
-picotool load -f build/src/neopico_hd.uf2
+# Debug OSD Toggle (in src/main.c)
+#define DEBUG_AUDIO_INFO 1
 
-# Serial monitor
+# Serial Log Monitor
 screen /dev/tty.usbmodem* 115200
 ```
 
-## AI-Specific Guidelines
+## Maintenance Guidelines
 
-### Code Style
+### Audio Pipeline
+- **I2S Format**: Right-justified, WS High = Left, BCK Rising Edge.
+- **Sample Rate**: Input ~55.5kHz, Output 48kHz (SRC required).
+- **Polling**: Must call `audio_pipeline_process` frequently to avoid ring buffer overflow.
 
-- When using terminal output, prefer updating the same line instead of printing new lines (use `\r` and `fflush`)
-- PIO code is timing-critical - changes require hardware testing
-- Avoid large buffers - memory budget is tight (~150KB framebuffer on 520KB SRAM)
+### Video Capture
+- **Sync**: Self-synchronizes to CSYNC falling edge per line.
+- **DMA**: Uses a ping-pong scheme. Do NOT block Core 0 for long periods during active frame capture.
 
-### RP2350 Errata
+### Diagnostics
+- Use the built-in OSD for debugging. Key metrics: `LRCK MEAS` (should be 55555Hz), `PIO PC` (should be changing), and `DMA ADDR` (should be moving).
 
-- **Errata E9**: Internal pull-downs on GPIO 30+ have a hardware bug. Use pull-ups for buttons, or external resistors.
-
-### Aliases
-
-- `CAV` = "cps2_digiav MVS" (reference implementation in `reference/cps2_digiav/`)
-
-### Testing Without Hardware
-
-The `dvi_test` and `audio_pipeline_test` targets can verify DVI output and audio pipeline without MVS hardware connected.
+### RP2350B Pin Mapping
+- **Audio**: GPIO 0-2 (PIO2)
+- **Video**: GPIO 25-43 (PIO1)
+- **DVI**: GPIO 12-19 (PIO0)
