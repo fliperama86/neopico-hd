@@ -1,0 +1,36 @@
+;
+; Blink PIO program for RP2350
+; Toggles a GPIO pin at a programmable rate
+;
+
+.program blink
+    pull block          ; Pull delay count from TX FIFO into OSR
+    out y, 32           ; Copy delay to Y scratch register
+.wrap_target
+    mov x, y            ; Copy delay to X
+    set pins, 1         ; Turn LED on
+lp1:
+    jmp x-- lp1         ; Delay for (X + 1) cycles
+    mov x, y            ; Copy delay to X
+    set pins, 0         ; Turn LED off
+lp2:
+    jmp x-- lp2         ; Delay for (X + 1) cycles
+.wrap
+
+% c-sdk {
+static inline void blink_program_init(PIO pio, uint sm, uint offset, uint pin) {
+    pio_sm_config c = blink_program_get_default_config(offset);
+
+    // Map the SET pin group to one pin
+    sm_config_set_set_pins(&c, pin, 1);
+
+    // Set the pin direction to output at the PIO
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    // Connect the GPIO to the PIO
+    pio_gpio_init(pio, pin);
+
+    // Load the configuration and jump to the start of the program
+    pio_sm_init(pio, sm, offset, &c);
+}
+%}

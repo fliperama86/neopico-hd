@@ -1,0 +1,47 @@
+;
+; High-speed blast capture PIO program for RP2350
+; Captures raw bits at maximum PIO speed (up to 400MHz with overclock)
+; Based on logicanalyzer project by gusmanb
+;
+
+.program blast_capture
+
+; Simple tight loop - one instruction per sample
+; At 400MHz, this gives 400Msps (2.5ns per sample)
+.wrap_target
+    in pins 32              ; Capture 32 pins in one instruction
+.wrap
+
+% c-sdk {
+static inline void blast_capture_program_init(PIO pio, uint sm, uint offset, uint base_pin, uint pin_count) {
+    pio_sm_config c = blast_capture_program_get_default_config(offset);
+
+    // Set the input pin base
+    sm_config_set_in_pins(&c, base_pin);
+
+    // Configure pins as inputs
+    for (uint i = 0; i < pin_count; i++) {
+        pio_gpio_init(pio, base_pin + i);
+        pio_sm_set_consecutive_pindirs(pio, sm, base_pin + i, 1, false);
+    }
+
+    // Shift right, autopush at 32 bits
+    sm_config_set_in_shift(&c, true, true, 32);
+
+    // No clock divider - run at full system clock speed
+    sm_config_set_clkdiv(&c, 1.0f);
+
+    // Join FIFOs for more buffer depth
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void blast_capture_start(PIO pio, uint sm) {
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+static inline void blast_capture_stop(PIO pio, uint sm) {
+    pio_sm_set_enabled(pio, sm, false);
+}
+%}

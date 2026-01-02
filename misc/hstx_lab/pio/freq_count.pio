@@ -1,0 +1,58 @@
+;
+; Frequency counter PIO program for RP2350
+; Counts rising edges on input pin
+;
+
+.program freq_count
+
+    pull block          ; Wait for start signal, load count value
+    mov x, osr          ; X = 0xFFFFFFFF (our counter)
+.wrap_target
+count_edge:
+    wait 0 pin 0        ; Wait for pin to go low
+    wait 1 pin 0        ; Wait for pin to go high (rising edge)
+    jmp x-- count_edge  ; Decrement X (effectively counting up)
+.wrap
+
+% c-sdk {
+static inline void freq_count_program_init(PIO pio, uint sm, uint offset, uint pin) {
+    pio_sm_config c = freq_count_program_get_default_config(offset);
+
+    // Set the input pin
+    sm_config_set_in_pins(&c, pin);
+    sm_config_set_jmp_pin(&c, pin);
+
+    // Configure pin as input and connect to PIO
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
+    gpio_pull_down(pin);
+
+    // No clock divider - run at full speed for max frequency measurement
+    sm_config_set_clkdiv(&c, 1.0f);
+
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+static inline void freq_count_start(PIO pio, uint sm) {
+    // Send start signal with initial counter value
+    pio_sm_put_blocking(pio, sm, 0xFFFFFFFF);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+static inline uint32_t freq_count_get_count(PIO pio, uint sm) {
+    // Stop state machine
+    pio_sm_set_enabled(pio, sm, false);
+
+    // Execute instructions to push X to FIFO
+    // mov isr, x  -> opcode: 0xa0c2
+    // push        -> opcode: 0x8020
+    pio_sm_exec(pio, sm, pio_encode_mov(pio_isr, pio_x));
+    pio_sm_exec(pio, sm, pio_encode_push(false, false));
+
+    // Read X from FIFO
+    uint32_t x = pio_sm_get_blocking(pio, sm);
+
+    // Count = 0xFFFFFFFF - X (since we decremented)
+    return 0xFFFFFFFF - x;
+}
+%}

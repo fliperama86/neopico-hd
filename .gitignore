@@ -81,3 +81,6 @@ reference/*.wav
 reference/*.flac
 reference/*.mp3
 venv/
+
+# hstx_lab dependencies
+misc/hstx_lab/lib/
