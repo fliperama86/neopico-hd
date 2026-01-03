@@ -15,6 +15,7 @@ void src_init(src_t *s, uint32_t input_rate, uint32_t output_rate) {
     s->output_rate = output_rate;
     s->accumulator = 0;
     s->phase = 0;
+    s->phase_inc = ((uint64_t)s->input_rate << 16) / s->output_rate;
     s->prev_sample.left = 0;
     s->prev_sample.right = 0;
     s->have_prev = false;
@@ -29,6 +30,7 @@ void src_set_mode(src_t *s, src_mode_t mode) {
     // Reset state on mode change
     s->accumulator = 0;
     s->phase = 0;
+    s->phase_inc = ((uint64_t)s->input_rate << 16) / s->output_rate;
     s->have_prev = false;
 }
 
@@ -88,8 +90,7 @@ static uint32_t src_process_linear(src_t *s,
 
     // Phase increment per output sample (16.16 fixed-point)
     // ratio = input_rate / output_rate
-    // For 55555/48000 = 1.157, phase_inc = 0x12828 (~1.157 in 16.16)
-    uint32_t phase_inc = ((uint64_t)s->input_rate << 16) / s->output_rate;
+    uint32_t phase_inc = s->phase_inc;
 
     uint32_t out_count = 0;
     uint32_t in_idx = 0;

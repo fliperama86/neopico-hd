@@ -49,15 +49,17 @@ void lowpass_set_enabled(lowpass_t *lp, bool enabled) {
 
 // Process single sample through biquad
 // y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]
+// Optimized: b1 = 2*b0, b2 = b0. So FIR = b0 * (x[n] + 2*x[n-1] + x[n-2])
 static inline int16_t lowpass_process_sample(lowpass_channel_t *ch, int16_t in) {
-    // Scale input to Q16
-    int32_t x0 = (int32_t)in << 16;
-
-    // Compute output (all in Q16)
-    int64_t acc = 0;
-    acc += (int64_t)B0 * (x0 >> 16);
-    acc += (int64_t)B1 * (ch->x1 >> 16);
-    acc += (int64_t)B2 * (ch->x2 >> 16);
+    // FIR Part (optimized)
+    // Sum inputs: x[n] + 2*x[n-1] + x[n-2]
+    // Max value: 32767 * 4 = 131068, fits in int32
+    int32_t sum_x = (int32_t)in + ((int32_t)ch->x1 << 1) + ch->x2;
+    
+    // Compute output (accumulator in Q16)
+    int64_t acc = (int64_t)B0 * sum_x;
+    
+    // IIR Part
     acc -= (int64_t)A1 * (ch->y1 >> 16);
     acc -= (int64_t)A2 * (ch->y2 >> 16);
 
@@ -66,7 +68,7 @@ static inline int16_t lowpass_process_sample(lowpass_channel_t *ch, int16_t in) 
 
     // Update state
     ch->x2 = ch->x1;
-    ch->x1 = x0;
+    ch->x1 = in;
     ch->y2 = ch->y1;
     ch->y1 = y0;
 

@@ -48,6 +48,9 @@ bool i2s_capture_init(i2s_capture_t *cap, const i2s_capture_config_t *config,
   gpio_set_dir(config->pin_dat, GPIO_IN);
   gpio_set_dir(config->pin_ws, GPIO_IN);
 
+  // Allow pins to settle
+  sleep_ms(10);
+
   // CRITICAL: Set gpio_base BEFORE adding the PIO program!
   // GP0-2 are in Bank 0, use GPIOBASE=0
   pio_set_gpio_base(config->pio, 0);

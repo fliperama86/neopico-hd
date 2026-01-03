@@ -25,6 +25,7 @@ typedef struct
     // Internal state for algorithms
     uint32_t accumulator;    // For DROP mode (bresenham)
     uint32_t phase;          // For LINEAR mode (fixed-point position)
+    uint32_t phase_inc;      // For LINEAR mode (cached increment)
     ap_sample_t prev_sample; // For LINEAR mode (interpolation)
     bool have_prev;          // LINEAR mode: do we have a previous sample?
 } src_t;

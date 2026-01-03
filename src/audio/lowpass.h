@@ -12,7 +12,7 @@
 
 // Biquad filter state (per channel)
 typedef struct {
-    int32_t x1, x2;  // Previous inputs (Q16 fixed-point)
+    int16_t x1, x2;  // Previous inputs (Q0 - raw samples)
     int32_t y1, y2;  // Previous outputs (Q16 fixed-point)
 } lowpass_channel_t;
 

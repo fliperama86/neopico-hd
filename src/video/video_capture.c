@@ -243,12 +243,11 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   g_line_words = NEO_H_TOTAL; // 384 pixels = 384 words
 
   // MINIMAL OVERHEAD TEST: Diagnostics disabled
-  // printf("Initializing Video Capture on PIO1 (Manual Register
-  // Control)...\n");
+  // printf("Initializing Video Capture on PIO1 (Manual Register Control)...\n");
   g_pio_mvs = pio1;
 
-  // 1. Force GPIOBASE to 16
-  *(volatile uint32_t *)((uintptr_t)g_pio_mvs + 0x168) = 16;
+  // 1. Set GPIO Base to 16 (access GP16-GP47)
+  pio_set_gpio_base(g_pio_mvs, 16);
 
   // 2. Add programs (Relative versions)
   pio_clear_instruction_memory(g_pio_mvs);
@@ -266,6 +265,9 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
     pio_gpio_init(g_pio_mvs, i);
     gpio_disable_pulls(i);
   }
+  
+  // Allow pins to settle
+  sleep_ms(10);
 
   // 5. Configure Sync SM (GP43 as CSYNC)
   pio_sm_config c = mvs_sync_4a_program_get_default_config(g_offset_sync);
