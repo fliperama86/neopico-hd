@@ -53,7 +53,8 @@ bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *con
     p->src.mode = SRC_MODE_DROP;
 
     // Configure button pins as inputs with pull-ups
-    // Note: Requires correct RP2350B board definition for GPIO 30+
+    // Skip in HSTX_LAB_BUILD - buttons not used there
+#ifndef HSTX_LAB_BUILD
     gpio_init(config->pin_btn1);
     gpio_set_dir(config->pin_btn1, GPIO_IN);
     gpio_pull_up(config->pin_btn1);
@@ -61,6 +62,7 @@ bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *con
     gpio_init(config->pin_btn2);
     gpio_set_dir(config->pin_btn2, GPIO_IN);
     gpio_pull_up(config->pin_btn2);
+#endif
 
     // Initialize button state
     p->btn1_last_state = true; // Pull-up means idle high
