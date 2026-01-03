@@ -32,6 +32,18 @@ The MVS MV1C generates 15-bit RGB video digitally, clocked at 6 MHz with composi
 - **Ping-Pong Buffering**: DMA moves raw pixel words to RAM in the background. While DMA captures Line N into `buffer[0]`, the CPU processes Line N-1 from `buffer[1]`.
 - **Zero Jitter**: This offloads the high-speed work from the CPU, allowing Core 0 to handle conversion and OSD tasks without missing pixels.
 
+### Hardware-Accelerated Pixel Conversion
+
+The Neo Geo uses two special signals, **DARK** and **SHADOW**, to modify pixel brightness per-pixel. To handle this with minimum CPU overhead, NeoPico-HD uses the RP2350's **Hardware Interpolator** and a **Runtime-generated Lookup Table (LUT)**.
+
+1.  **Intensity LUT**: A 256KB LUT (131,072 entries) is generated at boot. It maps the 17-bit raw capture (RGB555 + DARK + SHADOW) to the final RGB565 value.
+2.  **Order of Operations**:
+    *   SHADOW (50% dimming) is applied first.
+    *   SHADOW forces DARK to 1.
+    *   5-to-8 bit color expansion.
+    *   DARK (-4 intensity) is applied last.
+3.  **Interpolator Logic**: `interp0` is configured with a mask of bits 1-17. This skips the PCLK bit and automatically multiplies the index by 2 (byte offset for `uint16_t`), allowing a single-cycle address generation for the LUT.
+
 ## 3. RP2350 Hardware Platform Notes (Bank 1)
 
 Capturing from GPIO 25-43 requires using the RP2350's **Bank 1** features and managing specific hardware/SDK quirks.

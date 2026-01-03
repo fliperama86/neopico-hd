@@ -719,6 +719,11 @@ int main(void) {
 #endif
     }
 
+    if (video_frame_count % 60 == 0 && video_frame_count != led_toggle_frame) {
+        printf("Frame %lu... \n", video_frame_count);
+        stdio_flush();
+    }
+
     // LED heartbeat (toggles every 0.5s based on display frame count)
     if (video_frame_count >= led_toggle_frame + 30) {
       led_state = !led_state;

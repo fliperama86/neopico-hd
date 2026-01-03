@@ -5,12 +5,18 @@
 
 #include "video_capture.h"
 #include "hardware/dma.h"
+#include "hardware/interp.h"
 #include "hardware/pio.h"
 #include "hardware_config.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
 #include "video_capture.pio.h"
 #include <stdio.h>
+#include <stdlib.h>
+
+// =============================================================================
+// MVS Timing Constants
+// =============================================================================
 
 // =============================================================================
 // MVS Timing Constants
@@ -33,6 +39,9 @@ static uint g_frame_width = 0;
 static uint g_frame_height = 0;
 static uint g_mvs_height = 0;
 static uint8_t g_v_offset = 0;
+
+// 256KB LUT for fast pixel conversion (131072 entries * 2 bytes)
+static uint16_t g_pixel_lut[131072] __attribute__((aligned(4)));
 
 PIO g_pio_mvs = NULL;
 static uint g_sm_sync = 0;
@@ -135,24 +144,43 @@ static bool wait_for_vsync(PIO pio, uint sm_sync, uint32_t timeout_ms) {
 }
 
 // =============================================================================
-// Pixel Conversion - 18-bit contiguous extraction
+// Pixel Conversion - Hardware Accelerated LUT
 // =============================================================================
 
-static inline void convert_and_store_pixel(uint32_t word, uint16_t *dst) {
-  // 18-bit capture: 1 pixel per word (lower 18 bits used, upper 14 bits unused)
-  // Extract RGB555 using fast contiguous bit fields
-  uint16_t rgb555 = extract_rgb555_contiguous(word);
+static void generate_intensity_lut(void) {
+  printf("Generating intensity LUT... ");
+  stdio_flush();
+  for (uint32_t i = 0; i < 131072; i++) {
+    uint8_t r5 = i & 0x1F;
+    uint8_t g5 = (i >> 5) & 0x1F;
+    uint8_t b5 = (i >> 10) & 0x1F;
+    bool dark = (i >> 15) & 1;
+    bool shadow = (i >> 16) & 1;
 
-  // Convert RGB555 to RGB565 (expand green from 5 to 6 bits)
-  uint8_t r = (rgb555 >> 10) & 0x1F; // Red (5 bits)
-  uint8_t g = (rgb555 >> 5) & 0x1F;  // Green (5 bits)
-  uint8_t b = rgb555 & 0x1F;         // Blue (5 bits)
+    // 1. Apply SHADOW FIRST (on 5-bit values!)
+    if (shadow) {
+      r5 >>= 1;
+      g5 >>= 1;
+      b5 >>= 1;
+      dark = true; // FORCE DARK when SHADOW active!
+    }
 
-  // Expand green: duplicate MSB as LSB (5-bit -> 6-bit)
-  uint8_t g6 = (g << 1) | (g >> 4);
+    // 2. Expand 5→8 bit
+    uint8_t r8 = (r5 << 3) | (r5 >> 2);
+    uint8_t g8 = (g5 << 3) | (g5 >> 2);
+    uint8_t b8 = (b5 << 3) | (b5 >> 2);
 
-  // Pack as RGB565
-  *dst = (r << 11) | (g6 << 5) | b;
+    // 3. Apply DARK (-4 with saturation)
+    if (dark) {
+      r8 = (r8 > 4) ? r8 - 4 : 0;
+      g8 = (g8 > 4) ? g8 - 4 : 0;
+      b8 = (b8 > 4) ? b8 - 4 : 0;
+    }
+
+    // 4. Pack as RGB565
+    g_pixel_lut[i] = ((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3);
+  }
+  printf("Done.\n");
 }
 
 // =============================================================================
@@ -197,6 +225,16 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   g_frame_height = frame_height;
   g_mvs_height = mvs_height;
   g_v_offset = (frame_height - mvs_height) / 2;
+
+  // Initialize hardware acceleration
+  generate_intensity_lut();
+
+  interp_config cfg = interp_default_config();
+  interp_config_set_shift(&cfg, 0); // No shift
+  interp_config_set_mask(&cfg, 1,
+                         17); // Bits 1-17 (skips PCLK, auto x2 for byte offset)
+  interp_set_config(interp0, 0, &cfg);
+  interp0->base[0] = (uintptr_t)g_pixel_lut;
 
   // 18-bit capture: 1 pixel per word (not 2 like before!)
   g_skip_start_words = H_SKIP_START; // Each word = 1 pixel now
@@ -411,8 +449,8 @@ bool video_capture_frame(void) {
 
     // 3. Process raw words from the buffer we just filled
     for (int i = 0; i < g_active_words; i++) {
-      uint32_t word = current_buffer[g_skip_start_words + i];
-      convert_and_store_pixel(word, &dst[i]);
+      interp0->accum[0] = current_buffer[g_skip_start_words + i];
+      dst[i] = *(uint16_t *)interp0->peek[0];
     }
   }
 
