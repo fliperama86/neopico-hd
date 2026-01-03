@@ -38,10 +38,10 @@ The Neo Geo uses two special signals, **DARK** and **SHADOW**, to modify pixel b
 
 1.  **Intensity LUT**: A 256KB LUT (131,072 entries) is generated at boot. It maps the 17-bit raw capture (RGB555 + DARK + SHADOW) to the final RGB565 value.
 2.  **Order of Operations**:
-    *   SHADOW (50% dimming) is applied first.
-    *   SHADOW forces DARK to 1.
-    *   5-to-8 bit color expansion.
-    *   DARK (-4 intensity) is applied last.
+    - SHADOW (50% dimming) is applied first.
+    - SHADOW forces DARK to 1.
+    - 5-to-8 bit color expansion.
+    - DARK (-4 intensity) is applied last.
 3.  **Interpolator Logic**: `interp0` is configured with a mask of bits 1-17. This skips the PCLK bit and automatically multiplies the index by 2 (byte offset for `uint16_t`), allowing a single-cycle address generation for the LUT.
 
 ## 3. RP2350 Hardware Platform Notes (Bank 1)

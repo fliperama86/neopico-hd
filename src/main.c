@@ -242,9 +242,7 @@ static uint16_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH]
 static uint16_t line_buffer[MODE_H_ACTIVE_PIXELS] __attribute__((aligned(4)));
 
 // Initialize framebuffer to black (called once at init)
-static void init_background(void) {
-  memset(framebuf, 0, sizeof(framebuf));
-}
+static void init_background(void) { memset(framebuf, 0, sizeof(framebuf)); }
 
 // ============================================================================
 // Command Lists (pre-computed at init time)
@@ -714,8 +712,8 @@ int main(void) {
     video_capture_frame();
 
     if (video_frame_count % 60 == 0 && video_frame_count != led_toggle_frame) {
-        printf("Frame %lu... \n", video_frame_count);
-        stdio_flush();
+      printf("Frame %lu... \n", video_frame_count);
+      stdio_flush();
     }
 
     // LED heartbeat (toggles every 0.5s based on display frame count)
