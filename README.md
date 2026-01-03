@@ -68,13 +68,8 @@ To ensure clean audio and video capture, follow these best practices:
 Requires [Pico SDK](https://github.com/raspberrypi/pico-sdk) with `PICO_SDK_PATH` set.
 
 ```bash
-# Build main targets
-./scripts/build.sh
-
-# Specific targets
-make neopico_hd          # Main firmware (Full Cinema Mode)
-make dvi_audio_test      # HDMI output test with sine tone
-make gpio_freq_analyzer  # Debug tool for wiring verification
+# Build and flash
+./flash
 ```
 
 ## Architecture
