@@ -48,12 +48,12 @@ To ensure clean audio and video capture, follow these best practices:
 
 #### HSTX Output (Bank 0/1)
 
-| Function  | GPIO       |
-| --------- | ---------- |
-| TMDS CLK  | GPIO 12-13 |
-| TMDS D0   | GPIO 14-15 |
-| TMDS D1   | GPIO 16-17 |
-| TMDS D2   | GPIO 18-19 |
+| Function | GPIO       |
+| -------- | ---------- |
+| TMDS CLK | GPIO 12-13 |
+| TMDS D0  | GPIO 14-15 |
+| TMDS D1  | GPIO 16-17 |
+| TMDS D2  | GPIO 18-19 |
 
 #### Audio Capture (Bank 0 - Low noise)
 
