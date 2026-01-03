@@ -8,8 +8,7 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 - **15-bit RGB capture** (32,768 colors) from MVS digital video bus
 - **Digital audio capture** from I2S bus (before DAC) with 48kHz HDMI output
 - **Zero-overhead DMA video capture** - uses PIO + DMA with ping-pong buffering for perfect stability
-- **High-quality audio pipeline** - includes DC blocking, lowpass filtering, and Sample Rate Conversion (SRC)
-- **Built-in OSD Foundation** - 5x7 "Mini" font renderer for real-time diagnostics and future menu system
+- **Hardware HSTX encoder** - uses RP2350's native TMDS encoder for efficient HDMI output
 
 ## Status
 
@@ -47,14 +46,14 @@ To ensure clean audio and video capture, follow these best practices:
 | MVS Pixels | GPIO 26-42 | RGB555 contiguous bus |
 | MVS CSYNC  | GPIO 43    | Composite sync        |
 
-#### DVI Output (Bank 0/1)
+#### HSTX Output (Bank 0/1)
 
-| Function | GPIO       |
-| -------- | ---------- |
-| DVI CLK  | GPIO 12-13 |
-| DVI D0   | GPIO 14-15 |
-| DVI D1   | GPIO 16-17 |
-| DVI D2   | GPIO 18-19 |
+| Function  | GPIO       |
+| --------- | ---------- |
+| TMDS CLK  | GPIO 12-13 |
+| TMDS D0   | GPIO 14-15 |
+| TMDS D1   | GPIO 16-17 |
+| TMDS D2   | GPIO 18-19 |
 
 #### Audio Capture (Bank 0 - Low noise)
 
@@ -81,31 +80,16 @@ make gpio_freq_analyzer  # Debug tool for wiring verification
 ## Architecture
 
 ```
-Core 0: Capture & Audio             Core 1: DVI Output
+Core 0: Video Capture               Core 1: HSTX Output
 +--------------------------+       +--------------------------+
-| Video: PIO -> DMA (PP)   |       | scanline_callback()      |
-| Audio: PIO -> DMA -> SRC |       | - 480p line doubling     |
-| Main: OSD & Logic        |       | - DMA to TMDS encoders   |
+| Video: PIO1 -> DMA (PP)  |       | HSTX hardware encoder    |
+| Audio: PIO2 -> pipeline  |       | - 640x480 @ 60Hz         |
+| Main loop                |       | - HDMI Data Islands      |
 +--------------------------+       +--------------------------+
           |                                   |
-          +--------- g_framebuf --------------+
-                  (320x240 shared)
+          +--------- framebuf ----------------+
+                  (320x240 RGB565)
 ```
-
-## Debugging / OSD
-
-Enable the real-time audio debug screen in `src/main.c`:
-
-```c
-#define DEBUG_AUDIO_INFO 1
-```
-
-This replaces the video output with clear, 1x-scaled 5x7 text showing:
-
-- **GP1/GP2 Activity**: Direct silicon probe of the audio pins.
-- **LRCK (MEAS)**: Actual measured sample rate (Target: 55.5kHz).
-- **PIO PC**: Internal state machine program counter.
-- **DMA ADDR**: Live memory address being written by the audio DMA.
 
 ## License
 

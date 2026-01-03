@@ -1,8 +1,50 @@
 # =============================================================================
-# NeoPico-HD Main Firmware (MVS capture + HDMI output)
+# NeoPico-HD Main Firmware (MVS capture + HSTX HDMI output)
 # =============================================================================
 add_executable(neopico_hd
     main.c
+    data_packet.c
+    video/video_capture.c
+    audio/i2s_capture.c
+    audio/audio_pipeline.c
+    audio/audio_buffer.c
+    audio/dc_filter.c
+    audio/lowpass.c
+    audio/src.c
+)
+
+pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
+pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
+
+target_include_directories(neopico_hd PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/video
+    ${CMAKE_CURRENT_LIST_DIR}/audio
+)
+
+target_link_libraries(neopico_hd
+    pico_stdlib
+    pico_multicore
+    hardware_pio
+    hardware_clocks
+    hardware_dma
+    hardware_irq
+    hardware_gpio
+)
+
+target_compile_definitions(neopico_hd PRIVATE
+    HSTX_LAB_BUILD=1
+)
+
+pico_enable_stdio_usb(neopico_hd 1)
+pico_enable_stdio_uart(neopico_hd 0)
+pico_add_extra_outputs(neopico_hd)
+
+# =============================================================================
+# DVI Main (backup/reference copy of main firmware)
+# =============================================================================
+add_executable(dvi_main
+    misc/dvi_main.c
     video/video_capture.c
     video/video_output.c
     audio/audio_pipeline.c
@@ -16,16 +58,16 @@ add_executable(neopico_hd
     misc/debug_render.c
 )
 
-pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
-pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
+pico_generate_pio_header(dvi_main ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
+pico_generate_pio_header(dvi_main ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
 
-target_include_directories(neopico_hd PRIVATE
+target_include_directories(dvi_main PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
     ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
 )
 
-target_link_libraries(neopico_hd
+target_link_libraries(dvi_main
     pico_stdlib
     pico_multicore
     hardware_pio
@@ -36,14 +78,14 @@ target_link_libraries(neopico_hd
     libdvi
 )
 
-target_compile_definitions(neopico_hd PRIVATE
+target_compile_definitions(dvi_main PRIVATE
     DVI_VERTICAL_REPEAT=1
     DVI_USE_PIO_CLOCK=1
 )
 
-pico_enable_stdio_usb(neopico_hd 1)
-pico_enable_stdio_uart(neopico_hd 0)
-pico_add_extra_outputs(neopico_hd)
+pico_enable_stdio_usb(dvi_main 1)
+pico_enable_stdio_uart(dvi_main 0)
+pico_add_extra_outputs(dvi_main)
 
 # =============================================================================
 # GPIO Frequency Analyzer (debug tool)
@@ -185,47 +227,3 @@ pico_enable_stdio_usb(dvi_audio_test 1)
 pico_enable_stdio_uart(dvi_audio_test 0)
 pico_add_extra_outputs(dvi_audio_test)
 
-# =============================================================================
-# HSTX Lab - HSTX-based DVI with HDMI audio + MVS capture
-# =============================================================================
-add_executable(hstx_lab
-    misc/hstx_lab/src/main.c
-    misc/hstx_lab/src/data_packet.c
-    video/video_capture.c
-    audio/i2s_capture.c
-    audio/audio_pipeline.c
-    audio/audio_buffer.c
-    audio/dc_filter.c
-    audio/lowpass.c
-    audio/src.c
-)
-
-# Generate PIO headers for video capture and I2S audio
-pico_generate_pio_header(hstx_lab ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
-pico_generate_pio_header(hstx_lab ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
-
-# IMPORTANT: hstx_lab/include comes FIRST to shadow hardware_config.h
-target_include_directories(hstx_lab PRIVATE
-    misc/hstx_lab/include
-    ${CMAKE_CURRENT_LIST_DIR}
-    ${CMAKE_CURRENT_LIST_DIR}/video
-    ${CMAKE_CURRENT_LIST_DIR}/audio
-)
-
-target_link_libraries(hstx_lab
-    pico_stdlib
-    pico_multicore
-    hardware_dma
-    hardware_gpio
-    hardware_irq
-    hardware_clocks
-    hardware_pio
-)
-
-target_compile_definitions(hstx_lab PRIVATE
-    HSTX_LAB_BUILD=1
-)
-
-pico_enable_stdio_usb(hstx_lab 1)
-pico_enable_stdio_uart(hstx_lab 0)
-pico_add_extra_outputs(hstx_lab)
