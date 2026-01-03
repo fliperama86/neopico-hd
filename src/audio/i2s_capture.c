@@ -140,8 +140,9 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap) {
     if (next_idx == write_idx)
       break;
 
-    uint32_t raw_l = cap->dma_buffer[cap->dma_buffer_idx];
-    uint32_t raw_r = cap->dma_buffer[next_idx];
+    // The PIO program pushes Right then Left.
+    uint32_t raw_r = cap->dma_buffer[cap->dma_buffer_idx];
+    uint32_t raw_l = cap->dma_buffer[next_idx];
 
     // Move pointer forward by 2
     cap->dma_buffer_idx = (next_idx + 1) & I2S_DMA_BUFFER_MASK;

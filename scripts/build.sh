@@ -42,12 +42,12 @@ if [ -f "build/src/neopico_hd.uf2" ]; then
     echo "Generated files:"
     ls -lh build/src/neopico_hd.uf2
     echo ""
-    echo "To deploy to Pico, use: ./scripts/deploy.sh"
+    echo "To deploy to Pico, use: ./flash"
 elif [ -f "build/neopico_hd.uf2" ]; then
     echo "Generated files:"
     ls -lh build/neopico_hd.uf2
     echo ""
-    echo "To deploy to Pico, use: ./scripts/deploy.sh"
+    echo "To deploy to Pico, use: ./flash"
 else
     echo "Warning: Could not find neopico_hd.uf2"
     echo "Build may have succeeded but output location is unexpected"

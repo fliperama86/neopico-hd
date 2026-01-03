@@ -23,6 +23,8 @@
  * Target: RP2350B (WeAct Studio board)
  */
 
+#include "audio_pipeline.h"
+#include "data_packet.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
@@ -31,10 +33,8 @@
 #include "hardware/structs/hstx_ctrl.h"
 #include "hardware/structs/hstx_fifo.h"
 #include "pico/multicore.h"
-#include "data_packet.h"
 #include "pico/stdlib.h"
 #include "video_capture.h"
-#include "audio_pipeline.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -58,8 +58,10 @@
 
 // Data Island preamble: Lane 0 = sync, Lanes 1&2 = CTRL_01 pattern
 // Used during hsync pulse (hsync=0), so use H0 variants
-#define PREAMBLE_V0_H0 (TMDS_CTRL_00 | (TMDS_CTRL_01 << 10) | (TMDS_CTRL_01 << 20))
-#define PREAMBLE_V1_H0 (TMDS_CTRL_10 | (TMDS_CTRL_01 << 10) | (TMDS_CTRL_01 << 20))
+#define PREAMBLE_V0_H0                                                         \
+  (TMDS_CTRL_00 | (TMDS_CTRL_01 << 10) | (TMDS_CTRL_01 << 20))
+#define PREAMBLE_V1_H0                                                         \
+  (TMDS_CTRL_10 | (TMDS_CTRL_01 << 10) | (TMDS_CTRL_01 << 20))
 
 // 480p timing (output resolution with 2×2 pixel doubling)
 #define MODE_H_FRONT_PORCH 16
@@ -76,10 +78,12 @@
 #define FRAMEBUF_WIDTH 320
 #define FRAMEBUF_HEIGHT 240
 
-#define MODE_H_TOTAL_PIXELS \
-  (MODE_H_FRONT_PORCH + MODE_H_SYNC_WIDTH + MODE_H_BACK_PORCH + MODE_H_ACTIVE_PIXELS)
-#define MODE_V_TOTAL_LINES \
-  (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH + MODE_V_BACK_PORCH + MODE_V_ACTIVE_LINES)
+#define MODE_H_TOTAL_PIXELS                                                    \
+  (MODE_H_FRONT_PORCH + MODE_H_SYNC_WIDTH + MODE_H_BACK_PORCH +                \
+   MODE_H_ACTIVE_PIXELS)
+#define MODE_V_TOTAL_LINES                                                     \
+  (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH + MODE_V_BACK_PORCH +                \
+   MODE_V_ACTIVE_LINES)
 
 // HSTX commands
 #define HSTX_CMD_RAW (0x0u << 12)
@@ -98,9 +102,9 @@
 #define AUDIO_CTS_VALUE 25200 // CTS for 25.2MHz pixel clock (800×525×60Hz)
 
 // I2S capture pins (MVS audio input) - must match pins.h!
-#define I2S_DAT_PIN 0   // GPIO 0: Data
-#define I2S_WS_PIN  1   // GPIO 1: Word select (LRCK)
-#define I2S_BCK_PIN 2   // GPIO 2: Bit clock
+#define I2S_DAT_PIN 0 // GPIO 0: Data
+#define I2S_WS_PIN 1  // GPIO 1: Word select (LRCK)
+#define I2S_BCK_PIN 2 // GPIO 2: Bit clock
 
 // Audio pipeline instance
 static audio_pipeline_t audio_pipeline;
@@ -110,25 +114,26 @@ static audio_pipeline_t audio_pipeline;
 #define TONE_AMPLITUDE 8000 // ~25% of int16 max
 
 // Audio state
-static volatile uint32_t video_frame_count = 0;  // volatile: updated on Core 1, read on Core 0
-static int audio_frame_counter = 0; // IEC60958 frame counter (0-191)
+static volatile uint32_t video_frame_count =
+    0; // volatile: updated on Core 1, read on Core 0
+static int audio_frame_counter = 0;       // IEC60958 frame counter (0-191)
 static uint32_t audio_phase = 0x40000000; // Start at 1/4 cycle (90 degrees)
 
 // Error detection and LED heartbeat
 static volatile bool error_detected = false;
 static const char *error_message = NULL;
 
-#define ASSERT_NO_ERROR(condition, msg) \
-  do { \
-    if (!(condition)) { \
-      error_detected = true; \
-      error_message = msg; \
-      printf("ERROR: %s\n", msg); \
-      while (1) { \
-        gpio_put(PICO_DEFAULT_LED_PIN, 1); \
-        tight_loop_contents(); \
-      } \
-    } \
+#define ASSERT_NO_ERROR(condition, msg)                                        \
+  do {                                                                         \
+    if (!(condition)) {                                                        \
+      error_detected = true;                                                   \
+      error_message = msg;                                                     \
+      printf("ERROR: %s\n", msg);                                              \
+      while (1) {                                                              \
+        gpio_put(PICO_DEFAULT_LED_PIN, 1);                                     \
+        tight_loop_contents();                                                 \
+      }                                                                        \
+    }                                                                          \
   } while (0)
 static uint32_t audio_sample_accum = 0; // Fixed-point accumulator
 
@@ -154,29 +159,62 @@ static hstx_data_island_t audio_ring_buffer[AUDIO_RING_BUFFER_SIZE];
 static volatile uint32_t audio_ring_head = 0;
 static volatile uint32_t audio_ring_tail = 0;
 
-// Audio timer for consistent sample generation (matching PicoDVI)
-static struct repeating_timer audio_timer;
-
 // Set to 1 to use real MVS audio capture, 0 for test tone
 // NOTE: Requires I2S signals on GPIO 0-2 (BCK, WS, DAT)
-#define USE_MVS_AUDIO 0
+#define USE_MVS_AUDIO 1
 
 // Buffer for collecting audio samples before encoding into data islands
 #define AUDIO_COLLECT_SIZE 128
 static ap_sample_t audio_collect_buffer[AUDIO_COLLECT_SIZE];
-static volatile uint32_t audio_collect_count = 0;
+static uint32_t audio_collect_count = 0;
 
-// Audio pipeline output callback - collects samples for later encoding
-static volatile uint32_t audio_samples_received = 0;  // Debug counter
+// Audio pipeline output callback - collects samples and encodes into data
+// islands
+static volatile uint32_t audio_samples_received = 0; // Debug counter
 
-static void audio_output_callback(const ap_sample_t *samples, uint32_t count, void *ctx) {
+static void audio_output_callback(const ap_sample_t *samples, uint32_t count,
+                                  void *ctx) {
   (void)ctx;
 
-  audio_samples_received += count;  // Debug: track total samples
+  audio_samples_received += count; // Debug: track total samples
 
   // Copy samples to collection buffer
-  for (uint32_t i = 0; i < count && audio_collect_count < AUDIO_COLLECT_SIZE; i++) {
-    audio_collect_buffer[audio_collect_count++] = samples[i];
+  for (uint32_t i = 0; i < count; i++) {
+    if (audio_collect_count < AUDIO_COLLECT_SIZE) {
+      audio_collect_buffer[audio_collect_count++] = samples[i];
+    }
+
+    // When we have 4 samples, encode into a data island
+    if (audio_collect_count >= 4) {
+      // Check if we have room in ring buffer
+      uint32_t next_head = (audio_ring_head + 1) % AUDIO_RING_BUFFER_SIZE;
+      if (next_head != audio_ring_tail) {
+        audio_sample_t encoded_samples[4];
+        for (int j = 0; j < 4; j++) {
+          encoded_samples[j].left = audio_collect_buffer[j].left;
+          encoded_samples[j].right = audio_collect_buffer[j].right;
+        }
+
+        data_packet_t packet;
+        audio_frame_counter = packet_set_audio_samples(&packet, encoded_samples,
+                                                       4, audio_frame_counter);
+
+        // Audio sample packets are sent outside VSync lines
+        hstx_encode_data_island(&audio_ring_buffer[audio_ring_head], &packet,
+                                false, true);
+        audio_ring_head = next_head;
+
+        // Shift remaining samples
+        audio_collect_count -= 4;
+        for (uint32_t j = 0; j < audio_collect_count; j++) {
+          audio_collect_buffer[j] = audio_collect_buffer[j + 4];
+        }
+      } else {
+        // Ring buffer full, we have to drop these samples or wait.
+        // For now, just stop collecting to avoid overflow.
+        break;
+      }
+    }
   }
 }
 
@@ -190,92 +228,14 @@ static void audio_output_callback(const ap_sample_t *samples, uint32_t count, vo
 // Set to 1 to enable audio during active video lines
 #define ENABLE_ACTIVE_LINE_AUDIO 1
 
-// Timer-based audio generation (matching PicoDVI approach)
-// Called from timer interrupt at consistent 2ms intervals
-static bool audio_timer_callback(struct repeating_timer *t) {
-  (void)t;
-
-  // Generate audio packets to fill ring buffer
-  // Don't overfill - leave at least 16 slots free for safety
-  int free_slots = (audio_ring_tail - audio_ring_head - 1 + AUDIO_RING_BUFFER_SIZE) % AUDIO_RING_BUFFER_SIZE;
-  if (free_slots < 16) {
-    return true;  // Buffer nearly full, skip this iteration
-  }
-
-#if USE_MVS_AUDIO
-  // Process audio pipeline to collect samples
-  audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
-
-  // Encode collected samples into data islands (4 samples per packet)
-  while (audio_collect_count >= 4) {
-    // Check if we have room in ring buffer
-    int slots = (audio_ring_tail - audio_ring_head - 1 + AUDIO_RING_BUFFER_SIZE) % AUDIO_RING_BUFFER_SIZE;
-    if (slots < 1) break;
-
-    // Convert ap_sample_t to audio_sample_t for encoding
-    audio_sample_t samples[4];
-    for (int i = 0; i < 4; i++) {
-      samples[i].left = audio_collect_buffer[i].left;
-      samples[i].right = audio_collect_buffer[i].right;
-    }
-
-    data_packet_t packet;
-    audio_frame_counter =
-        packet_set_audio_samples(&packet, samples, 4, audio_frame_counter);
-
-    hstx_encode_data_island(&audio_ring_buffer[audio_ring_head], &packet, true, false);
-    audio_ring_head = (audio_ring_head + 1) % AUDIO_RING_BUFFER_SIZE;
-
-    // Shift remaining samples
-    audio_collect_count -= 4;
-    for (uint32_t i = 0; i < audio_collect_count; i++) {
-      audio_collect_buffer[i] = audio_collect_buffer[i + 4];
-    }
-  }
-#else
-  // Fallback: Generate test tone
-  audio_sample_t samples[4];
-  for (int i = 0; i < 4; i++) {
-    int16_t s = fast_sine_sample();
-    samples[i].left = s;
-    samples[i].right = s;
-  }
-
-  data_packet_t packet;
-  audio_frame_counter =
-      packet_set_audio_samples(&packet, samples, 4, audio_frame_counter);
-
-  hstx_encode_data_island(&audio_ring_buffer[audio_ring_head], &packet, true, false);
-  audio_ring_head = (audio_ring_head + 1) % AUDIO_RING_BUFFER_SIZE;
-#endif
-
-  return true;
-}
-
-// Legacy function kept for initialization
-static void update_audio_ring_buffer(void) {
-  while (((audio_ring_head + 1) % AUDIO_RING_BUFFER_SIZE) != audio_ring_tail) {
-    audio_sample_t samples[4];
-    for (int i = 0; i < 4; i++) {
-      int16_t s = fast_sine_sample();
-      samples[i].left = s;
-      samples[i].right = s;
-    }
-
-    data_packet_t packet;
-    audio_frame_counter =
-        packet_set_audio_samples(&packet, samples, 4, audio_frame_counter);
-
-    hstx_encode_data_island(&audio_ring_buffer[audio_ring_head], &packet, true, false);
-    audio_ring_head = (audio_ring_head + 1) % AUDIO_RING_BUFFER_SIZE;
-  }
-}
+// Audio samples per frame (48kHz / 60fps = 800 samples)
 
 // ============================================================================
 // Framebuffer (320×240 MVS native, 2×2 doubled to 640×480, RGB565)
 // ============================================================================
 
-static uint16_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH] __attribute__((aligned(4)));
+static uint16_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH]
+    __attribute__((aligned(4)));
 
 // Line buffer for horizontal pixel doubling (320 → 640 pixels, RGB565)
 // Aligned for fast DMA access
@@ -288,7 +248,7 @@ static inline uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
 // Bouncing box state (proper 2×2 scaling, no hacks needed!)
 #define BOX_SIZE 64
 static int box_x = 50, box_y = 50;
-static int box_x_old = 50, box_y_old = 50;  // Track previous position
+static int box_x_old = 50, box_y_old = 50; // Track previous position
 static int box_dx = 2, box_dy = 1;
 
 // Background buffer (pre-calculated gradient, RGB565)
@@ -299,29 +259,41 @@ static void init_background(void) {
   for (int y = 0; y < FRAMEBUF_HEIGHT; y++) {
     for (int x = 0; x < FRAMEBUF_WIDTH; x++) {
       // Rainbow gradient - horizontal across 320 pixels
-      int segment = x / 53;  // 6 segments of ~53 pixels each
-      int t = (x % 53) * 255 / 53;  // Position within segment (0-255)
+      int segment = x / 53;        // 6 segments of ~53 pixels each
+      int t = (x % 53) * 255 / 53; // Position within segment (0-255)
 
       uint8_t r, g, b;
       switch (segment) {
-        case 0:  // Red → Yellow
-          r = 255; g = t; b = 0;
-          break;
-        case 1:  // Yellow → Green
-          r = 255 - t; g = 255; b = 0;
-          break;
-        case 2:  // Green → Cyan
-          r = 0; g = 255; b = t;
-          break;
-        case 3:  // Cyan → Blue
-          r = 0; g = 255 - t; b = 255;
-          break;
-        case 4:  // Blue → Magenta
-          r = t; g = 0; b = 255;
-          break;
-        default: // Magenta → Red
-          r = 255; g = 0; b = 255 - t;
-          break;
+      case 0: // Red → Yellow
+        r = 255;
+        g = t;
+        b = 0;
+        break;
+      case 1: // Yellow → Green
+        r = 255 - t;
+        g = 255;
+        b = 0;
+        break;
+      case 2: // Green → Cyan
+        r = 0;
+        g = 255;
+        b = t;
+        break;
+      case 3: // Cyan → Blue
+        r = 0;
+        g = 255 - t;
+        b = 255;
+        break;
+      case 4: // Blue → Magenta
+        r = t;
+        g = 0;
+        b = 255;
+        break;
+      default: // Magenta → Red
+        r = 255;
+        g = 0;
+        b = 255 - t;
+        break;
       }
       background[y * FRAMEBUF_WIDTH + x] = rgb565(r, g, b);
     }
@@ -331,7 +303,7 @@ static void init_background(void) {
 }
 
 static void draw_frame(void) {
-  uint16_t box_color = rgb565(0, 0, 0);  // Black box
+  uint16_t box_color = rgb565(0, 0, 0); // Black box
 
   // Restore old box area from background
   for (int y = 0; y < BOX_SIZE; y++) {
@@ -364,7 +336,7 @@ static void update_box(void) {
   if (box_x < 0) {
     box_x = 0;
     box_dx = -box_dx;
-  } else if (box_x + BOX_SIZE >= FRAMEBUF_WIDTH) {  // >= to catch at boundary
+  } else if (box_x + BOX_SIZE >= FRAMEBUF_WIDTH) { // >= to catch at boundary
     box_x = FRAMEBUF_WIDTH - BOX_SIZE;
     box_dx = -box_dx;
   }
@@ -372,7 +344,7 @@ static void update_box(void) {
   if (box_y < 0) {
     box_y = 0;
     box_dy = -box_dy;
-  } else if (box_y + BOX_SIZE >= FRAMEBUF_HEIGHT) {  // >= to catch at boundary
+  } else if (box_y + BOX_SIZE >= FRAMEBUF_HEIGHT) { // >= to catch at boundary
     box_y = FRAMEBUF_HEIGHT - BOX_SIZE;
     box_dy = -box_dy;
   }
@@ -385,8 +357,10 @@ static void update_box(void) {
 static uint32_t vblank_line_vsync_off[] = {
     HSTX_CMD_RAW_REPEAT | MODE_H_FRONT_PORCH,
     SYNC_V1_H1,
+    HSTX_CMD_NOP,
     HSTX_CMD_RAW_REPEAT | MODE_H_SYNC_WIDTH,
     SYNC_V1_H0,
+    HSTX_CMD_NOP,
     HSTX_CMD_RAW_REPEAT | (MODE_H_BACK_PORCH + MODE_H_ACTIVE_PIXELS),
     SYNC_V1_H1,
     HSTX_CMD_NOP};
@@ -394,26 +368,28 @@ static uint32_t vblank_line_vsync_off[] = {
 static uint32_t vblank_line_vsync_on[] = {
     HSTX_CMD_RAW_REPEAT | MODE_H_FRONT_PORCH,
     SYNC_V0_H1,
+    HSTX_CMD_NOP,
     HSTX_CMD_RAW_REPEAT | MODE_H_SYNC_WIDTH,
     SYNC_V0_H0,
+    HSTX_CMD_NOP,
     HSTX_CMD_RAW_REPEAT | (MODE_H_BACK_PORCH + MODE_H_ACTIVE_PIXELS),
     SYNC_V0_H1,
     HSTX_CMD_NOP};
 
-static uint32_t vactive_line[] = {
-    HSTX_CMD_RAW_REPEAT | MODE_H_FRONT_PORCH,
-    SYNC_V1_H1,
-    HSTX_CMD_NOP,
-    HSTX_CMD_RAW_REPEAT | MODE_H_SYNC_WIDTH,
-    SYNC_V1_H0,
-    HSTX_CMD_NOP,
-    HSTX_CMD_RAW_REPEAT | MODE_H_BACK_PORCH,
-    SYNC_V1_H1,
-    HSTX_CMD_TMDS | MODE_H_ACTIVE_PIXELS};
+static uint32_t vactive_line[] = {HSTX_CMD_RAW_REPEAT | MODE_H_FRONT_PORCH,
+                                  SYNC_V1_H1,
+                                  HSTX_CMD_NOP,
+                                  HSTX_CMD_RAW_REPEAT | MODE_H_SYNC_WIDTH,
+                                  SYNC_V1_H0,
+                                  HSTX_CMD_NOP,
+                                  HSTX_CMD_RAW_REPEAT | MODE_H_BACK_PORCH,
+                                  SYNC_V1_H1,
+                                  HSTX_CMD_TMDS | MODE_H_ACTIVE_PIXELS};
 
 // Data island placement: At START of hsync pulse (matching pico_lib)
-#define SYNC_BEFORE_DI 0  // DI starts immediately at hsync transition
-#define SYNC_AFTER_DI (MODE_H_SYNC_WIDTH - W_PREAMBLE - W_DATA_ISLAND)  // Remaining hsync after DI
+#define SYNC_BEFORE_DI 0 // DI starts immediately at hsync transition
+#define SYNC_AFTER_DI                                                          \
+  (MODE_H_SYNC_WIDTH - W_PREAMBLE - W_DATA_ISLAND) // Remaining hsync after DI
 
 #define VBLANK_DI_MAX_WORDS 64
 static uint32_t vblank_acr_vsync_on[VBLANK_DI_MAX_WORDS];
@@ -428,9 +404,15 @@ static uint32_t vactive_di_ping[VACTIVE_DI_MAX_WORDS];
 static uint32_t vactive_di_pong[VACTIVE_DI_MAX_WORDS];
 static uint32_t vactive_di_len;
 
+static uint32_t vactive_di_null[VACTIVE_DI_MAX_WORDS];
+static uint32_t vactive_di_null_len;
+
 static uint32_t vblank_di_ping[VACTIVE_DI_MAX_WORDS];
 static uint32_t vblank_di_pong[VACTIVE_DI_MAX_WORDS];
 static uint32_t vblank_di_len;
+
+static uint32_t vblank_di_null[VACTIVE_DI_MAX_WORDS];
+static uint32_t vblank_di_null_len;
 
 static void init_sine_table(void) {
   for (int i = 0; i < SINE_TABLE_SIZE; i++) {
@@ -439,20 +421,28 @@ static void init_sine_table(void) {
   }
 }
 
+static uint32_t vblank_acr_vsync_off[VBLANK_DI_MAX_WORDS];
+static uint32_t vblank_acr_vsync_off_len;
+
+static uint32_t vblank_infoframe_vsync_off[VBLANK_DI_MAX_WORDS];
+static uint32_t vblank_infoframe_vsync_off_len;
+
 static uint32_t build_line_with_di(uint32_t *buf, const uint32_t *di_words,
                                    bool vsync, bool active) {
   uint32_t *p = buf;
 
+  // Sync bit logic: active-low (0=active, 1=idle)
   uint32_t sync_h0 = vsync ? SYNC_V0_H0 : SYNC_V1_H0;
   uint32_t sync_h1 = vsync ? SYNC_V0_H1 : SYNC_V1_H1;
   uint32_t preamble = vsync ? PREAMBLE_V0_H0 : PREAMBLE_V1_H0;
 
-  // Front porch (16 clocks, H=1)
+  // 1. Front Porch (16 clocks)
   *p++ = HSTX_CMD_RAW_REPEAT | MODE_H_FRONT_PORCH;
   *p++ = sync_h1;
   *p++ = HSTX_CMD_NOP;
 
-  // Data Island preamble (8 clocks) - at start of hsync
+  // 2. Sync pulse with Data Island
+  // Preamble (8 clocks)
   *p++ = HSTX_CMD_RAW_REPEAT | W_PREAMBLE;
   *p++ = preamble;
   *p++ = HSTX_CMD_NOP;
@@ -462,19 +452,21 @@ static uint32_t build_line_with_di(uint32_t *buf, const uint32_t *di_words,
   for (int i = 0; i < W_DATA_ISLAND; i++) {
     *p++ = di_words[i];
   }
+  *p++ = HSTX_CMD_NOP;
 
   // Remaining hsync after DI (52 clocks, H=0)
   *p++ = HSTX_CMD_RAW_REPEAT | SYNC_AFTER_DI;
   *p++ = sync_h0;
   *p++ = HSTX_CMD_NOP;
 
-  // Back porch and active
+  // 3. Back Porch (48 clocks)
   if (active) {
+    // For active lines, we chain to the pixels after the back porch.
     *p++ = HSTX_CMD_RAW_REPEAT | MODE_H_BACK_PORCH;
     *p++ = sync_h1;
-    *p++ = HSTX_CMD_NOP;
     *p++ = HSTX_CMD_TMDS | MODE_H_ACTIVE_PIXELS;
   } else {
+    // For blanking lines, we include the active area in the back porch.
     *p++ = HSTX_CMD_RAW_REPEAT | (MODE_H_BACK_PORCH + MODE_H_ACTIVE_PIXELS);
     *p++ = sync_h1;
     *p++ = HSTX_CMD_NOP;
@@ -483,7 +475,8 @@ static uint32_t build_line_with_di(uint32_t *buf, const uint32_t *di_words,
   return (uint32_t)(p - buf);
 }
 
-static uint32_t build_vblank_with_di(uint32_t *buf, const uint32_t *di_words, bool vsync) {
+static uint32_t build_vblank_with_di(uint32_t *buf, const uint32_t *di_words,
+                                     bool vsync) {
   return build_line_with_di(buf, di_words, vsync, false);
 }
 
@@ -492,21 +485,35 @@ static void init_audio_packets(void) {
   hstx_data_island_t island;
 
   packet_set_acr(&packet, AUDIO_N_VALUE, AUDIO_CTS_VALUE);
-  hstx_encode_data_island(&island, &packet, false, false);
-  vblank_acr_vsync_on_len = build_vblank_with_di(vblank_acr_vsync_on, island.words, true);
+  hstx_encode_data_island(&island, &packet, true, true); // ACR in VSync
+  vblank_acr_vsync_on_len =
+      build_vblank_with_di(vblank_acr_vsync_on, island.words, true);
+
+  hstx_encode_data_island(&island, &packet, false, true); // ACR outside VSync
+  vblank_acr_vsync_off_len =
+      build_vblank_with_di(vblank_acr_vsync_off, island.words, false);
 
   packet_set_audio_infoframe(&packet, AUDIO_SAMPLE_RATE, 2, 16);
-  hstx_encode_data_island(&island, &packet, false, false);
-  vblank_infoframe_vsync_on_len = build_vblank_with_di(vblank_infoframe_vsync_on, island.words, true);
+  hstx_encode_data_island(&island, &packet, true, true); // InfoFrame in VSync
+  vblank_infoframe_vsync_on_len =
+      build_vblank_with_di(vblank_infoframe_vsync_on, island.words, true);
+
+  hstx_encode_data_island(&island, &packet, false,
+                          true); // InfoFrame outside VSync
+  vblank_infoframe_vsync_off_len =
+      build_vblank_with_di(vblank_infoframe_vsync_off, island.words, false);
 
   packet_set_avi_infoframe(&packet, 1);
-  hstx_encode_data_island(&island, &packet, true, false);
-  vblank_avi_infoframe_len = build_vblank_with_di(vblank_avi_infoframe, island.words, false);
+  hstx_encode_data_island(&island, &packet, false, true); // AVI outside VSync
+  vblank_avi_infoframe_len =
+      build_vblank_with_di(vblank_avi_infoframe, island.words, false);
 
-#if !USE_MVS_AUDIO
-  // Only prefill with test tone if not using MVS audio
-  update_audio_ring_buffer();
-#endif
+  // Pre-calculate NULL Data Island lines for both blank and active states
+  // hsync_active=true (0) because Data Islands are sent during the HSync pulse.
+  vblank_di_null_len = build_line_with_di(
+      vblank_di_null, hstx_get_null_data_island(false, true), false, false);
+  vactive_di_null_len = build_line_with_di(
+      vactive_di_null, hstx_get_null_data_island(false, true), false, true);
 
   printf("Audio initialized:\n");
   printf("  48kHz, N=%d, CTS=%d\n", AUDIO_N_VALUE, AUDIO_CTS_VALUE);
@@ -532,9 +539,15 @@ void __scratch_x("") dma_irq_handler() {
   bool vsync_active = (v_scanline >= MODE_V_FRONT_PORCH &&
                        v_scanline < (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH));
   bool front_porch = (v_scanline < MODE_V_FRONT_PORCH);
-  bool back_porch = (v_scanline >= MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH &&
-                     v_scanline < MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH + MODE_V_BACK_PORCH);
+  bool back_porch =
+      (v_scanline >= MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH &&
+       v_scanline < MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH + MODE_V_BACK_PORCH);
   bool active_video = (!vsync_active && !front_porch && !back_porch);
+
+  // Send ACR packet every 4 scanlines in VBLANK to improve sink lock
+  bool send_acr = (v_scanline >= (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH) &&
+                   v_scanline < (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES) &&
+                   (v_scanline % 4 == 0));
 
   if (vsync_active) {
     // Increment accumulator during vsync to account for all 525 lines
@@ -544,8 +557,6 @@ void __scratch_x("") dma_irq_handler() {
       ch->read_addr = (uintptr_t)vblank_acr_vsync_on;
       ch->transfer_count = vblank_acr_vsync_on_len;
       video_frame_count++;
-      // Removed: audio_sample_accum = 0;
-      // Allow accumulator to carry over between frames for perfect 800 samples/frame delivery
     } else {
       ch->read_addr = (uintptr_t)vblank_infoframe_vsync_on;
       ch->transfer_count = vblank_infoframe_vsync_on_len;
@@ -553,13 +564,16 @@ void __scratch_x("") dma_irq_handler() {
   } else if (active_video && !vactive_cmdlist_posted) {
     audio_sample_accum += SAMPLES_PER_LINE_FP;
 
-    // Prepare pixel-doubled line BEFORE DMA reads it (critical for glitch-free output!)
-    uint32_t active_line = v_scanline - (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES);
-    uint32_t fb_line = active_line / 2;  // Vertical: each line shown twice
+    // Prepare pixel-doubled line BEFORE DMA reads it (critical for glitch-free
+    // output!)
+    uint32_t active_line =
+        v_scanline - (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES);
+    uint32_t fb_line = active_line / 2; // Vertical: each line shown twice
     const uint16_t *src = &framebuf[fb_line * FRAMEBUF_WIDTH];
     uint32_t *dst32 = (uint32_t *)line_buffer;
 
-    // Normal 2x pixel doubling (320→640 horizontal, 240→480 vertical via fb_line/2)
+    // Normal 2x pixel doubling (320→640 horizontal, 240→480 vertical via
+    // fb_line/2)
     for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i++) {
       uint32_t p = src[i];
       dst32[i] = p | (p << 16);
@@ -575,20 +589,28 @@ void __scratch_x("") dma_irq_handler() {
       ch->read_addr = (uintptr_t)buf;
       ch->transfer_count = vactive_di_len;
     } else {
-      ch->read_addr = (uintptr_t)vactive_line;
-      ch->transfer_count = count_of(vactive_line);
+      // No audio sample available, send NULL Data Island to maintain HDMI sync
+      ch->read_addr = (uintptr_t)vactive_di_null;
+      ch->transfer_count = vactive_di_null_len;
     }
     vactive_cmdlist_posted = true;
   } else if (active_video && vactive_cmdlist_posted) {
     // Data phase: DMA reads the line_buffer we prepared earlier
     ch->read_addr = (uintptr_t)line_buffer;
-    ch->transfer_count = (MODE_H_ACTIVE_PIXELS * sizeof(uint16_t)) / sizeof(uint32_t);  // RGB565: 640 pixels * 2 bytes / 4
+    ch->transfer_count = (MODE_H_ACTIVE_PIXELS * sizeof(uint16_t)) /
+                         sizeof(uint32_t); // RGB565: 640 pixels * 2 bytes / 4
     vactive_cmdlist_posted = false;
   } else {
     audio_sample_accum += SAMPLES_PER_LINE_FP;
 
-    if (v_scanline != 0 && audio_sample_accum >= (4 << 16) &&
-        audio_ring_tail != audio_ring_head) {
+    if (send_acr) {
+      ch->read_addr = (uintptr_t)vblank_acr_vsync_off;
+      ch->transfer_count = vblank_acr_vsync_off_len;
+    } else if (v_scanline == 0) {
+      ch->read_addr = (uintptr_t)vblank_avi_infoframe;
+      ch->transfer_count = vblank_avi_infoframe_len;
+    } else if (v_scanline != 0 && audio_sample_accum >= (4 << 16) &&
+               audio_ring_tail != audio_ring_head) {
       audio_sample_accum -= (4 << 16);
       uint32_t *buf = dma_pong ? vblank_di_ping : vblank_di_pong;
       const uint32_t *di_words = audio_ring_buffer[audio_ring_tail].words;
@@ -597,12 +619,10 @@ void __scratch_x("") dma_irq_handler() {
 
       ch->read_addr = (uintptr_t)buf;
       ch->transfer_count = vblank_di_len;
-    } else if (v_scanline == 0) {
-      ch->read_addr = (uintptr_t)vblank_avi_infoframe;
-      ch->transfer_count = vblank_avi_infoframe_len;
     } else {
-      ch->read_addr = (uintptr_t)vblank_line_vsync_off;
-      ch->transfer_count = count_of(vblank_line_vsync_off);
+      // No audio sample available, send NULL Data Island to maintain HDMI sync
+      ch->read_addr = (uintptr_t)vblank_di_null;
+      ch->transfer_count = vblank_di_null_len;
     }
   }
 
@@ -620,26 +640,26 @@ static void core1_entry(void) {
   // Red [15:11] = 5 bits, rotate by 8 to align with [7:3]
   // Green [10:5] = 6 bits, rotate by 3 to align with [7:2]
   // Blue [4:0] = 5 bits, rotate by 13 to align with [7:3]
-  hstx_ctrl_hw->expand_tmds = 4 << HSTX_CTRL_EXPAND_TMDS_L2_NBITS_LSB |  // Red: 5 bits
-                              8 << HSTX_CTRL_EXPAND_TMDS_L2_ROT_LSB |
-                              5 << HSTX_CTRL_EXPAND_TMDS_L1_NBITS_LSB |  // Green: 6 bits
-                              3 << HSTX_CTRL_EXPAND_TMDS_L1_ROT_LSB |
-                              4 << HSTX_CTRL_EXPAND_TMDS_L0_NBITS_LSB |  // Blue: 5 bits
-                              13 << HSTX_CTRL_EXPAND_TMDS_L0_ROT_LSB;
+  hstx_ctrl_hw->expand_tmds =
+      4 << HSTX_CTRL_EXPAND_TMDS_L2_NBITS_LSB | // Red: 5 bits
+      8 << HSTX_CTRL_EXPAND_TMDS_L2_ROT_LSB |
+      5 << HSTX_CTRL_EXPAND_TMDS_L1_NBITS_LSB | // Green: 6 bits
+      3 << HSTX_CTRL_EXPAND_TMDS_L1_ROT_LSB |
+      4 << HSTX_CTRL_EXPAND_TMDS_L0_NBITS_LSB | // Blue: 5 bits
+      13 << HSTX_CTRL_EXPAND_TMDS_L0_ROT_LSB;
 
   // RGB565: 2 shifts × 16 bits = 32 bits per word = 2 pixels
-  hstx_ctrl_hw->expand_shift = 2 << HSTX_CTRL_EXPAND_SHIFT_ENC_N_SHIFTS_LSB |
-                               16 << HSTX_CTRL_EXPAND_SHIFT_ENC_SHIFT_LSB |  // 16-bit pixels
-                               1 << HSTX_CTRL_EXPAND_SHIFT_RAW_N_SHIFTS_LSB |
-                               0 << HSTX_CTRL_EXPAND_SHIFT_RAW_SHIFT_LSB;
+  hstx_ctrl_hw->expand_shift =
+      2 << HSTX_CTRL_EXPAND_SHIFT_ENC_N_SHIFTS_LSB |
+      16 << HSTX_CTRL_EXPAND_SHIFT_ENC_SHIFT_LSB | // 16-bit pixels
+      1 << HSTX_CTRL_EXPAND_SHIFT_RAW_N_SHIFTS_LSB |
+      0 << HSTX_CTRL_EXPAND_SHIFT_RAW_SHIFT_LSB;
 
   hstx_ctrl_hw->csr = 0;
-  hstx_ctrl_hw->csr =
-      HSTX_CTRL_CSR_EXPAND_EN_BITS |
-      5u << HSTX_CTRL_CSR_CLKDIV_LSB |
-      5u << HSTX_CTRL_CSR_N_SHIFTS_LSB |
-      2u << HSTX_CTRL_CSR_SHIFT_LSB |
-      HSTX_CTRL_CSR_EN_BITS;
+  hstx_ctrl_hw->csr = HSTX_CTRL_CSR_EXPAND_EN_BITS |
+                      5u << HSTX_CTRL_CSR_CLKDIV_LSB |
+                      5u << HSTX_CTRL_CSR_N_SHIFTS_LSB |
+                      2u << HSTX_CTRL_CSR_SHIFT_LSB | HSTX_CTRL_CSR_EN_BITS;
 
   // Spotpear pinout
   hstx_ctrl_hw->bit[0] = HSTX_CTRL_BIT0_CLK_BITS | HSTX_CTRL_BIT0_INV_BITS;
@@ -663,30 +683,35 @@ static void core1_entry(void) {
   channel_config_set_chain_to(&c, DMACH_PONG);
   channel_config_set_dreq(&c, DREQ_HSTX);
   dma_channel_configure(DMACH_PING, &c, &hstx_fifo_hw->fifo,
-                        vblank_line_vsync_off, count_of(vblank_line_vsync_off), false);
+                        vblank_line_vsync_off, count_of(vblank_line_vsync_off),
+                        false);
 
   c = dma_channel_get_default_config(DMACH_PONG);
   channel_config_set_chain_to(&c, DMACH_PING);
   channel_config_set_dreq(&c, DREQ_HSTX);
   dma_channel_configure(DMACH_PONG, &c, &hstx_fifo_hw->fifo,
-                        vblank_line_vsync_off, count_of(vblank_line_vsync_off), false);
+                        vblank_line_vsync_off, count_of(vblank_line_vsync_off),
+                        false);
 
   dma_hw->ints0 = (1u << DMACH_PING) | (1u << DMACH_PONG);
   dma_hw->inte0 = (1u << DMACH_PING) | (1u << DMACH_PONG);
   irq_set_exclusive_handler(DMA_IRQ_0, dma_irq_handler);
   irq_set_enabled(DMA_IRQ_0, true);
 
-  bus_ctrl_hw->priority = BUSCTRL_BUS_PRIORITY_DMA_W_BITS | BUSCTRL_BUS_PRIORITY_DMA_R_BITS;
+  bus_ctrl_hw->priority =
+      BUSCTRL_BUS_PRIORITY_DMA_W_BITS | BUSCTRL_BUS_PRIORITY_DMA_R_BITS;
 
   dma_channel_start(DMACH_PING);
 
   // Core 1 main loop: handle audio ring buffer
-  // Framebuffer updates now happen on Core 0
   while (1) {
-#if !USE_MVS_AUDIO
-    // Only generate test tone if not using MVS audio
-    // (MVS audio is handled by timer callback on Core 0)
-    update_audio_ring_buffer();
+#if USE_MVS_AUDIO
+    // Poll hardware and process samples.
+    // Draining the capture ring frequently on Core 1 to avoid jitter on Core 0.
+    audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
+    while (ap_ring_available(&audio_pipeline.capture_ring) > 0) {
+      audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
+    }
 #endif
     tight_loop_contents();
   }
@@ -699,7 +724,8 @@ static void core1_entry(void) {
 int main(void) {
   // Set system clock to 126 MHz for exact 25.2 MHz pixel clock
   // Pixel clock = System clock / CLKDIV = 126 MHz / 5 = 25.2 MHz
-  // This matches PicoDVI's 25.2 MHz pixel clock (though they use 252 MHz with PIO)
+  // This matches PicoDVI's 25.2 MHz pixel clock (though they use 252 MHz with
+  // PIO)
   set_sys_clock_khz(126000, true);
 
   stdio_init_all();
@@ -724,17 +750,20 @@ int main(void) {
   // Set PIO GPIO bases (critical for RP2350B Bank 0/1 access)
   // PIO2 needs base=0 for I2S on GPIO 0-2
   // PIO1 will set its own base in video_capture_init
+  pio_clear_instruction_memory(pio0);
+  pio_clear_instruction_memory(pio1);
+  pio_clear_instruction_memory(pio2);
   pio_set_gpio_base(pio0, 0);
   pio_set_gpio_base(pio1, 0);
   pio_set_gpio_base(pio2, 0);
 
   // Initialize shared resources before launching Core 1
-  init_background();  // Pre-calculate rainbow gradient
+  init_background(); // Pre-calculate rainbow gradient
   init_sine_table();
   init_audio_packets();
 
   vblank_di_len = build_line_with_di(
-      vblank_di_ping, hstx_get_null_data_island(true, false), false, false);
+      vblank_di_ping, hstx_get_null_data_island(false, true), false, false);
   memcpy(vblank_di_pong, vblank_di_ping, sizeof(vblank_di_ping));
 
   // Claim DMA channels for HSTX FIRST (channels 0 and 1)
@@ -747,24 +776,22 @@ int main(void) {
   // Must be AFTER HSTX DMA claim to avoid channel conflict
   printf("Initializing audio pipeline...\n");
   audio_pipeline_config_t audio_config = {
-    .pin_bck = I2S_BCK_PIN,
-    .pin_dat = I2S_DAT_PIN,
-    .pin_ws = I2S_WS_PIN,
-    .pin_btn1 = 21,  // Not used in hstx_lab
-    .pin_btn2 = 23,  // Not used in hstx_lab
-    .pio = pio2,     // Use PIO2 for audio (per AGENTS.md: PIO1=video, PIO2=audio)
-    .sm = 0
-  };
+      .pin_bck = I2S_BCK_PIN,
+      .pin_dat = I2S_DAT_PIN,
+      .pin_ws = I2S_WS_PIN,
+      .pin_btn1 = 21, // Not used in hstx_lab
+      .pin_btn2 = 23, // Not used in hstx_lab
+      .pio = pio2, // Use PIO2 for audio (per AGENTS.md: PIO1=video, PIO2=audio)
+      .sm = 0};
   if (!audio_pipeline_init(&audio_pipeline, &audio_config)) {
     printf("ERROR: Failed to init audio pipeline!\n");
   } else {
     audio_pipeline_start(&audio_pipeline);
-    // Start timer to encode audio samples into HDMI data islands
-    add_repeating_timer_ms(-2, audio_timer_callback, NULL, &audio_timer);
     printf("Audio pipeline started (I2S: BCK=GP%d, WS=GP%d, DAT=GP%d)\n",
            I2S_BCK_PIN, I2S_WS_PIN, I2S_DAT_PIN);
     printf("  Using PIO%d SM%d, DMA ready\n",
-           audio_config.pio == pio0 ? 0 : (audio_config.pio == pio1 ? 1 : 2), audio_config.sm);
+           audio_config.pio == pio0 ? 0 : (audio_config.pio == pio1 ? 1 : 2),
+           audio_config.sm);
   }
   stdio_flush();
 #endif
@@ -781,19 +808,14 @@ int main(void) {
   printf("Starting continuous capture...\n");
 
   // Main loop: Core 0 captures frames, Core 1 displays them
-  // No double-buffering needed - single framebuffer works without visible tearing
+  // No double-buffering needed - single framebuffer works without visible
+  // tearing
   uint32_t led_toggle_frame = 0;
   bool led_state = false;
   uint32_t debug_frame = 0;
 
   while (1) {
     video_capture_frame();
-
-#if USE_MVS_AUDIO
-    // Poll audio pipeline frequently to avoid missing samples
-    // Timer callback handles encoding, but we need to poll PIO here too
-    audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
-#endif
 
     // LED heartbeat (toggles every 0.5s based on display frame count)
     if (video_frame_count >= led_toggle_frame + 30) {
@@ -802,17 +824,13 @@ int main(void) {
       led_toggle_frame = video_frame_count;
 
 #if USE_MVS_AUDIO
-      // Debug: print audio stats every 0.5s
-      if (++debug_frame % 2 == 0) {  // Every 1 second
+      // Debug: print audio stats every 1s
+      if (++debug_frame % 2 == 0) {
         audio_pipeline_status_t status;
         audio_pipeline_get_status(&audio_pipeline, &status);
-        // Check PIO2 SM0 state
-        uint32_t pio2_ctrl = pio2->ctrl;
-        uint32_t pio2_sm0_pc = pio_sm_get_pc(pio2, 0);
         printf("cap=%lu rate=%lu out=%lu | ring h=%lu t=%lu\n",
                status.samples_captured, status.capture_sample_rate,
-               audio_samples_received,
-               audio_ring_head, audio_ring_tail);
+               audio_samples_received, audio_ring_head, audio_ring_tail);
       }
 #endif
     }
