@@ -80,16 +80,25 @@ make gpio_freq_analyzer  # Debug tool for wiring verification
 ## Architecture
 
 ```
-Core 0: Video Capture               Core 1: HSTX Output
+Core 0: Video Capture               Core 1: Audio Pipeline + HSTX
 +--------------------------+       +--------------------------+
-| Video: PIO1 -> DMA (PP)  |       | HSTX hardware encoder    |
-| Audio: PIO2 -> pipeline  |       | - 640x480 @ 60Hz         |
-| Main loop                |       | - HDMI Data Islands      |
-+--------------------------+       +--------------------------+
+| Video: PIO1 -> DMA (PP)  |       | Audio: PIO2 -> processing|
+| Main loop: Control       |       | HSTX hardware encoder    |
+| Heartbeat LED            |       | - 640x480 @ 60Hz         |
++--------------------------+       | - HDMI Data Islands      |
+          |                        +--------------------------+
           |                                   |
           +--------- framebuf ----------------+
                   (320x240 RGB565)
 ```
+
+## Documentation
+
+- [HDMI & HSTX Implementation](docs/HDMI_HSTX_IMPLEMENTATION.md)
+- [MVS Digital Video Specs](docs/MVS_MV1C_DIGITAL_VIDEO.md)
+- [MVS Digital Audio Specs](docs/MVS_MV1C_DIGITAL_AUDIO.md)
+- [PIO Bank 1 Findings](RP2350_BANK1_PIO_FINDINGS.md)
+- [PCB Design Guide](docs/PCB_DESIGN_GUIDE.md)
 
 ## License
 

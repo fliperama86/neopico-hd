@@ -1,60 +1,58 @@
 # Neo Geo MVS MV1C Digital Video Specification
 
-Technical specification for the digital video signals on the Neo Geo MVS MV1C arcade board.
+Technical specification for the digital video signals on the Neo Geo MVS MV1C arcade board and the RP2350-specific capture implementation.
 
-## Signal Overview
+## 1. Signal Overview
 
-The MVS MV1C generates 15-bit RGB video digitally, clocked at 6 MHz with composite sync (CSYNC). Signals are digital and can be tapped before the R2R DAC for direct digital capture.
+The MVS MV1C generates 15-bit RGB video digitally, clocked at 6 MHz with composite sync (CSYNC).
 
 ### Video Signals
 
-| Signal | Width  | Description                |
-| ------ | ------ | -------------------------- |
-| R[4:0] | 5 bits | Red channel (R4 is MSB)    |
-| G[4:0] | 5 bits | Green channel (G4 is MSB)  |
-| B[4:0] | 5 bits | Blue channel (B4 is MSB)   |
-| PCLK   | 1 bit  | Pixel clock, 6 MHz         |
-| CSYNC  | 1 bit  | Composite sync, active low |
+| Signal | Width  | Description                | Tap Point (MV1C) | GPIO (Pico) |
+| ------ | ------ | -------------------------- | ---------------- | ----------- |
+| PCLK   | 1 bit  | Pixel clock, 6 MHz         | PC23 pin 11      | GPIO 25     |
+| R[4:0] | 5 bits | Red MSB -> LSB             | R2R Input        | GPIO 26-30  |
+| G[4:0] | 5 bits | Green MSB -> LSB           | R2R Input        | GPIO 31-35  |
+| B[4:0] | 5 bits | Blue MSB -> LSB            | R2R Input        | GPIO 36-40  |
+| DARK   | 1 bit  | Intensity control          | Pre-DAC          | GPIO 41     |
+| SHADOW | 1 bit  | Intensity control          | Pre-DAC          | GPIO 42     |
+| CSYNC  | 1 bit  | Composite sync, active low | R51              | GPIO 43     |
 
-**Color depth**: 15-bit (32,768 colors)
-**Data valid**: RGB sampled on PCLK rising edge
+**Capture Logic**: PIO1 samples GPIO 25-42 (18 pins) as a contiguous block on the PCLK rising edge.
 
-## Timing Parameters
+## 2. Capture Strategy
 
-### Frame Timing
+### PIO Hardware Synchronization
 
-| Parameter         | Value                           |
-| ----------------- | ------------------------------- |
-| Frame rate        | 59.19 Hz (MVS) / 59.60 Hz (AES) |
-| Active resolution | 320 x 224                       |
+- **Line Sync**: PIO1 self-synchronizes to the CSYNC falling edge for every single line to prevent horizontal drift.
+- **Start-of-Frame**: Core 0 detects VSYNC pulses, resets the PIO state, and triggers the capture IRQ precisely at the first active video line.
 
-## Capture Strategy (NeoPico-HD)
+### Zero-Overhead DMA
 
-To achieve "cinema quality" results without CPU overhead or drift, the following architecture is used:
+- **Ping-Pong Buffering**: DMA moves raw pixel words to RAM in the background. While DMA captures Line N into `buffer[0]`, the CPU processes Line N-1 from `buffer[1]`.
+- **Zero Jitter**: This offloads the high-speed work from the CPU, allowing Core 0 to handle conversion and OSD tasks without missing pixels.
 
-### 1. PIO Hardware Synchronization
+## 3. RP2350 Hardware Platform Notes (Bank 1)
 
-The PIO state machine handles the sub-microsecond timing of the 6MHz PCLK.
+Capturing from GPIO 25-43 requires using the RP2350's **Bank 1** features and managing specific hardware/SDK quirks.
 
-- **Start-of-Frame**: The C code detects VSYNC, resets the PIO, and triggers it via an IRQ precisely at the first active line.
-- **Line Sync**: The PIO self-synchronizes to the CSYNC falling edge for every single line to prevent horizontal drift.
+### GPIOBASE Register
 
-### 2. Zero-Overhead DMA
+- **PIO0/1 only**: PIO0 and PIO1 have a `GPIOBASE` register (offset `0x168`) that defines a 32-pin window.
+- **Current Config**: `GPIOBASE` is set to **16**, giving the PIO access to **GPIO 16 through 47**.
+- **PIO2 Limitation**: PIO2 lacks this register and is fixed to Bank 0 (GPIO 0-31).
 
-Pixel data is moved from the PIO FIFO to RAM entirely by the DMA controller.
+### PIO Instruction Addressing
 
-- **Ping-Pong Buffering**: While DMA captures Line N into `buffer[0]`, the CPU processes Line N-1 from `buffer[1]`.
-- **Parallelism**: This allows the CPU to perform RGB555->RGB565 conversion and OSD rendering without stalling the hardware capture.
+- **Relative Addressing**: In Bank 1 mode, instructions like `WAIT GPIO <n>` are relative to `GPIOBASE`.
+- **Recommendation**: Use **`WAIT PIN <n>`** instead of `WAIT GPIO`. `WAIT PIN` is relative to the SM's `IN_BASE` and avoids the SDK's automatic (and often incorrect) XOR bit-flipping during program loading.
 
-### 3. Tap Points (MV1C Board)
+### RP2350-E9 Erratum (Sticky Pins)
 
-| Signal | Location                 |
-| ------ | ------------------------ |
-| PCLK   | PC23 pin 11 (or GPIO 25) |
-| Pixels | GPIO 26-42 (Contiguous)  |
-| CSYNC  | R51 (or GPIO 43)         |
+- **The Bug**: Internal pull-downs can latch GPIOs at ~2.1V, preventing a logic "Low".
+- **Mitigation**: `gpio_disable_pulls()` is called on all capture pins. Avoid `pio_gpio_init()` as it can re-enable default pulls.
 
-## Implementation Notes
+## 4. Implementation Constraints
 
-- **Grounding**: A common ground between MVS and Pico is required to prevent "ghosting" or noise in the digital signal.
-- **Clock Unification**: Both video and audio systems are unified at a 252 MHz system clock to support HDMI 480p audio data islands.
+- **Clock**: The system runs at **126 MHz** to provide a perfect 25.2 MHz pixel clock (div 5) for HDMI.
+- **Grounding**: A solid shared ground between MVS and Pico is mandatory to prevent digital noise.

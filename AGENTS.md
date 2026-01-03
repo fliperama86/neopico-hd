@@ -1,22 +1,21 @@
 Instructions for AI agents when working with this repository.
 
-## Architecture Context
+## Architecture Overview
 
 NeoPico-HD is a pure digital Neo Geo MVS capture system using the RP2350B.
 
-- **Core 0**: Handles pixel-perfect video capture (PIO+DMA).
-- **Core 1**: Dedicated to HSTX HDMI output at 640x480 (2x scaled from 320x240).
-- **Hardware**: Specifically designed for the WeAct RP2350B board using both Bank 0 and Bank 1 GPIOs.
+- **Core 0**: Handles pixel-perfect video capture (PIO1+DMA). Runs the main coordination loop.
+- **Core 1**: Dedicated to HSTX HDMI output and the audio pipeline (polling PIO2, SRC, and TERC4 encoding).
+- **Hardware**: Designed for the WeAct RP2350B board using both Bank 0 and Bank 1 GPIOs.
 
-## High-Priority Commands
+## Essential Documentation
 
-```bash
-# Build & Flash
-./scripts/build.sh && ./flash
+Agents MUST refer to these for implementation details:
 
-# Serial Log Monitor
-screen /dev/tty.usbmodem* 115200
-```
+- `README.md`: High-level overview and pin mapping.
+- `docs/HDMI_HSTX_IMPLEMENTATION.md`: HDMI protocol, sync polarity, and Data Island details.
+- `docs/MVS_MV1C_DIGITAL_VIDEO.md`: MVS video tap points and PIO capture logic (Bank 1).
+- `docs/MVS_MV1C_DIGITAL_AUDIO.md`: MVS audio tap points and I2S/SRC pipeline.
 
 ## Maintenance Guidelines
 
@@ -24,21 +23,15 @@ screen /dev/tty.usbmodem* 115200
 
 - **I2S Format**: Right-justified, WS High = Left, BCK Rising Edge.
 - **Sample Rate**: Input ~55.5kHz, Output 48kHz (SRC required).
-- **HDMI Audio**: Transmitted via Data Islands during blanking intervals.
+- **HDMI Audio**: MUST use **Validity Bit = 0**.
+- **Location**: All audio processing MUST run on **Core 1** to prevent jitter on Core 0.
 
 ### Video Capture
 
 - **Sync**: Self-synchronizes to CSYNC falling edge per line.
-- **DMA**: Uses a ping-pong scheme. Do NOT block Core 0 for long periods during active frame capture.
+- **Priority**: Core 0 should ONLY handle capture to ensure rock-solid sync.
 
 ### HSTX Output
 
-- **Clock**: 126 MHz system clock, 25.2 MHz pixel clock (126/5).
-- **Format**: 640x480 @ 60Hz with RGB565 framebuffer (320x240 doubled 2x2).
-- **Audio**: HDMI Data Islands with 48kHz stereo.
-
-### RP2350B Pin Mapping
-
-- **Audio**: GPIO 0-2 (PIO2)
-- **Video**: GPIO 25-43 (PIO1)
-- **HSTX**: GPIO 12-19 (hardware TMDS encoder)
+- **Timing**: MUST be exactly **800 cycles per line**.
+- **Mode**: Uses hardware TMDS encoding for video and RAW for Data Islands.
