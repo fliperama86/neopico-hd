@@ -29,7 +29,9 @@ Agents MUST refer to these for implementation details:
 ### Video Capture
 
 - **Sync**: Self-synchronizes to CSYNC falling edge per line.
-- **Priority**: Core 0 should ONLY handle capture to ensure rock-solid sync.
+- **Priority**: Core 0 should ONLY handle capture and pixel conversion to ensure rock-solid sync.
+- **Conversion**: Uses **interp0** + **256KB LUT** (main RAM) for RGB565 conversion.
+- **Signal Logic**: SHADOW must be applied before expansion; SHADOW forces DARK=1.
 
 ### HSTX Output
 

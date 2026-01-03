@@ -4,7 +4,7 @@ Comprehensive record of the RP2350 HSTX implementation and HDMI audio findings.
 
 ## 1. System Architecture
 
-- **Core 0**: Handles pixel-perfect video capture (PIO1+DMA). Runs the main coordination loop.
+- **Core 0**: Handles pixel-perfect video capture (PIO1+DMA). Performs hardware-accelerated RGB565 conversion using Interpolators + LUT.
 - **Core 1**: Dedicated to HSTX HDMI output and the audio pipeline (polling PIO2, SRC, and TERC4 encoding).
 - **Inter-core**: Single 320x240 RGB565 framebuffer + Audio Ring Buffer.
 

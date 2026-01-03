@@ -30,6 +30,7 @@ target_link_libraries(neopico_hd
     hardware_dma
     hardware_irq
     hardware_gpio
+    hardware_interp
 )
 
 target_compile_definitions(neopico_hd PRIVATE
@@ -75,6 +76,7 @@ target_link_libraries(dvi_main
     hardware_dma
     hardware_irq
     hardware_vreg
+    hardware_interp
     libdvi
 )
 
