@@ -35,10 +35,12 @@ typedef struct
     int dma_chan;
     uint32_t *dma_buffer;    // Local buffer for DMA to write to (raw PIO words)
     uint32_t dma_buffer_idx; // Current read position in dma_buffer
+    uint pio_offset;         // Store program offset for resets
 
-    // For sample rate measurement
+    // For sample rate measurement and watchdog
     uint32_t last_sample_count;
     uint64_t last_measure_time;
+    uint64_t last_activity_time;
     uint32_t measured_rate;
 } i2s_capture_t;
 

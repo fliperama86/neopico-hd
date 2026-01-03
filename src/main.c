@@ -709,7 +709,13 @@ int main(void) {
   uint32_t debug_frame = 0;
 
   while (1) {
-    video_capture_frame();
+    if (!video_capture_frame()) {
+#if USE_MVS_AUDIO
+      // Force audio reset on video sync loss
+      audio_pipeline_stop(&audio_pipeline);
+      audio_pipeline_start(&audio_pipeline);
+#endif
+    }
 
     if (video_frame_count % 60 == 0 && video_frame_count != led_toggle_frame) {
       printf("Frame %lu... \n", video_frame_count);
