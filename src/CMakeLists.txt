@@ -192,16 +192,24 @@ add_executable(hstx_lab
     misc/hstx_lab/src/main.c
     misc/hstx_lab/src/data_packet.c
     video/video_capture.c
+    audio/i2s_capture.c
+    audio/audio_pipeline.c
+    audio/audio_buffer.c
+    audio/dc_filter.c
+    audio/lowpass.c
+    audio/src.c
 )
 
-# Generate PIO header for video capture
+# Generate PIO headers for video capture and I2S audio
 pico_generate_pio_header(hstx_lab ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
+pico_generate_pio_header(hstx_lab ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
 
 # IMPORTANT: hstx_lab/include comes FIRST to shadow hardware_config.h
 target_include_directories(hstx_lab PRIVATE
     misc/hstx_lab/include
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/video
+    ${CMAKE_CURRENT_LIST_DIR}/audio
 )
 
 target_link_libraries(hstx_lab

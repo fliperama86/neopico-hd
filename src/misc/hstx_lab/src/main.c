@@ -18,7 +18,7 @@
  *     GPIO 25: PCLK, GPIO 26-30: Red, GPIO 31-35: Green,
  *     GPIO 36-40: Blue, GPIO 41: DARK, GPIO 42: SHADOW, GPIO 43: CSYNC
  *
- * Audio: 48kHz stereo via HDMI Data Islands (test tone)
+ * Audio: 48kHz stereo via HDMI Data Islands (I2S capture from MVS, GPIO 0-2)
  *
  * Target: RP2350B (WeAct Studio board)
  */
@@ -34,6 +34,7 @@
 #include "data_packet.h"
 #include "pico/stdlib.h"
 #include "video_capture.h"
+#include "audio_pipeline.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -96,7 +97,15 @@
 #define AUDIO_N_VALUE 6144    // Standard N for 48kHz
 #define AUDIO_CTS_VALUE 25200 // CTS for 25.2MHz pixel clock (800×525×60Hz)
 
-// Audio generation
+// I2S capture pins (MVS audio input) - must match pins.h!
+#define I2S_DAT_PIN 0   // GPIO 0: Data
+#define I2S_WS_PIN  1   // GPIO 1: Word select (LRCK)
+#define I2S_BCK_PIN 2   // GPIO 2: Bit clock
+
+// Audio pipeline instance
+static audio_pipeline_t audio_pipeline;
+
+// Audio generation (fallback test tone)
 #define TONE_FREQUENCY 440  // A4 note (440 Hz)
 #define TONE_AMPLITUDE 8000 // ~25% of int16 max
 
@@ -127,10 +136,14 @@ static uint32_t audio_sample_accum = 0; // Fixed-point accumulator
 #define SINE_TABLE_SIZE 256
 static int16_t sine_table[SINE_TABLE_SIZE];
 
-// Fast inline sine lookup for background task
+// Phase increment for 440Hz tone at 48kHz sample rate
+// phase_inc = (440 << 32) / 48000 = 39370534
+#define TONE_PHASE_INC 39370534
+
+// Fast inline sine sample using table lookup
 static inline int16_t fast_sine_sample(void) {
   int16_t s = sine_table[(audio_phase >> 24) & 0xFF];
-  audio_phase += (uint32_t)(((uint64_t)TONE_FREQUENCY << 32) / AUDIO_SAMPLE_RATE);
+  audio_phase += TONE_PHASE_INC;
   return s;
 }
 
@@ -143,6 +156,29 @@ static volatile uint32_t audio_ring_tail = 0;
 
 // Audio timer for consistent sample generation (matching PicoDVI)
 static struct repeating_timer audio_timer;
+
+// Set to 1 to use real MVS audio capture, 0 for test tone
+// NOTE: Requires I2S signals on GPIO 0-2 (BCK, WS, DAT)
+#define USE_MVS_AUDIO 0
+
+// Buffer for collecting audio samples before encoding into data islands
+#define AUDIO_COLLECT_SIZE 128
+static ap_sample_t audio_collect_buffer[AUDIO_COLLECT_SIZE];
+static volatile uint32_t audio_collect_count = 0;
+
+// Audio pipeline output callback - collects samples for later encoding
+static volatile uint32_t audio_samples_received = 0;  // Debug counter
+
+static void audio_output_callback(const ap_sample_t *samples, uint32_t count, void *ctx) {
+  (void)ctx;
+
+  audio_samples_received += count;  // Debug: track total samples
+
+  // Copy samples to collection buffer
+  for (uint32_t i = 0; i < count && audio_collect_count < AUDIO_COLLECT_SIZE; i++) {
+    audio_collect_buffer[audio_collect_count++] = samples[i];
+  }
+}
 
 // Audio samples per frame (48kHz / 60fps = 800 samples)
 #define SAMPLES_PER_FRAME (AUDIO_SAMPLE_RATE / 60)
@@ -166,7 +202,38 @@ static bool audio_timer_callback(struct repeating_timer *t) {
     return true;  // Buffer nearly full, skip this iteration
   }
 
-  // Generate one packet (4 samples) per timer tick
+#if USE_MVS_AUDIO
+  // Process audio pipeline to collect samples
+  audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
+
+  // Encode collected samples into data islands (4 samples per packet)
+  while (audio_collect_count >= 4) {
+    // Check if we have room in ring buffer
+    int slots = (audio_ring_tail - audio_ring_head - 1 + AUDIO_RING_BUFFER_SIZE) % AUDIO_RING_BUFFER_SIZE;
+    if (slots < 1) break;
+
+    // Convert ap_sample_t to audio_sample_t for encoding
+    audio_sample_t samples[4];
+    for (int i = 0; i < 4; i++) {
+      samples[i].left = audio_collect_buffer[i].left;
+      samples[i].right = audio_collect_buffer[i].right;
+    }
+
+    data_packet_t packet;
+    audio_frame_counter =
+        packet_set_audio_samples(&packet, samples, 4, audio_frame_counter);
+
+    hstx_encode_data_island(&audio_ring_buffer[audio_ring_head], &packet, true, false);
+    audio_ring_head = (audio_ring_head + 1) % AUDIO_RING_BUFFER_SIZE;
+
+    // Shift remaining samples
+    audio_collect_count -= 4;
+    for (uint32_t i = 0; i < audio_collect_count; i++) {
+      audio_collect_buffer[i] = audio_collect_buffer[i + 4];
+    }
+  }
+#else
+  // Fallback: Generate test tone
   audio_sample_t samples[4];
   for (int i = 0; i < 4; i++) {
     int16_t s = fast_sine_sample();
@@ -180,6 +247,7 @@ static bool audio_timer_callback(struct repeating_timer *t) {
 
   hstx_encode_data_island(&audio_ring_buffer[audio_ring_head], &packet, true, false);
   audio_ring_head = (audio_ring_head + 1) % AUDIO_RING_BUFFER_SIZE;
+#endif
 
   return true;
 }
@@ -435,7 +503,10 @@ static void init_audio_packets(void) {
   hstx_encode_data_island(&island, &packet, true, false);
   vblank_avi_infoframe_len = build_vblank_with_di(vblank_avi_infoframe, island.words, false);
 
+#if !USE_MVS_AUDIO
+  // Only prefill with test tone if not using MVS audio
   update_audio_ring_buffer();
+#endif
 
   printf("Audio initialized:\n");
   printf("  48kHz, N=%d, CTS=%d\n", AUDIO_N_VALUE, AUDIO_CTS_VALUE);
@@ -612,7 +683,11 @@ static void core1_entry(void) {
   // Core 1 main loop: handle audio ring buffer
   // Framebuffer updates now happen on Core 0
   while (1) {
+#if !USE_MVS_AUDIO
+    // Only generate test tone if not using MVS audio
+    // (MVS audio is handled by timer callback on Core 0)
     update_audio_ring_buffer();
+#endif
     tight_loop_contents();
   }
 }
@@ -646,6 +721,13 @@ int main(void) {
   printf("Core 1: HSTX 640x480 output\n\n");
   stdio_flush();
 
+  // Set PIO GPIO bases (critical for RP2350B Bank 0/1 access)
+  // PIO2 needs base=0 for I2S on GPIO 0-2
+  // PIO1 will set its own base in video_capture_init
+  pio_set_gpio_base(pio0, 0);
+  pio_set_gpio_base(pio1, 0);
+  pio_set_gpio_base(pio2, 0);
+
   // Initialize shared resources before launching Core 1
   init_background();  // Pre-calculate rainbow gradient
   init_sine_table();
@@ -655,9 +737,37 @@ int main(void) {
       vblank_di_ping, hstx_get_null_data_island(true, false), false, false);
   memcpy(vblank_di_pong, vblank_di_ping, sizeof(vblank_di_ping));
 
-  // Claim DMA channels for HSTX before launching Core 1
+  // Claim DMA channels for HSTX FIRST (channels 0 and 1)
+  // Audio will get channel 2+ via dma_claim_unused_channel()
   dma_channel_claim(DMACH_PING);
   dma_channel_claim(DMACH_PONG);
+
+#if USE_MVS_AUDIO
+  // Initialize audio pipeline for MVS I2S capture
+  // Must be AFTER HSTX DMA claim to avoid channel conflict
+  printf("Initializing audio pipeline...\n");
+  audio_pipeline_config_t audio_config = {
+    .pin_bck = I2S_BCK_PIN,
+    .pin_dat = I2S_DAT_PIN,
+    .pin_ws = I2S_WS_PIN,
+    .pin_btn1 = 21,  // Not used in hstx_lab
+    .pin_btn2 = 23,  // Not used in hstx_lab
+    .pio = pio2,     // Use PIO2 for audio (per AGENTS.md: PIO1=video, PIO2=audio)
+    .sm = 0
+  };
+  if (!audio_pipeline_init(&audio_pipeline, &audio_config)) {
+    printf("ERROR: Failed to init audio pipeline!\n");
+  } else {
+    audio_pipeline_start(&audio_pipeline);
+    // Start timer to encode audio samples into HDMI data islands
+    add_repeating_timer_ms(-2, audio_timer_callback, NULL, &audio_timer);
+    printf("Audio pipeline started (I2S: BCK=GP%d, WS=GP%d, DAT=GP%d)\n",
+           I2S_BCK_PIN, I2S_WS_PIN, I2S_DAT_PIN);
+    printf("  Using PIO%d SM%d, DMA ready\n",
+           audio_config.pio == pio0 ? 0 : (audio_config.pio == pio1 ? 1 : 2), audio_config.sm);
+  }
+  stdio_flush();
+#endif
 
   // Launch Core 1 for HSTX output first
   printf("Launching Core 1 for HSTX...\n");
@@ -674,15 +784,37 @@ int main(void) {
   // No double-buffering needed - single framebuffer works without visible tearing
   uint32_t led_toggle_frame = 0;
   bool led_state = false;
+  uint32_t debug_frame = 0;
 
   while (1) {
     video_capture_frame();
+
+#if USE_MVS_AUDIO
+    // Poll audio pipeline frequently to avoid missing samples
+    // Timer callback handles encoding, but we need to poll PIO here too
+    audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
+#endif
 
     // LED heartbeat (toggles every 0.5s based on display frame count)
     if (video_frame_count >= led_toggle_frame + 30) {
       led_state = !led_state;
       gpio_put(PICO_DEFAULT_LED_PIN, led_state);
       led_toggle_frame = video_frame_count;
+
+#if USE_MVS_AUDIO
+      // Debug: print audio stats every 0.5s
+      if (++debug_frame % 2 == 0) {  // Every 1 second
+        audio_pipeline_status_t status;
+        audio_pipeline_get_status(&audio_pipeline, &status);
+        // Check PIO2 SM0 state
+        uint32_t pio2_ctrl = pio2->ctrl;
+        uint32_t pio2_sm0_pc = pio_sm_get_pc(pio2, 0);
+        printf("cap=%lu rate=%lu out=%lu | ring h=%lu t=%lu\n",
+               status.samples_captured, status.capture_sample_rate,
+               audio_samples_received,
+               audio_ring_head, audio_ring_tail);
+      }
+#endif
     }
   }
 
