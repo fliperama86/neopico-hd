@@ -197,7 +197,7 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
     gpio_disable_pulls(i);
   }
 
-  // 5. Configure Sync SM (GP43 as CSYNC)
+  // 5. Configure Sync SM (GP45 as CSYNC)
   pio_sm_config c = mvs_sync_4a_program_get_default_config(g_offset_sync);
   sm_config_set_clkdiv(&c, 1.0f);
   sm_config_set_in_shift(&c, false, false, 32);
@@ -205,14 +205,14 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   pio_sm_init(g_pio_mvs, g_sm_sync, g_offset_sync, &c);
 
   // MANUAL REGISTER OVERRIDE for Sync SM
-  // GP43 is index 27 in Bank 1 window (16-47)
-  uint pin_idx_sync = 27;
+  // GP45 is index 29 in Bank 1 window (16-47)
+  uint pin_idx_sync = 29;
   g_pio_mvs->sm[g_sm_sync].pinctrl =
       (g_pio_mvs->sm[g_sm_sync].pinctrl & ~0x000f8000) | (pin_idx_sync << 15);
   g_pio_mvs->sm[g_sm_sync].execctrl =
       (g_pio_mvs->sm[g_sm_sync].execctrl & ~0x1f000000) | (pin_idx_sync << 24);
 
-  // 6. Configure Pixel SM (GP25 as IN_BASE - PCLK first!)
+  // 6. Configure Pixel SM (GP27 as IN_BASE - PCLK first!)
   pio_sm_config pc =
       mvs_pixel_capture_program_get_default_config(g_offset_pixel);
   sm_config_set_clkdiv(&pc, 1.0f);
@@ -224,8 +224,8 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   pio_sm_init(g_pio_mvs, g_sm_pixel, g_offset_pixel, &pc);
 
   // MANUAL REGISTER OVERRIDE for Pixel SM
-  // GP25 is index 9 in Bank 1 window (16-47)
-  uint pin_idx_pixel = 9;
+  // GP27 is index 11 in Bank 1 window (16-47)
+  uint pin_idx_pixel = 11;
   g_pio_mvs->sm[g_sm_pixel].pinctrl =
       (g_pio_mvs->sm[g_sm_pixel].pinctrl & ~0x000f8000) | (pin_idx_pixel << 15);
 
