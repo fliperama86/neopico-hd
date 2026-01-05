@@ -15,8 +15,8 @@
 #define AUDIO_BUFFER_SIZE 1024
 
 // Sample rates
-#define AUDIO_INPUT_RATE  55555  // MVS I2S input rate (approximately)
-#define AUDIO_OUTPUT_RATE 48000  // HDMI audio output rate
+#define AUDIO_INPUT_RATE 55555  // MVS I2S input rate (approximately)
+#define AUDIO_OUTPUT_RATE 48000 // HDMI audio output rate
 
 // =============================================================================
 // Pin Configuration (see pins.h for actual GPIO assignments)
@@ -30,8 +30,8 @@
 // - WS and BCK must be consecutive above DAT (accessible via `wait pin N`)
 //
 // See pins.h for actual GPIO numbers:
-//   PIN_I2S_DAT (GPIO 36) - Serial data / OPO
-//   PIN_I2S_WS  (GPIO 37) - Word select / SH1
-//   PIN_I2S_BCK (GPIO 38) - Bit clock / øS
+//   PIN_I2S_DAT (GPIO 0) - Serial data / OPO
+//   PIN_I2S_WS  (GPIO 1) - Word select / SH1
+//   PIN_I2S_BCK (GPIO 2) - Bit clock / øS
 
 #endif // AUDIO_CONFIG_H
