@@ -14,10 +14,17 @@ Agents MUST refer to these for implementation details:
 
 - `README.md`: High-level overview and pin mapping.
 - `docs/HDMI_HSTX_IMPLEMENTATION.md`: HDMI protocol, sync polarity, and Data Island details.
+- `docs/OSD_IMPLEMENTATION.md`: OSD architecture and rendering strategy.
 - `docs/MVS_MV1C_DIGITAL_VIDEO.md`: MVS video tap points and PIO capture logic (Bank 1).
 - `docs/MVS_MV1C_DIGITAL_AUDIO.md`: MVS audio tap points and I2S/SRC pipeline.
 
 ## Maintenance Guidelines
+
+### OSD & UI
+
+- **Location**: OSD rendering and buffer management MUST be handled on **Core 1**.
+- **Rendering**: Overlaying MUST happen during the scanline doubling phase in the DMA ISR to ensure zero-copy transparency.
+- **Aesthetic**: Use 8x8 pixel fonts to match the 320x240 internal resolution.
 
 ### Audio Pipeline
 
