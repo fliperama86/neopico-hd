@@ -50,6 +50,7 @@ static int g_skip_start_words = 0;
 static int g_active_words = 0;
 static int g_skip_end_words = 0;
 static int g_line_words = 0;
+static int g_consecutive_frames = 0;
 
 // =============================================================================
 // MVS Sync Detection
@@ -157,6 +158,37 @@ static inline void convert_and_store_pixel(uint32_t word, uint16_t *dst) {
 // =============================================================================
 // Public API
 // =============================================================================
+
+static void video_capture_reset_hardware(void) {
+  // 1. Disable both state machines to stop any pending operations
+  pio_sm_set_enabled(g_pio_mvs, g_sm_sync, false);
+  pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
+
+  // 2. Clear FIFOs to remove any stale data
+  pio_sm_clear_fifos(g_pio_mvs, g_sm_sync);
+  pio_sm_clear_fifos(g_pio_mvs, g_sm_pixel);
+
+  // 3. Reset PCs and re-initialize state
+  pio_sm_restart(g_pio_mvs, g_sm_sync);
+  pio_sm_restart(g_pio_mvs, g_sm_pixel);
+
+  // Jump sync SM to entry point and reset X register (counter)
+  pio_sm_exec(g_pio_mvs, g_sm_sync, pio_encode_jmp(g_offset_sync));
+  pio_sm_exec(g_pio_mvs, g_sm_sync, pio_encode_set(pio_x, 0));
+
+  // Jump pixel SM to entry point (the PULL instruction)
+  pio_sm_exec(g_pio_mvs, g_sm_pixel, pio_encode_jmp(g_offset_pixel));
+
+  // Re-enable SMs
+  pio_sm_set_enabled(g_pio_mvs, g_sm_sync, true);
+  pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, true);
+
+  // 4. Re-feed the pixel count to the Pixel SM
+  pio_sm_put_blocking(g_pio_mvs, g_sm_pixel, NEO_H_TOTAL - 1);
+
+  // 5. Clear any pending trigger IRQ
+  pio_interrupt_clear(g_pio_mvs, 4);
+}
 
 void video_capture_init(uint16_t *framebuffer, uint frame_width,
                         uint frame_height, uint mvs_height) {
@@ -321,8 +353,21 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
 
 bool video_capture_frame(void) {
   g_frame_count++;
-  if (!wait_for_vsync(g_pio_mvs, g_sm_sync, 100))
+
+  if (!wait_for_vsync(g_pio_mvs, g_sm_sync, 100)) {
+    // If we timeout, it means the MVS is likely off or the PIO is desynced.
+    // Perform a full hardware reset of the capture logic.
+    printf("VSync timeout - resetting capture hardware...\n");
+    video_capture_reset_hardware();
+    g_consecutive_frames = 0;
     return false;
+  }
+
+  g_consecutive_frames++;
+  if (g_consecutive_frames < 10) {
+    // Wait for signal to stabilize before returning true
+    return false;
+  }
 
   drain_sync_fifo(g_pio_mvs, g_sm_sync);
 
