@@ -1,0 +1,376 @@
+#include "video_output.h"
+#include "audio_pipeline.h"
+#include "data_packet.h"
+#include "hardware/dma.h"
+#include "hardware/gpio.h"
+#include "hardware/irq.h"
+#include "hardware/structs/bus_ctrl.h"
+#include "hardware/structs/hstx_ctrl.h"
+#include "hardware/structs/hstx_fifo.h"
+#include "osd.h"
+#include "pico/stdlib.h"
+#include "pins.h"
+#include <math.h>
+#include <string.h>
+
+// ============================================================================
+// DVI/HDMI Constants
+// ============================================================================
+
+#define TMDS_CTRL_00 0x354u // vsync=0 hsync=0
+#define TMDS_CTRL_01 0x0abu // vsync=0 hsync=1
+#define TMDS_CTRL_10 0x154u // vsync=1 hsync=0
+#define TMDS_CTRL_11 0x2abu // vsync=1 hsync=1
+
+// Sync symbols: Lane 0 carries sync, Lanes 1&2 are always CTRL_00
+#define SYNC_V0_H0 (TMDS_CTRL_00 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
+#define SYNC_V0_H1 (TMDS_CTRL_01 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
+#define SYNC_V1_H0 (TMDS_CTRL_10 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
+#define SYNC_V1_H1 (TMDS_CTRL_11 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
+
+// Data Island preamble: Lane 0 = sync, Lanes 1&2 = CTRL_01 pattern
+#define PREAMBLE_V0_H0                                                         \
+  (TMDS_CTRL_00 | (TMDS_CTRL_01 << 10) | (TMDS_CTRL_01 << 20))
+#define PREAMBLE_V1_H0                                                         \
+  (TMDS_CTRL_10 | (TMDS_CTRL_01 << 10) | (TMDS_CTRL_01 << 20))
+
+#define HSTX_CMD_RAW (0x0u << 12)
+#define HSTX_CMD_RAW_REPEAT (0x1u << 12)
+#define HSTX_CMD_TMDS (0x2u << 12)
+#define HSTX_CMD_TMDS_REPEAT (0x3u << 12)
+#define HSTX_CMD_NOP (0xfu << 12)
+
+#define SYNC_AFTER_DI (MODE_H_SYNC_WIDTH - W_PREAMBLE - W_DATA_ISLAND)
+
+// ============================================================================
+// Audio/Video State
+// ============================================================================
+
+uint16_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH] __attribute__((aligned(4)));
+volatile uint32_t video_frame_count = 0;
+
+static uint16_t line_buffer[MODE_H_ACTIVE_PIXELS] __attribute__((aligned(4)));
+static uint32_t v_scanline = 2;
+static bool vactive_cmdlist_posted = false;
+static bool dma_pong = false;
+
+#define DMACH_PING 0
+#define DMACH_PONG 1
+
+// Audio ring buffer for pre-encoded data islands
+#define AUDIO_RING_BUFFER_SIZE 256
+static hstx_data_island_t audio_ring_buffer[AUDIO_RING_BUFFER_SIZE];
+static volatile uint32_t audio_ring_head = 0;
+static volatile uint32_t audio_ring_tail = 0;
+
+// Audio state
+static int audio_frame_counter = 0;
+static uint32_t audio_sample_accum = 0; // Fixed-point accumulator
+#define SAMPLES_PER_FRAME (48000 / 60)
+#define SAMPLES_PER_LINE_FP ((SAMPLES_PER_FRAME << 16) / MODE_V_TOTAL_LINES)
+
+// Audio collection buffer
+#define AUDIO_COLLECT_SIZE 128
+static audio_sample_t audio_collect_buffer[AUDIO_COLLECT_SIZE];
+static uint32_t audio_collect_count = 0;
+
+// ============================================================================
+// Command Lists
+// ============================================================================
+
+static uint32_t vblank_line_vsync_off[] = {
+    HSTX_CMD_RAW_REPEAT | MODE_H_FRONT_PORCH,
+    SYNC_V1_H1,
+    HSTX_CMD_NOP,
+    HSTX_CMD_RAW_REPEAT | MODE_H_SYNC_WIDTH,
+    SYNC_V1_H0,
+    HSTX_CMD_NOP,
+    HSTX_CMD_RAW_REPEAT | (MODE_H_BACK_PORCH + MODE_H_ACTIVE_PIXELS),
+    SYNC_V1_H1,
+    HSTX_CMD_NOP};
+
+static uint32_t vactive_di_ping[128], vactive_di_pong[128],
+    vactive_di_null[128];
+static uint32_t vactive_di_len, vactive_di_null_len;
+
+static uint32_t vblank_di_ping[128], vblank_di_pong[128], vblank_di_null[128];
+static uint32_t vblank_di_len, vblank_di_null_len;
+
+static uint32_t vblank_acr_vsync_on[64], vblank_acr_vsync_on_len;
+static uint32_t vblank_acr_vsync_off[64], vblank_acr_vsync_off_len;
+static uint32_t vblank_infoframe_vsync_on[64], vblank_infoframe_vsync_on_len;
+static uint32_t vblank_infoframe_vsync_off[64], vblank_infoframe_vsync_off_len;
+static uint32_t vblank_avi_infoframe[64], vblank_avi_infoframe_len;
+
+// ============================================================================
+// Internal Helpers
+// ============================================================================
+
+static uint32_t build_line_with_di(uint32_t *buf, const uint32_t *di_words,
+                                   bool vsync, bool active) {
+  uint32_t *p = buf;
+  uint32_t sync_h0 = vsync ? SYNC_V0_H0 : SYNC_V1_H0;
+  uint32_t sync_h1 = vsync ? SYNC_V0_H1 : SYNC_V1_H1;
+  uint32_t preamble = vsync ? PREAMBLE_V0_H0 : PREAMBLE_V1_H0;
+
+  *p++ = HSTX_CMD_RAW_REPEAT | MODE_H_FRONT_PORCH;
+  *p++ = sync_h1;
+  *p++ = HSTX_CMD_NOP;
+
+  *p++ = HSTX_CMD_RAW_REPEAT | W_PREAMBLE;
+  *p++ = preamble;
+  *p++ = HSTX_CMD_NOP;
+
+  *p++ = HSTX_CMD_RAW | W_DATA_ISLAND;
+  for (int i = 0; i < W_DATA_ISLAND; i++)
+    *p++ = di_words[i];
+  *p++ = HSTX_CMD_NOP;
+
+  *p++ = HSTX_CMD_RAW_REPEAT | SYNC_AFTER_DI;
+  *p++ = sync_h0;
+  *p++ = HSTX_CMD_NOP;
+
+  if (active) {
+    *p++ = HSTX_CMD_RAW_REPEAT | MODE_H_BACK_PORCH;
+    *p++ = sync_h1;
+    *p++ = HSTX_CMD_TMDS | MODE_H_ACTIVE_PIXELS;
+  } else {
+    *p++ = HSTX_CMD_RAW_REPEAT | (MODE_H_BACK_PORCH + MODE_H_ACTIVE_PIXELS);
+    *p++ = sync_h1;
+    *p++ = HSTX_CMD_NOP;
+  }
+  return (uint32_t)(p - buf);
+}
+
+// ============================================================================
+// DMA IRQ Handler
+// ============================================================================
+
+void __scratch_x("") dma_irq_handler() {
+  uint32_t ch_num = dma_pong ? DMACH_PONG : DMACH_PING;
+  dma_channel_hw_t *ch = &dma_hw->ch[ch_num];
+  dma_hw->intr = 1u << ch_num;
+  dma_pong = !dma_pong;
+
+  bool vsync_active = (v_scanline >= MODE_V_FRONT_PORCH &&
+                       v_scanline < (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH));
+  bool front_porch = (v_scanline < MODE_V_FRONT_PORCH);
+  bool back_porch =
+      (v_scanline >= MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH &&
+       v_scanline < MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH + MODE_V_BACK_PORCH);
+  bool active_video = (!vsync_active && !front_porch && !back_porch);
+
+  bool send_acr = (v_scanline >= (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH) &&
+                   v_scanline < (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES) &&
+                   (v_scanline % 4 == 0));
+
+  if (vsync_active) {
+    audio_sample_accum += SAMPLES_PER_LINE_FP;
+    if (v_scanline == MODE_V_FRONT_PORCH) {
+      ch->read_addr = (uintptr_t)vblank_acr_vsync_on;
+      ch->transfer_count = vblank_acr_vsync_on_len;
+      video_frame_count++;
+    } else {
+      ch->read_addr = (uintptr_t)vblank_infoframe_vsync_on;
+      ch->transfer_count = vblank_infoframe_vsync_on_len;
+    }
+  } else if (active_video && !vactive_cmdlist_posted) {
+    audio_sample_accum += SAMPLES_PER_LINE_FP;
+    uint32_t active_line =
+        v_scanline - (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES);
+    uint32_t fb_line = active_line / 2;
+    const uint16_t *src = &framebuf[fb_line * FRAMEBUF_WIDTH];
+    uint32_t *dst32 = (uint32_t *)line_buffer;
+
+    for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i++) {
+      uint32_t p = src[i];
+      dst32[i] = p | (p << 16);
+    }
+
+    if (audio_sample_accum >= (4 << 16) && audio_ring_tail != audio_ring_head) {
+      audio_sample_accum -= (4 << 16);
+      uint32_t *buf = dma_pong ? vactive_di_ping : vactive_di_pong;
+      const uint32_t *di_words = audio_ring_buffer[audio_ring_tail].words;
+      vactive_di_len = build_line_with_di(buf, di_words, false, true);
+      audio_ring_tail = (audio_ring_tail + 1) % AUDIO_RING_BUFFER_SIZE;
+      ch->read_addr = (uintptr_t)buf;
+      ch->transfer_count = vactive_di_len;
+    } else {
+      ch->read_addr = (uintptr_t)vactive_di_null;
+      ch->transfer_count = vactive_di_null_len;
+    }
+    vactive_cmdlist_posted = true;
+  } else if (active_video && vactive_cmdlist_posted) {
+    ch->read_addr = (uintptr_t)line_buffer;
+    ch->transfer_count =
+        (MODE_H_ACTIVE_PIXELS * sizeof(uint16_t)) / sizeof(uint32_t);
+    vactive_cmdlist_posted = false;
+  } else {
+    audio_sample_accum += SAMPLES_PER_LINE_FP;
+    if (send_acr) {
+      ch->read_addr = (uintptr_t)vblank_acr_vsync_off;
+      ch->transfer_count = vblank_acr_vsync_off_len;
+    } else if (v_scanline == 0) {
+      ch->read_addr = (uintptr_t)vblank_avi_infoframe;
+      ch->transfer_count = vblank_avi_infoframe_len;
+    } else if (v_scanline != 0 && audio_sample_accum >= (4 << 16) &&
+               audio_ring_tail != audio_ring_head) {
+      audio_sample_accum -= (4 << 16);
+      uint32_t *buf = dma_pong ? vblank_di_ping : vblank_di_pong;
+      const uint32_t *di_words = audio_ring_buffer[audio_ring_tail].words;
+      vblank_di_len = build_line_with_di(buf, di_words, false, false);
+      audio_ring_tail = (audio_ring_tail + 1) % AUDIO_RING_BUFFER_SIZE;
+      ch->read_addr = (uintptr_t)buf;
+      ch->transfer_count = vblank_di_len;
+    } else {
+      ch->read_addr = (uintptr_t)vblank_di_null;
+      ch->transfer_count = vblank_di_null_len;
+    }
+  }
+  if (!vactive_cmdlist_posted)
+    v_scanline = (v_scanline + 1) % MODE_V_TOTAL_LINES;
+}
+
+// ============================================================================
+// Public Interface
+// ============================================================================
+
+void video_output_init(void) {
+  data_packet_t packet;
+  hstx_data_island_t island;
+
+  packet_set_acr(&packet, 6144, 25200);
+  hstx_encode_data_island(&island, &packet, true, true);
+  vblank_acr_vsync_on_len =
+      build_line_with_di(vblank_acr_vsync_on, island.words, true, false);
+  hstx_encode_data_island(&island, &packet, false, true);
+  vblank_acr_vsync_off_len =
+      build_line_with_di(vblank_acr_vsync_off, island.words, false, false);
+
+  packet_set_audio_infoframe(&packet, 48000, 2, 16);
+  hstx_encode_data_island(&island, &packet, true, true);
+  vblank_infoframe_vsync_on_len =
+      build_line_with_di(vblank_infoframe_vsync_on, island.words, true, false);
+  hstx_encode_data_island(&island, &packet, false, true);
+  vblank_infoframe_vsync_off_len = build_line_with_di(
+      vblank_infoframe_vsync_off, island.words, false, false);
+
+  packet_set_avi_infoframe(&packet, 1);
+  hstx_encode_data_island(&island, &packet, false, true);
+  vblank_avi_infoframe_len =
+      build_line_with_di(vblank_avi_infoframe, island.words, false, false);
+
+  vblank_di_null_len = build_line_with_di(
+      vblank_di_null, hstx_get_null_data_island(false, true), false, false);
+  vactive_di_null_len = build_line_with_di(
+      vactive_di_null, hstx_get_null_data_island(false, true), false, true);
+
+  // Initial vblank_di_ping/pong (from main.c)
+  vblank_di_len = build_line_with_di(
+      vblank_di_ping, hstx_get_null_data_island(false, true), false, false);
+  memcpy(vblank_di_pong, vblank_di_ping, sizeof(vblank_di_ping));
+}
+
+void video_output_push_audio_samples(const audio_sample_t *samples,
+                                     uint32_t count) {
+  for (uint32_t i = 0; i < count; i++) {
+    if (audio_collect_count < AUDIO_COLLECT_SIZE) {
+      audio_collect_buffer[audio_collect_count++] = samples[i];
+    }
+
+    if (audio_collect_count >= 4) {
+      uint32_t next_head = (audio_ring_head + 1) % AUDIO_RING_BUFFER_SIZE;
+      if (next_head != audio_ring_tail) {
+        audio_sample_t encoded_samples[4];
+        for (int j = 0; j < 4; j++) {
+          encoded_samples[j] = audio_collect_buffer[j];
+        }
+
+        data_packet_t packet;
+        audio_frame_counter = packet_set_audio_samples(&packet, encoded_samples,
+                                                       4, audio_frame_counter);
+        hstx_encode_data_island(&audio_ring_buffer[audio_ring_head], &packet,
+                                false, true);
+        audio_ring_head = next_head;
+
+        audio_collect_count -= 4;
+        for (uint32_t j = 0; j < audio_collect_count; j++) {
+          audio_collect_buffer[j] = audio_collect_buffer[j + 4];
+        }
+      } else {
+        break; // Buffer full
+      }
+    }
+  }
+}
+
+extern audio_pipeline_t audio_pipeline;
+extern void audio_output_callback(const ap_sample_t *samples, uint32_t count,
+                                  void *ctx);
+
+void video_output_core1_run(void) {
+  // HSTX Hardware Setup
+  hstx_ctrl_hw->expand_tmds = 4 << HSTX_CTRL_EXPAND_TMDS_L2_NBITS_LSB |
+                              8 << HSTX_CTRL_EXPAND_TMDS_L2_ROT_LSB |
+                              5 << HSTX_CTRL_EXPAND_TMDS_L1_NBITS_LSB |
+                              3 << HSTX_CTRL_EXPAND_TMDS_L1_ROT_LSB |
+                              4 << HSTX_CTRL_EXPAND_TMDS_L0_NBITS_LSB |
+                              13 << HSTX_CTRL_EXPAND_TMDS_L0_ROT_LSB;
+
+  hstx_ctrl_hw->expand_shift = 2 << HSTX_CTRL_EXPAND_SHIFT_ENC_N_SHIFTS_LSB |
+                               16 << HSTX_CTRL_EXPAND_SHIFT_ENC_SHIFT_LSB |
+                               1 << HSTX_CTRL_EXPAND_SHIFT_RAW_N_SHIFTS_LSB |
+                               0 << HSTX_CTRL_EXPAND_SHIFT_RAW_SHIFT_LSB;
+
+  hstx_ctrl_hw->csr = 0;
+  hstx_ctrl_hw->csr = HSTX_CTRL_CSR_EXPAND_EN_BITS |
+                      5u << HSTX_CTRL_CSR_CLKDIV_LSB |
+                      5u << HSTX_CTRL_CSR_N_SHIFTS_LSB |
+                      2u << HSTX_CTRL_CSR_SHIFT_LSB | HSTX_CTRL_CSR_EN_BITS;
+
+  hstx_ctrl_hw->bit[0] = HSTX_CTRL_BIT0_CLK_BITS | HSTX_CTRL_BIT0_INV_BITS;
+  hstx_ctrl_hw->bit[1] = HSTX_CTRL_BIT0_CLK_BITS;
+  for (uint lane = 0; lane < 3; ++lane) {
+    int bit = 2 + lane * 2;
+    uint32_t lane_data_sel_bits = (lane * 10) << HSTX_CTRL_BIT0_SEL_P_LSB |
+                                  (lane * 10 + 1) << HSTX_CTRL_BIT0_SEL_N_LSB;
+    hstx_ctrl_hw->bit[bit] = lane_data_sel_bits | HSTX_CTRL_BIT0_INV_BITS;
+    hstx_ctrl_hw->bit[bit + 1] = lane_data_sel_bits;
+  }
+
+  for (int i = 12; i <= 19; ++i)
+    gpio_set_function(i, 0);
+
+  // DMA Setup
+  dma_channel_config c = dma_channel_get_default_config(DMACH_PING);
+  channel_config_set_chain_to(&c, DMACH_PONG);
+  channel_config_set_dreq(&c, DREQ_HSTX);
+  dma_channel_configure(DMACH_PING, &c, &hstx_fifo_hw->fifo,
+                        vblank_line_vsync_off, count_of(vblank_line_vsync_off),
+                        false);
+
+  c = dma_channel_get_default_config(DMACH_PONG);
+  channel_config_set_chain_to(&c, DMACH_PING);
+  channel_config_set_dreq(&c, DREQ_HSTX);
+  dma_channel_configure(DMACH_PONG, &c, &hstx_fifo_hw->fifo,
+                        vblank_line_vsync_off, count_of(vblank_line_vsync_off),
+                        false);
+
+  dma_hw->ints0 = (1u << DMACH_PING) | (1u << DMACH_PONG);
+  dma_hw->inte0 = (1u << DMACH_PING) | (1u << DMACH_PONG);
+  irq_set_exclusive_handler(DMA_IRQ_0, dma_irq_handler);
+  irq_set_priority(DMA_IRQ_0, 0);
+  irq_set_enabled(DMA_IRQ_0, true);
+
+  bus_ctrl_hw->priority =
+      BUSCTRL_BUS_PRIORITY_DMA_W_BITS | BUSCTRL_BUS_PRIORITY_DMA_R_BITS;
+  dma_channel_start(DMACH_PING);
+
+  while (1) {
+    audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
+    while (ap_ring_available(&audio_pipeline.capture_ring) > 0) {
+      audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
+    }
+    tight_loop_contents();
+  }
+}

@@ -5,6 +5,7 @@ add_executable(neopico_hd
     main.c
     data_packet.c
     video/video_capture.c
+    video/video_output.c
     video/osd.c
     audio/i2s_capture.c
     audio/audio_pipeline.c
