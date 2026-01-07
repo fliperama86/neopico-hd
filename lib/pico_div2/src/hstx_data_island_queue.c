@@ -1,5 +1,5 @@
-#include "hstx_data_island_queue.h"
-#include "video_output.h"
+#include "pico_div2/hstx_data_island_queue.h"
+#include "pico_div2/video_output.h"
 #include "pico.h"
 #include <string.h>
 

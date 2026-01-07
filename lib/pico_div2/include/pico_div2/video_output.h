@@ -1,7 +1,7 @@
 #ifndef VIDEO_OUTPUT_H
 #define VIDEO_OUTPUT_H
 
-#include "video_config.h"
+#include "pico_div2/video_config.h"
 #include <stdbool.h>
 #include <stdint.h>
 

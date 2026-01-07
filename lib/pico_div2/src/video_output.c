@@ -1,15 +1,15 @@
-#include "video_output.h"
-#include "hstx_packet.h"
+#include "pico_div2/video_output.h"
+#include "pico_div2/hstx_packet.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 #include "hardware/structs/bus_ctrl.h"
 #include "hardware/structs/hstx_ctrl.h"
 #include "hardware/structs/hstx_fifo.h"
-#include "hstx_data_island_queue.h"
+#include "pico_div2/hstx_data_island_queue.h"
 // #include "osd.h"
 #include "pico/stdlib.h"
-#include "hstx_pins.h"
+#include "pico_div2/hstx_pins.h"
 #include <math.h>
 #include <string.h>
 
