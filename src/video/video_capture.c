@@ -242,6 +242,12 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   g_skip_end_words = H_SKIP_END;
   g_line_words = NEO_H_TOTAL; // 384 pixels = 384 words
 
+  // Initialize PIO blocks
+  pio_clear_instruction_memory(pio0);
+  pio_clear_instruction_memory(pio1);
+  pio_set_gpio_base(pio0, 0);
+  pio_set_gpio_base(pio1, 0);
+
   // MINIMAL OVERHEAD TEST: Diagnostics disabled
   // printf("Initializing Video Capture on PIO1 (Manual Register
   // Control)...\n");

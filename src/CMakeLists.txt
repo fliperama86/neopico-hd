@@ -6,9 +6,11 @@ add_executable(neopico_hd
     data_packet.c
     video/video_capture.c
     video/video_output.c
+    video/hdmi_data_island_queue.c
     video/osd.c
     audio/i2s_capture.c
     audio/audio_pipeline.c
+    audio/audio_subsystem.c
     audio/audio_buffer.c
     audio/dc_filter.c
     audio/lowpass.c

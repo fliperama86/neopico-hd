@@ -1,5 +1,4 @@
 #include "video_output.h"
-#include "audio_pipeline.h"
 #include "data_packet.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
@@ -7,6 +6,7 @@
 #include "hardware/structs/bus_ctrl.h"
 #include "hardware/structs/hstx_ctrl.h"
 #include "hardware/structs/hstx_fifo.h"
+#include "hdmi_data_island_queue.h"
 #include "osd.h"
 #include "pico/stdlib.h"
 #include "pins.h"
@@ -54,25 +54,10 @@ static uint32_t v_scanline = 2;
 static bool vactive_cmdlist_posted = false;
 static bool dma_pong = false;
 
+static video_output_task_fn background_task = NULL;
+
 #define DMACH_PING 0
 #define DMACH_PONG 1
-
-// Audio ring buffer for pre-encoded data islands
-#define AUDIO_RING_BUFFER_SIZE 256
-static hstx_data_island_t audio_ring_buffer[AUDIO_RING_BUFFER_SIZE];
-static volatile uint32_t audio_ring_head = 0;
-static volatile uint32_t audio_ring_tail = 0;
-
-// Audio state
-static int audio_frame_counter = 0;
-static uint32_t audio_sample_accum = 0; // Fixed-point accumulator
-#define SAMPLES_PER_FRAME (48000 / 60)
-#define SAMPLES_PER_LINE_FP ((SAMPLES_PER_FRAME << 16) / MODE_V_TOTAL_LINES)
-
-// Audio collection buffer
-#define AUDIO_COLLECT_SIZE 128
-static audio_sample_t audio_collect_buffer[AUDIO_COLLECT_SIZE];
-static uint32_t audio_collect_count = 0;
 
 // ============================================================================
 // Command Lists
@@ -152,6 +137,11 @@ void __scratch_x("") dma_irq_handler() {
   dma_hw->intr = 1u << ch_num;
   dma_pong = !dma_pong;
 
+  // Advance audio/data-island scheduler exactly once per scanline
+  if (!vactive_cmdlist_posted) {
+    hdmi_di_queue_tick();
+  }
+
   bool vsync_active = (v_scanline >= MODE_V_FRONT_PORCH &&
                        v_scanline < (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH));
   bool front_porch = (v_scanline < MODE_V_FRONT_PORCH);
@@ -165,7 +155,6 @@ void __scratch_x("") dma_irq_handler() {
                    (v_scanline % 4 == 0));
 
   if (vsync_active) {
-    audio_sample_accum += SAMPLES_PER_LINE_FP;
     if (v_scanline == MODE_V_FRONT_PORCH) {
       ch->read_addr = (uintptr_t)vblank_acr_vsync_on;
       ch->transfer_count = vblank_acr_vsync_on_len;
@@ -175,7 +164,6 @@ void __scratch_x("") dma_irq_handler() {
       ch->transfer_count = vblank_infoframe_vsync_on_len;
     }
   } else if (active_video && !vactive_cmdlist_posted) {
-    audio_sample_accum += SAMPLES_PER_LINE_FP;
     uint32_t active_line =
         v_scanline - (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES);
     uint32_t fb_line = active_line / 2;
@@ -187,12 +175,10 @@ void __scratch_x("") dma_irq_handler() {
       dst32[i] = p | (p << 16);
     }
 
-    if (audio_sample_accum >= (4 << 16) && audio_ring_tail != audio_ring_head) {
-      audio_sample_accum -= (4 << 16);
-      uint32_t *buf = dma_pong ? vactive_di_ping : vactive_di_pong;
-      const uint32_t *di_words = audio_ring_buffer[audio_ring_tail].words;
+    uint32_t *buf = dma_pong ? vactive_di_ping : vactive_di_pong;
+    const uint32_t *di_words = hdmi_di_queue_get_audio_packet();
+    if (di_words) {
       vactive_di_len = build_line_with_di(buf, di_words, false, true);
-      audio_ring_tail = (audio_ring_tail + 1) % AUDIO_RING_BUFFER_SIZE;
       ch->read_addr = (uintptr_t)buf;
       ch->transfer_count = vactive_di_len;
     } else {
@@ -206,25 +192,23 @@ void __scratch_x("") dma_irq_handler() {
         (MODE_H_ACTIVE_PIXELS * sizeof(uint16_t)) / sizeof(uint32_t);
     vactive_cmdlist_posted = false;
   } else {
-    audio_sample_accum += SAMPLES_PER_LINE_FP;
     if (send_acr) {
       ch->read_addr = (uintptr_t)vblank_acr_vsync_off;
       ch->transfer_count = vblank_acr_vsync_off_len;
     } else if (v_scanline == 0) {
       ch->read_addr = (uintptr_t)vblank_avi_infoframe;
       ch->transfer_count = vblank_avi_infoframe_len;
-    } else if (v_scanline != 0 && audio_sample_accum >= (4 << 16) &&
-               audio_ring_tail != audio_ring_head) {
-      audio_sample_accum -= (4 << 16);
-      uint32_t *buf = dma_pong ? vblank_di_ping : vblank_di_pong;
-      const uint32_t *di_words = audio_ring_buffer[audio_ring_tail].words;
-      vblank_di_len = build_line_with_di(buf, di_words, false, false);
-      audio_ring_tail = (audio_ring_tail + 1) % AUDIO_RING_BUFFER_SIZE;
-      ch->read_addr = (uintptr_t)buf;
-      ch->transfer_count = vblank_di_len;
     } else {
-      ch->read_addr = (uintptr_t)vblank_di_null;
-      ch->transfer_count = vblank_di_null_len;
+      const uint32_t *di_words = hdmi_di_queue_get_audio_packet();
+      if (di_words) {
+        uint32_t *buf = dma_pong ? vblank_di_ping : vblank_di_pong;
+        vblank_di_len = build_line_with_di(buf, di_words, false, false);
+        ch->read_addr = (uintptr_t)buf;
+        ch->transfer_count = vblank_di_len;
+      } else {
+        ch->read_addr = (uintptr_t)vblank_di_null;
+        ch->transfer_count = vblank_di_null_len;
+      }
     }
   }
   if (!vactive_cmdlist_posted)
@@ -236,6 +220,10 @@ void __scratch_x("") dma_irq_handler() {
 // ============================================================================
 
 void video_output_init(void) {
+  // Claim DMA channels for HSTX (channels 0 and 1)
+  dma_channel_claim(DMACH_PING);
+  dma_channel_claim(DMACH_PONG);
+
   data_packet_t packet;
   hstx_data_island_t island;
 
@@ -265,48 +253,14 @@ void video_output_init(void) {
   vactive_di_null_len = build_line_with_di(
       vactive_di_null, hstx_get_null_data_island(false, true), false, true);
 
-  // Initial vblank_di_ping/pong (from main.c)
   vblank_di_len = build_line_with_di(
       vblank_di_ping, hstx_get_null_data_island(false, true), false, false);
   memcpy(vblank_di_pong, vblank_di_ping, sizeof(vblank_di_ping));
 }
 
-void video_output_push_audio_samples(const audio_sample_t *samples,
-                                     uint32_t count) {
-  for (uint32_t i = 0; i < count; i++) {
-    if (audio_collect_count < AUDIO_COLLECT_SIZE) {
-      audio_collect_buffer[audio_collect_count++] = samples[i];
-    }
-
-    if (audio_collect_count >= 4) {
-      uint32_t next_head = (audio_ring_head + 1) % AUDIO_RING_BUFFER_SIZE;
-      if (next_head != audio_ring_tail) {
-        audio_sample_t encoded_samples[4];
-        for (int j = 0; j < 4; j++) {
-          encoded_samples[j] = audio_collect_buffer[j];
-        }
-
-        data_packet_t packet;
-        audio_frame_counter = packet_set_audio_samples(&packet, encoded_samples,
-                                                       4, audio_frame_counter);
-        hstx_encode_data_island(&audio_ring_buffer[audio_ring_head], &packet,
-                                false, true);
-        audio_ring_head = next_head;
-
-        audio_collect_count -= 4;
-        for (uint32_t j = 0; j < audio_collect_count; j++) {
-          audio_collect_buffer[j] = audio_collect_buffer[j + 4];
-        }
-      } else {
-        break; // Buffer full
-      }
-    }
-  }
+void video_output_set_background_task(video_output_task_fn task) {
+  background_task = task;
 }
-
-extern audio_pipeline_t audio_pipeline;
-extern void audio_output_callback(const ap_sample_t *samples, uint32_t count,
-                                  void *ctx);
 
 void video_output_core1_run(void) {
   // HSTX Hardware Setup
@@ -367,9 +321,8 @@ void video_output_core1_run(void) {
   dma_channel_start(DMACH_PING);
 
   while (1) {
-    audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
-    while (ap_ring_available(&audio_pipeline.capture_ring) > 0) {
-      audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
+    if (background_task) {
+      background_task();
     }
     tight_loop_contents();
   }

@@ -41,21 +41,28 @@ extern volatile uint32_t video_frame_count;
 // Public Interface
 // ============================================================================
 
+typedef void (*video_output_task_fn)(void);
+
 /**
  * Initialize HSTX and DMA for video output.
  */
 void video_output_init(void);
 
 /**
- * Push audio samples to the HDMI audio ring buffer.
- * Encodes samples into Data Islands when enough are collected.
+ * Register a background task to run in the Core 1 loop.
+ * This is typically used for audio processing.
  */
-#include "data_packet.h"
-void video_output_push_audio_samples(const audio_sample_t *samples,
-                                     uint32_t count);
+void video_output_set_background_task(video_output_task_fn task);
 
 /**
- * Core 1 entry point for video output and audio processing.
+ * Push a pre-encoded Data Island into the HDMI stream queue.
+ * Returns true if successful, false if the queue is full.
+ */
+#include "data_packet.h"
+bool video_output_push_data_island(const hstx_data_island_t *island);
+
+/**
+ * Core 1 entry point for video output.
  * This function does not return.
  */
 void video_output_core1_run(void);
