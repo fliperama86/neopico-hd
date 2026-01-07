@@ -81,36 +81,6 @@ static bool wait_for_vsync(PIO pio, uint sm_sync, uint32_t timeout_ms) {
     if (absolute_time_diff_us(get_absolute_time(), timeout) <= 0) {
       timeout_count++;
       tud_task(); // Keep USB alive
-
-      // MINIMAL OVERHEAD TEST: Diagnostics disabled
-      /*
-      if (timeout_count % 10 == 0) {
-        // Full Activity Scan (10ms)
-        uint32_t total_toggles[48] = {0};
-        uint64_t last_all = gpio_get_all64();
-        absolute_time_t start_scan = get_absolute_time();
-        while (absolute_time_diff_us(start_scan, get_absolute_time()) < 10000) {
-          uint64_t cur_all = gpio_get_all64();
-          uint64_t diff = cur_all ^ last_all;
-          if (diff) {
-            for (int i = 0; i < 48; i++) {
-              if ((diff >> i) & 1)
-                total_toggles[i]++;
-            }
-            last_all = cur_all;
-          }
-        }
-
-        uint32_t pc = pio_sm_get_pc(pio, sm_sync);
-        printf("[vsync timeout #%lu] PIO1 SM0 | PC: %lu | Scan (10ms):",
-               timeout_count, pc);
-        for (int i = 0; i < 48; i++) {
-          if (total_toggles[i] > 0)
-            printf(" GP%d=%lu", i, total_toggles[i]);
-        }
-        printf("\n");
-      }
-      */
       return false;
     }
 
@@ -148,8 +118,6 @@ static bool wait_for_vsync(PIO pio, uint sm_sync, uint32_t timeout_ms) {
 // =============================================================================
 
 static void generate_intensity_lut(void) {
-  printf("Generating intensity LUT... ");
-  stdio_flush();
   for (uint32_t i = 0; i < 131072; i++) {
     uint8_t r5 = i & 0x1F;
     uint8_t g5 = (i >> 5) & 0x1F;
@@ -180,7 +148,6 @@ static void generate_intensity_lut(void) {
     // 4. Pack as RGB565
     g_pixel_lut[i] = ((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3);
   }
-  printf("Done.\n");
 }
 
 // =============================================================================
@@ -248,9 +215,6 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   pio_set_gpio_base(pio0, 0);
   pio_set_gpio_base(pio1, 0);
 
-  // MINIMAL OVERHEAD TEST: Diagnostics disabled
-  // printf("Initializing Video Capture on PIO1 (Manual Register
-  // Control)...\n");
   g_pio_mvs = pio1;
 
   // 1. Force GPIOBASE to 16
@@ -260,8 +224,6 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   pio_clear_instruction_memory(g_pio_mvs);
   g_offset_sync = pio_add_program(g_pio_mvs, &mvs_sync_4a_program);
   g_offset_pixel = pio_add_program(g_pio_mvs, &mvs_pixel_capture_program);
-  // printf("  Programs loaded at sync=%u, pixel=%u\n", g_offset_sync,
-  // g_offset_pixel);
 
   // 3. Claim SMs
   g_sm_sync = (uint)pio_claim_unused_sm(g_pio_mvs, true);
@@ -324,77 +286,6 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   channel_config_set_dreq(&dc, pio_get_dreq(g_pio_mvs, g_sm_pixel, false));
   dma_channel_configure(g_dma_chan, &dc, g_line_buffers[0],
                         &g_pio_mvs->rxf[g_sm_pixel], 0, false);
-
-  // MINIMAL OVERHEAD TEST: All diagnostics disabled
-  /*
-  printf("Video Capture Initialized: PIO1 SyncSM=%u PixelSM=%u\n", g_sm_sync,
-         g_sm_pixel);
-
-  // DIAGNOSTIC: Check PIO state after init
-  printf("\n=== PIO DIAGNOSTIC ===\n");
-  printf("GPIOBASE: %lu\n", *(volatile uint32_t *)((uintptr_t)g_pio_mvs +
-  0x168));
-
-  uint32_t sync_pc = g_pio_mvs->sm[g_sm_sync].addr & 0x1F;
-  uint32_t sync_instr = g_pio_mvs->instr_mem[sync_pc];
-  printf("Sync SM: PC=%lu (offset+%lu) instr=0x%04lx\n",
-         sync_pc, sync_pc - g_offset_sync, sync_instr);
-
-  uint32_t pinctrl = g_pio_mvs->sm[g_sm_sync].pinctrl;
-  uint32_t execctrl = g_pio_mvs->sm[g_sm_sync].execctrl;
-  uint32_t in_base = (pinctrl >> 15) & 0x1F;
-  uint32_t jmp_pin = (execctrl >> 24) & 0x1F;
-  printf("  IN_BASE=%lu (GP%lu), JMP_PIN=%lu (GP%lu)\n",
-         in_base, 16 + in_base, jmp_pin, 16 + jmp_pin);
-
-  printf("  FIFO: %s\n", pio_sm_is_rx_fifo_empty(g_pio_mvs, g_sm_sync) ? "EMPTY"
-  : "HAS DATA");
-
-  // Wait 100ms and check if PC advances
-  sleep_ms(100);
-  uint32_t sync_pc2 = g_pio_mvs->sm[g_sm_sync].addr & 0x1F;
-  if (sync_pc == sync_pc2) {
-    printf("  ⚠️  PC NOT ADVANCING - stalled at PC=%lu\n", sync_pc);
-    printf("  Current instruction: ");
-    uint32_t opcode = sync_instr >> 13;
-    if (opcode == 1) {  // WAIT
-      uint32_t pol = (sync_instr >> 7) & 1;
-      uint32_t src = (sync_instr >> 5) & 3;
-      uint32_t idx = sync_instr & 0x1F;
-      printf("WAIT %lu %s %lu", pol, (src == 1) ? "PIN" : "GPIO", idx);
-      if (src == 1) {  // PIN
-        printf(" (GP%lu)\n", 16 + ((in_base + idx) % 32));
-      } else {
-        printf("\n");
-      }
-    } else {
-      printf("opcode=%lu\n", opcode);
-    }
-  } else {
-    printf("  ✅ PC advancing (%lu -> %lu)\n", sync_pc, sync_pc2);
-  }
-
-  // Check pixel SM too
-  uint32_t pixel_pc = g_pio_mvs->sm[g_sm_pixel].addr & 0x1F;
-  uint32_t pixel_instr = g_pio_mvs->instr_mem[pixel_pc];
-  printf("Pixel SM: PC=%lu (offset+%lu) instr=0x%04lx\n",
-         pixel_pc, pixel_pc - g_offset_pixel, pixel_instr);
-
-  uint32_t pixel_pinctrl = g_pio_mvs->sm[g_sm_pixel].pinctrl;
-  uint32_t pixel_in_base = (pixel_pinctrl >> 15) & 0x1F;
-  printf("  IN_BASE=%lu (GP%lu = PCLK+RGB GP29-44, PCLK first)\n",
-         pixel_in_base, 16 + pixel_in_base);
-
-  // Print timing constants
-  printf("\nTiming Configuration:\n");
-  printf("  H_SKIP_START=%d, H_SKIP_END=%d, NEO_H_TOTAL=%d\n",
-         H_SKIP_START, H_SKIP_END, NEO_H_TOTAL);
-  printf("  Skip start words=%d, Active words=%d, Skip end words=%d, Line
-  words=%d\n", g_skip_start_words, g_active_words, g_skip_end_words,
-  g_line_words); printf("  Frame dimensions: %ux%u, MVS height=%u\n",
-         g_frame_width, g_frame_height, g_mvs_height);
-  printf("===================\n\n");
-  */
 }
 
 bool video_capture_frame(void) {
