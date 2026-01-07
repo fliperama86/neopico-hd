@@ -5,8 +5,8 @@
  * Target: RP2350B (WeAct Studio RP2350B Core)
  */
 
-#ifndef PINS_H
-#define PINS_H
+#ifndef HSTX_PINS_H
+#define HSTX_PINS_H
 
 // =============================================================================
 // MVS Video Input Pins - GP27-44 CONTIGUOUS LAYOUT
@@ -57,12 +57,12 @@
 #define PIN_MVS_SHADOW 44 // Bit 17
 
 // =============================================================================
-// DVI/HDMI Output Pins (GPIO 12-19)
+// DVI/HSTX Output Pins (GPIO 12-19)
 // =============================================================================
-#define PIN_DVI_CLK 12 // Clock pair base (12=CLK-, 13=CLK+)
-#define PIN_DVI_D0 14  // Data 0 pair base (14=D0-, 15=D0+)
-#define PIN_DVI_D1 16  // Data 1 pair base (16=D1-, 17=D1+)
-#define PIN_DVI_D2 18  // Data 2 pair base (18=D2-, 19=D2+)
+#define PIN_HSTX_CLK 12 // Clock pair base (12=CLK-, 13=CLK+)
+#define PIN_HSTX_D0 14  // Data 0 pair base (14=D0-, 15=D0+)
+#define PIN_HSTX_D1 16  // Data 1 pair base (16=D1-, 17=D1+)
+#define PIN_HSTX_D2 18  // Data 2 pair base (18=D2-, 19=D2+)
 
 // =============================================================================
 // I2S Audio Input Pins (GPIO 0-2)
@@ -83,4 +83,4 @@
 // #define PIN_OSD_CLK 6 // Clock (CP)
 // #define PIN_OSD_DAT 7 // Serial Data (Q7)
 
-#endif // PINS_H
+#endif // HSTX_PINS_H

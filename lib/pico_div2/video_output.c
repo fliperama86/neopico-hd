@@ -1,20 +1,20 @@
 #include "video_output.h"
-#include "data_packet.h"
+#include "hstx_packet.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 #include "hardware/structs/bus_ctrl.h"
 #include "hardware/structs/hstx_ctrl.h"
 #include "hardware/structs/hstx_fifo.h"
-#include "hdmi_data_island_queue.h"
-#include "osd.h"
+#include "hstx_data_island_queue.h"
+// #include "osd.h"
 #include "pico/stdlib.h"
-#include "pins.h"
+#include "hstx_pins.h"
 #include <math.h>
 #include <string.h>
 
 // ============================================================================
-// DVI/HDMI Constants
+// DVI/HSTX Constants
 // ============================================================================
 
 #define TMDS_CTRL_00 0x354u // vsync=0 hsync=0
@@ -139,7 +139,7 @@ void __scratch_x("") dma_irq_handler() {
 
   // Advance audio/data-island scheduler exactly once per scanline
   if (!vactive_cmdlist_posted) {
-    hdmi_di_queue_tick();
+    hstx_di_queue_tick();
   }
 
   bool vsync_active = (v_scanline >= MODE_V_FRONT_PORCH &&
@@ -176,7 +176,7 @@ void __scratch_x("") dma_irq_handler() {
     }
 
     uint32_t *buf = dma_pong ? vactive_di_ping : vactive_di_pong;
-    const uint32_t *di_words = hdmi_di_queue_get_audio_packet();
+    const uint32_t *di_words = hstx_di_queue_get_audio_packet();
     if (di_words) {
       vactive_di_len = build_line_with_di(buf, di_words, false, true);
       ch->read_addr = (uintptr_t)buf;
@@ -199,7 +199,7 @@ void __scratch_x("") dma_irq_handler() {
       ch->read_addr = (uintptr_t)vblank_avi_infoframe;
       ch->transfer_count = vblank_avi_infoframe_len;
     } else {
-      const uint32_t *di_words = hdmi_di_queue_get_audio_packet();
+      const uint32_t *di_words = hstx_di_queue_get_audio_packet();
       if (di_words) {
         uint32_t *buf = dma_pong ? vblank_di_ping : vblank_di_pong;
         vblank_di_len = build_line_with_di(buf, di_words, false, false);
@@ -224,10 +224,10 @@ void video_output_init(void) {
   dma_channel_claim(DMACH_PING);
   dma_channel_claim(DMACH_PONG);
 
-  data_packet_t packet;
+  hstx_packet_t packet;
   hstx_data_island_t island;
 
-  packet_set_acr(&packet, 6144, 25200);
+  hstx_packet_set_acr(&packet, 6144, 25200);
   hstx_encode_data_island(&island, &packet, true, true);
   vblank_acr_vsync_on_len =
       build_line_with_di(vblank_acr_vsync_on, island.words, true, false);
@@ -235,7 +235,7 @@ void video_output_init(void) {
   vblank_acr_vsync_off_len =
       build_line_with_di(vblank_acr_vsync_off, island.words, false, false);
 
-  packet_set_audio_infoframe(&packet, 48000, 2, 16);
+  hstx_packet_set_audio_infoframe(&packet, 48000, 2, 16);
   hstx_encode_data_island(&island, &packet, true, true);
   vblank_infoframe_vsync_on_len =
       build_line_with_di(vblank_infoframe_vsync_on, island.words, true, false);
@@ -243,7 +243,7 @@ void video_output_init(void) {
   vblank_infoframe_vsync_off_len = build_line_with_di(
       vblank_infoframe_vsync_off, island.words, false, false);
 
-  packet_set_avi_infoframe(&packet, 1);
+  hstx_packet_set_avi_infoframe(&packet, 1);
   hstx_encode_data_island(&island, &packet, false, true);
   vblank_avi_infoframe_len =
       build_line_with_di(vblank_avi_infoframe, island.words, false, false);

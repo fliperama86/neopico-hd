@@ -35,3 +35,4 @@ static inline bool osd_get_pixel(int x, int y) {
 }
 
 #endif // OSD_H
+

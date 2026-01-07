@@ -48,3 +48,4 @@ void osd_draw_string(int x, int y, const char *str, bool val) {
       break;
   }
 }
+

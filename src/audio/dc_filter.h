@@ -35,9 +35,9 @@ void dc_filter_set_enabled(dc_filter_t *f, bool enabled);
 bool dc_filter_toggle(dc_filter_t *f);
 
 // Process one sample (in-place)
-void dc_filter_process(dc_filter_t *f, ap_sample_t *sample);
+void dc_filter_process(dc_filter_t *f, audio_sample_t *sample);
 
 // Process buffer of samples (in-place)
-void dc_filter_process_buffer(dc_filter_t *f, ap_sample_t *samples, uint32_t count);
+void dc_filter_process_buffer(dc_filter_t *f, audio_sample_t *samples, uint32_t count);
 
 #endif // DC_FILTER_H

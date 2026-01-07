@@ -29,6 +29,6 @@ void lowpass_init(lowpass_t *lp);
 void lowpass_set_enabled(lowpass_t *lp, bool enabled);
 
 // Process buffer in-place
-void lowpass_process_buffer(lowpass_t *lp, ap_sample_t *samples, uint32_t count);
+void lowpass_process_buffer(lowpass_t *lp, audio_sample_t *samples, uint32_t count);
 
 #endif // LOWPASS_H

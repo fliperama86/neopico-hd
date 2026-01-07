@@ -1,39 +1,39 @@
 #include "audio_subsystem.h"
 #include "audio_pipeline.h"
-#include "data_packet.h"
-#include "hdmi_data_island_queue.h"
-#include "pins.h"
+#include "hardware/pio.h"
+#include "hstx_data_island_queue.h"
+#include "hstx_packet.h"
+#include "hstx_pins.h"
 #include "video_output.h"
 #include <stdio.h>
 
 // Audio pipeline instance
 static audio_pipeline_t audio_pipeline;
 
-// Audio state for HDMI encoding
+// Audio state for HSTX encoding
 static int audio_frame_counter = 0;
 #define AUDIO_COLLECT_SIZE 128
 static audio_sample_t audio_collect_buffer[AUDIO_COLLECT_SIZE];
 static uint32_t audio_collect_count = 0;
 
-static void audio_output_callback(const ap_sample_t *samples, uint32_t count,
+static void audio_output_callback(const audio_sample_t *samples, uint32_t count,
                                   void *ctx) {
   (void)ctx;
 
   for (uint32_t i = 0; i < count; i++) {
     if (audio_collect_count < AUDIO_COLLECT_SIZE) {
-      audio_collect_buffer[audio_collect_count++] =
-          *(const audio_sample_t *)&samples[i];
+      audio_collect_buffer[audio_collect_count++] = samples[i];
     }
 
     if (audio_collect_count >= 4) {
-      data_packet_t packet;
-      audio_frame_counter = packet_set_audio_samples(
+      hstx_packet_t packet;
+      audio_frame_counter = hstx_packet_set_audio_samples(
           &packet, audio_collect_buffer, 4, audio_frame_counter);
 
       hstx_data_island_t island;
       hstx_encode_data_island(&island, &packet, false, true);
 
-      if (hdmi_di_queue_push(&island)) {
+      if (hstx_di_queue_push(&island)) {
         audio_collect_count -= 4;
         for (uint32_t j = 0; j < audio_collect_count; j++) {
           audio_collect_buffer[j] = audio_collect_buffer[j + 4];
@@ -71,8 +71,6 @@ void audio_subsystem_init(void) {
   video_output_set_background_task(audio_background_task);
 }
 
-void audio_subsystem_start(void) {
-  audio_pipeline_start(&audio_pipeline);
-}
+void audio_subsystem_start(void) { audio_pipeline_start(&audio_pipeline); }
 
 void audio_subsystem_stop(void) { audio_pipeline_stop(&audio_pipeline); }

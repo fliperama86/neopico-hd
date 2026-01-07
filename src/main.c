@@ -1,34 +1,13 @@
 /**
- * HSTX Lab - MVS Video Capture + HDMI Output
- *
- * Captures live video from Neo Geo MVS and outputs via HSTX to HDMI.
- * Uses RP2350's hardware HSTX encoder instead of PIO-based PicoDVI.
- *
- * Architecture:
- *   Core 0: Continuous MVS video capture (PIO1 + DMA)
- *   Core 1: HSTX HDMI output at 640x480 @ 60Hz (2x scaled from 320x240)
- *
- * HSTX Pin Assignment (GPIO 12-19):
- *     GPIO 12: CLKN    GPIO 13: CLKP
- *     GPIO 14: D0N     GPIO 15: D0P  (Lane 0 - Blue)
- *     GPIO 16: D1N     GPIO 17: D1P  (Lane 1 - Green)
- *     GPIO 18: D2N     GPIO 19: D2P  (Lane 2 - Red)
- *
- * MVS Capture (GPIO 25-43 via PIO1):
- *     GPIO 25: PCLK, GPIO 26-30: Red, GPIO 31-35: Green,
- *     GPIO 36-40: Blue, GPIO 41: DARK, GPIO 42: SHADOW, GPIO 43: CSYNC
- *
- * Audio: 48kHz stereo via HDMI Data Islands (I2S capture from MVS, GPIO 0-2)
- *
- * Target: RP2350B (WeAct Studio board)
+ * NeoPico-HD - MVS Video Capture + HSTX Output
  */
 
 #include "audio_subsystem.h"
 #include "hardware/clocks.h"
-#include "hdmi_data_island_queue.h"
+#include "hstx_data_island_queue.h"
+#include "hstx_pins.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
-#include "pins.h"
 #include "video_capture.h"
 #include "video_output.h"
 #include <stdio.h>
@@ -58,7 +37,7 @@ int main(void) {
 
   // Initialize shared resources before launching Core 1
   init_background();
-  hdmi_di_queue_init();
+  hstx_di_queue_init();
   video_output_init();
 
   // 1. Initialize video capture

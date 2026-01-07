@@ -159,7 +159,7 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap) {
       uint32_t raw_l = cap->dma_buffer[next_idx];
       cap->dma_buffer_idx = (next_idx + 1) & I2S_DMA_BUFFER_MASK;
 
-      ap_sample_t sample;
+      audio_sample_t sample;
       sample.left = (int16_t)(raw_l & 0xFFFF);
       sample.right = (int16_t)(raw_r & 0xFFFF);
 

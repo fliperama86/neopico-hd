@@ -25,7 +25,7 @@ typedef struct
     // Internal state for algorithms
     uint32_t accumulator;    // For DROP mode (bresenham)
     uint32_t phase;          // For LINEAR mode (fixed-point position)
-    ap_sample_t prev_sample; // For LINEAR mode (interpolation)
+    audio_sample_t prev_sample; // For LINEAR mode (interpolation)
     bool have_prev;          // LINEAR mode: do we have a previous sample?
 } src_t;
 
@@ -50,8 +50,8 @@ static inline src_mode_t src_get_mode(src_t *s)
 // Returns: number of output samples written
 // Updates in_consumed with number of input samples consumed
 uint32_t src_process(src_t *s,
-                     const ap_sample_t *in, uint32_t in_count,
-                     ap_sample_t *out, uint32_t out_max,
+                     const audio_sample_t *in, uint32_t in_count,
+                     audio_sample_t *out, uint32_t out_max,
                      uint32_t *in_consumed);
 
 #endif // SRC_H

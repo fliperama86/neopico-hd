@@ -4,6 +4,7 @@
  */
 
 #include "video_capture.h"
+#include "hstx_pins.h"
 #include "hardware/dma.h"
 #include "hardware/interp.h"
 #include "hardware/pio.h"

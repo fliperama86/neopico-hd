@@ -16,7 +16,7 @@
 #define AP_RING_MASK (AP_RING_SIZE - 1)
 
 typedef struct {
-    ap_sample_t samples[AP_RING_SIZE];
+    audio_sample_t samples[AP_RING_SIZE];
     volatile uint32_t write_idx;  // Written by producer (DMA/interrupt)
     volatile uint32_t read_idx;   // Written by consumer (processing)
 } ap_ring_t;
@@ -35,20 +35,20 @@ static inline uint32_t ap_ring_free(ap_ring_t *ring) {
 }
 
 // Read one sample (caller must check available first)
-static inline ap_sample_t ap_ring_read(ap_ring_t *ring) {
-    ap_sample_t s = ring->samples[ring->read_idx & AP_RING_MASK];
+static inline audio_sample_t ap_ring_read(ap_ring_t *ring) {
+    audio_sample_t s = ring->samples[ring->read_idx & AP_RING_MASK];
     ring->read_idx++;
     return s;
 }
 
 // Write one sample (caller must check free first)
-static inline void ap_ring_write(ap_ring_t *ring, ap_sample_t s) {
+static inline void ap_ring_write(ap_ring_t *ring, audio_sample_t s) {
     ring->samples[ring->write_idx & AP_RING_MASK] = s;
     ring->write_idx++;
 }
 
 // Get pointer to write location (for DMA)
-static inline ap_sample_t* ap_ring_write_ptr(ap_ring_t *ring) {
+static inline audio_sample_t* ap_ring_write_ptr(ap_ring_t *ring) {
     return &ring->samples[ring->write_idx & AP_RING_MASK];
 }
 

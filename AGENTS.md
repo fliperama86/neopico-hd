@@ -13,7 +13,7 @@ NeoPico-HD is a pure digital Neo Geo MVS capture system using the RP2350B.
 Agents MUST refer to these for implementation details:
 
 - `README.md`: High-level overview and pin mapping.
-- `docs/HDMI_HSTX_IMPLEMENTATION.md`: HDMI protocol, sync polarity, and Data Island details.
+- `docs/HSTX_IMPLEMENTATION.md`: HSTX protocol, sync polarity, and Data Island details.
 - `docs/OSD_IMPLEMENTATION.md`: OSD architecture and rendering strategy.
 - `docs/MVS_MV1C_DIGITAL_VIDEO.md`: MVS video tap points and PIO capture logic (Bank 1).
 - `docs/MVS_MV1C_DIGITAL_AUDIO.md`: MVS audio tap points and I2S/SRC pipeline.

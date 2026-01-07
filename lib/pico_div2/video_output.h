@@ -55,13 +55,6 @@ void video_output_init(void);
 void video_output_set_background_task(video_output_task_fn task);
 
 /**
- * Push a pre-encoded Data Island into the HDMI stream queue.
- * Returns true if successful, false if the queue is full.
- */
-#include "data_packet.h"
-bool video_output_push_data_island(const hstx_data_island_t *island);
-
-/**
  * Core 1 entry point for video output.
  * This function does not return.
  */

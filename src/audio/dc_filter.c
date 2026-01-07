@@ -52,14 +52,14 @@ static inline int16_t dc_filter_process_channel(dc_filter_channel_t *ch, int16_t
     return (int16_t)out;
 }
 
-void dc_filter_process(dc_filter_t *f, ap_sample_t *sample) {
+void dc_filter_process(dc_filter_t *f, audio_sample_t *sample) {
     if (!f->enabled) return;
 
     sample->left = dc_filter_process_channel(&f->left, sample->left);
     sample->right = dc_filter_process_channel(&f->right, sample->right);
 }
 
-void dc_filter_process_buffer(dc_filter_t *f, ap_sample_t *samples, uint32_t count) {
+void dc_filter_process_buffer(dc_filter_t *f, audio_sample_t *samples, uint32_t count) {
     if (!f->enabled) return;
 
     for (uint32_t i = 0; i < count; i++) {

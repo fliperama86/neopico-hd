@@ -78,7 +78,7 @@ static inline int16_t lowpass_process_sample(lowpass_channel_t *ch, int16_t in) 
     return (int16_t)out;
 }
 
-void lowpass_process_buffer(lowpass_t *lp, ap_sample_t *samples, uint32_t count) {
+void lowpass_process_buffer(lowpass_t *lp, audio_sample_t *samples, uint32_t count) {
     if (!lp->enabled) return;
 
     for (uint32_t i = 0; i < count; i++) {

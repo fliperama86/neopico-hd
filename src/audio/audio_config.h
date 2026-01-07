@@ -10,13 +10,13 @@
 // Audio Buffer Configuration
 // =============================================================================
 
-// HDMI audio buffer size (samples)
+// HSTX audio buffer size (samples)
 // Larger buffer handles irregular fill timing from video frame processing
 #define AUDIO_BUFFER_SIZE 1024
 
 // Sample rates
 #define AUDIO_INPUT_RATE 55555  // MVS I2S input rate (approximately)
-#define AUDIO_OUTPUT_RATE 48000 // HDMI audio output rate
+#define AUDIO_OUTPUT_RATE 48000 // HSTX audio output rate
 
 // =============================================================================
 // Pin Configuration (see pins.h for actual GPIO assignments)

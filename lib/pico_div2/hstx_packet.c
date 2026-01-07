@@ -1,15 +1,4 @@
-/**
- * HDMI Data Packet Encoding for HSTX
- *
- * Adapted from PicoDVI/hsdaoh for RP2350 HSTX peripheral.
- *
- * References:
- * - HDMI 1.4 Specification (Section 5.2 - Data Island)
- * - PicoDVI: github.com/Wren6991/PicoDVI
- * - hsdaoh-rp2350: github.com/steve-m/hsdaoh-rp2350
- */
-
-#include "data_packet.h"
+#include "hstx_packet.h"
 #include <string.h>
 
 // ============================================================================
@@ -35,11 +24,10 @@ static const uint16_t TERC4[16] = {
     0b1011000011, // 15
 };
 
-// Data Island guard band symbol (same on lanes 1 & 2)
 #define GUARD_BAND_SYMBOL 0x133u // 0b0100110011
 
 // ============================================================================
-// BCH Encoding (for packet error correction)
+// BCH Encoding
 // ============================================================================
 
 static const uint8_t bch_table[256] = {
@@ -67,7 +55,6 @@ static const uint8_t bch_table[256] = {
     0x24, 0xfd, 0x91, 0x48,
 };
 
-// Parity table for audio sample validity
 static const uint8_t parity_table[32] = {
     0x96, 0x69, 0x69, 0x96, 0x69, 0x96, 0x96, 0x69, 0x69, 0x96, 0x96,
     0x69, 0x96, 0x69, 0x69, 0x96, 0x69, 0x96, 0x96, 0x69, 0x96, 0x69,
@@ -99,223 +86,140 @@ static uint8_t encode_bch_7(const uint8_t *p) {
   return v;
 }
 
-static void compute_header_parity(data_packet_t *p) {
+static void compute_header_parity(hstx_packet_t *p) {
   p->header[3] = encode_bch_3(p->header);
 }
 
-static void compute_subpacket_parity(data_packet_t *p, int idx) {
+static void compute_subpacket_parity(hstx_packet_t *p, int idx) {
   p->subpacket[idx][7] = encode_bch_7(p->subpacket[idx]);
 }
 
-static void compute_all_parity(data_packet_t *p) {
+static void compute_all_parity(hstx_packet_t *p) {
   compute_header_parity(p);
   for (int i = 0; i < 4; i++) {
     compute_subpacket_parity(p, i);
   }
 }
 
-// InfoFrame checksum (different from BCH)
-static void compute_infoframe_checksum(data_packet_t *p) {
+static void compute_infoframe_checksum(hstx_packet_t *p) {
   int sum = 0;
-  // Sum header bytes
   for (int i = 0; i < 3; i++) {
     sum += p->header[i];
   }
-  // Sum data bytes (length is in header[2])
   int len = p->header[2] + 1;
   for (int j = 0; j < 4 && len > 0; j++) {
     for (int i = 0; i < 7 && len > 0; i++, len--) {
       sum += p->subpacket[j][i];
     }
   }
-  // Checksum goes in first byte of first subpacket
   p->subpacket[0][0] = (uint8_t)(-sum);
 }
 
 // ============================================================================
-// Packet Creation Functions
+// Public API
 // ============================================================================
 
-void packet_init(data_packet_t *packet) {
-  memset(packet, 0, sizeof(data_packet_t));
+void hstx_packet_init(hstx_packet_t *packet) {
+  memset(packet, 0, sizeof(hstx_packet_t));
 }
 
-void packet_set_null(data_packet_t *packet) {
-  packet_init(packet);
-  // Null packet: type 0, all zeros
+void hstx_packet_set_null(hstx_packet_t *packet) {
+  hstx_packet_init(packet);
   compute_all_parity(packet);
 }
 
-void packet_set_acr(data_packet_t *packet, uint32_t n, uint32_t cts) {
-  packet_init(packet);
-
-  // Header: packet type 0x01 (Audio Clock Regeneration)
+void hstx_packet_set_acr(hstx_packet_t *packet, uint32_t n, uint32_t cts) {
+  hstx_packet_init(packet);
   packet->header[0] = 0x01;
   packet->header[1] = 0x00;
   packet->header[2] = 0x00;
   compute_header_parity(packet);
 
-  // Subpacket format per HDMI 1.4 spec Table 5-10 (BIG ENDIAN byte order!):
-  // SB0: Reserved
-  // SB1: CTS[19:16] (high nibble)
-  // SB2: CTS[15:8]  (middle byte)
-  // SB3: CTS[7:0]   (low byte)
-  // SB4: N[19:16]   (high nibble)
-  // SB5: N[15:8]    (middle byte)
-  // SB6: N[7:0]     (low byte)
-  packet->subpacket[0][0] = 0;                  // SB0: Reserved
-  packet->subpacket[0][1] = (cts >> 16) & 0x0F; // SB1: CTS[19:16]
-  packet->subpacket[0][2] = (cts >> 8) & 0xFF;  // SB2: CTS[15:8]
-  packet->subpacket[0][3] = cts & 0xFF;         // SB3: CTS[7:0]
-  packet->subpacket[0][4] = (n >> 16) & 0x0F;   // SB4: N[19:16]
-  packet->subpacket[0][5] = (n >> 8) & 0xFF;    // SB5: N[15:8]
-  packet->subpacket[0][6] = n & 0xFF;           // SB6: N[7:0]
+  packet->subpacket[0][0] = 0;
+  packet->subpacket[0][1] = (cts >> 16) & 0x0F;
+  packet->subpacket[0][2] = (cts >> 8) & 0xFF;
+  packet->subpacket[0][3] = cts & 0xFF;
+  packet->subpacket[0][4] = (n >> 16) & 0x0F;
+  packet->subpacket[0][5] = (n >> 8) & 0xFF;
+  packet->subpacket[0][6] = n & 0xFF;
   compute_subpacket_parity(packet, 0);
 
-  // Copy to other subpackets (ACR repeats same data 4 times)
   memcpy(packet->subpacket[1], packet->subpacket[0], 8);
   memcpy(packet->subpacket[2], packet->subpacket[0], 8);
   memcpy(packet->subpacket[3], packet->subpacket[0], 8);
 }
 
-void packet_set_audio_infoframe(data_packet_t *packet, uint32_t sample_rate,
-                                uint8_t channels, uint8_t bits_per_sample) {
-  packet_init(packet);
-
-  // Header: Audio InfoFrame (type 0x84)
+void hstx_packet_set_audio_infoframe(hstx_packet_t *packet,
+                                     uint32_t sample_rate, uint8_t channels,
+                                     uint8_t bits_per_sample) {
+  hstx_packet_init(packet);
   packet->header[0] = 0x84;
-  packet->header[1] = 0x01; // Version 1
-  packet->header[2] = 0x0A; // Length = 10
+  packet->header[1] = 0x01;
+  packet->header[2] = 0x0A;
 
-  // Coding type and channel count
-  uint8_t cc = (channels - 1) & 0x07; // CC: channel count - 1
-  uint8_t ct = 0x01;                  // CT: PCM
+  uint8_t cc = (channels - 1) & 0x07;
+  uint8_t ct = 0x01;
+  uint8_t ss =
+      (bits_per_sample == 16)
+          ? 0x01
+          : (bits_per_sample == 20 ? 0x02
+                                   : (bits_per_sample == 24 ? 0x03 : 0x00));
+  uint8_t sf =
+      (sample_rate == 32000)
+          ? 0x01
+          : (sample_rate == 44100 ? 0x02
+                                  : (sample_rate == 48000 ? 0x03 : 0x00));
 
-  // Sample size
-  uint8_t ss;
-  switch (bits_per_sample) {
-  case 16:
-    ss = 0x01;
-    break;
-  case 20:
-    ss = 0x02;
-    break;
-  case 24:
-    ss = 0x03;
-    break;
-  default:
-    ss = 0x00;
-    break; // Refer to stream header
-  }
-
-  // Sample frequency
-  uint8_t sf;
-  switch (sample_rate) {
-  case 32000:
-    sf = 0x01;
-    break;
-  case 44100:
-    sf = 0x02;
-    break;
-  case 48000:
-    sf = 0x03;
-    break;
-  case 88200:
-    sf = 0x04;
-    break;
-  case 96000:
-    sf = 0x05;
-    break;
-  case 176400:
-    sf = 0x06;
-    break;
-  case 192000:
-    sf = 0x07;
-    break;
-  default:
-    sf = 0x00;
-    break; // Refer to stream header
-  }
-
-  // Data bytes (in subpackets, byte 0 is checksum)
-  packet->subpacket[0][1] = cc | (ct << 4); // CC + CT
-  packet->subpacket[0][2] = ss | (sf << 2); // SS + SF
-  packet->subpacket[0][3] = 0x00;           // Format
-  packet->subpacket[0][4] = 0x00;           // CA (channel allocation) - FR/FL
-  packet->subpacket[0][5] = 0x00;           // LSV=0, DM_INH=0
+  packet->subpacket[0][1] = cc | (ct << 4);
+  packet->subpacket[0][2] = ss | (sf << 2);
+  packet->subpacket[0][3] = 0x00;
+  packet->subpacket[0][4] = 0x00;
+  packet->subpacket[0][5] = 0x00;
 
   compute_infoframe_checksum(packet);
   compute_all_parity(packet);
 }
 
-void packet_set_avi_infoframe(data_packet_t *packet, uint8_t vic) {
-  packet_init(packet);
-
-  // Header: AVI InfoFrame (type 0x82)
+void hstx_packet_set_avi_infoframe(hstx_packet_t *packet, uint8_t vic) {
+  hstx_packet_init(packet);
   packet->header[0] = 0x82;
-  packet->header[1] = 0x02; // Version 2
-  packet->header[2] = 0x0D; // Length = 13
+  packet->header[1] = 0x02;
+  packet->header[2] = 0x0D;
 
-  // Data bytes (simplified for 640x480 RGB)
-  // Y1Y0 = 00 (RGB), A0 = 0 (no active format), B1B0 = 00 (no bar info)
-  // S1S0 = 00 (no scan info), C1C0 = 00 (no colorimetry)
-  // M1M0 = 00 (no aspect ratio), R3-R0 = 1000 (same as picture)
-  packet->subpacket[0][1] = 0x00; // Y=RGB, A0=0, B=0, S=0
-  packet->subpacket[0][2] = 0x08; // C=0, M=0, R=8 (same as coded frame)
-  packet->subpacket[0][3] = 0x00; // ITC=0, EC=0, Q=0 (default range), SC=0
-  packet->subpacket[0][4] = vic;  // VIC (Video Identification Code)
-  packet->subpacket[0][5] = 0x00; // YQ=0, CN=0, PR=0
+  packet->subpacket[0][1] = 0x00;
+  packet->subpacket[0][2] = 0x08;
+  packet->subpacket[0][3] = 0x00;
+  packet->subpacket[0][4] = vic;
+  packet->subpacket[0][5] = 0x00;
 
   compute_infoframe_checksum(packet);
   compute_all_parity(packet);
 }
 
-// Get Channel Status bit for a given frame in the 192-frame block
-// Channel status: Simplified to match PicoDVI (constant, no dynamic
-// computation)
-static bool get_channel_status(int frame_idx) {
-  // PicoDVI uses constant vuc=1 (all C-bits = 0) and it works
-  // Ignore frame_idx and always return 0 for consistency
-  (void)frame_idx;
-  return 0;
-}
-
-int packet_set_audio_samples(data_packet_t *packet,
-                             const audio_sample_t *samples, int num_samples,
-                             int frame_count) {
-  packet_init(packet);
-
-  // Clamp num_samples to 1-4
+int hstx_packet_set_audio_samples(hstx_packet_t *packet,
+                                  const audio_sample_t *samples, int num_samples,
+                                  int frame_count) {
+  hstx_packet_init(packet);
   if (num_samples < 1)
     num_samples = 1;
   if (num_samples > 4)
     num_samples = 4;
 
-  // Header: Audio Sample Packet (type 0x02)
-  // Layout 0 (2-channel), sample present flags
   uint8_t sample_present = (1 << num_samples) - 1;
-
-  // B bits indicate start of IEC60958 192-sample block
   uint8_t b_flags = 0;
-  uint8_t c_bits = 0;
 
   int temp_frame_count = frame_count;
   for (int i = 0; i < num_samples; i++) {
-    if (temp_frame_count == 0) {
+    if (temp_frame_count == 0)
       b_flags |= (1 << i);
-    }
-    if (get_channel_status(temp_frame_count)) {
-      c_bits |= (1 << i);
-    }
     temp_frame_count = (temp_frame_count + 1) % 192;
   }
 
   packet->header[0] = 0x02;
-  packet->header[1] = sample_present; // SP flags + layout
-  packet->header[2] = b_flags << 4;   // B flags
+  packet->header[1] = sample_present;
+  packet->header[2] = b_flags << 4;
   compute_header_parity(packet);
 
-  // Fill subpackets with audio samples
   for (int i = 0; i < num_samples; i++) {
     uint8_t *d = packet->subpacket[i];
     int16_t left = samples[i].left;
@@ -328,54 +232,30 @@ int packet_set_audio_samples(data_packet_t *packet,
     d[4] = right & 0xFF;
     d[5] = (right >> 8) & 0xFF;
 
-    // Validity, User, Channel Status, Parity bits
-    // Validity bit (V): 0 = Valid, 1 = Invalid.
-    // User bit (U): 0
-    // Channel status bit (C): 0
-    // Parity bit (P): Calculated
-    const uint8_t vuc_left = 0;  // 0 = Valid
-    const uint8_t vuc_right = 0; // 0 = Valid
+    bool p_left = compute_parity3(d[1], d[2], 0);
+    bool p_right = compute_parity3(d[4], d[5], 0);
 
-    bool p_left = compute_parity3(d[1], d[2], vuc_left);
-    bool p_right = compute_parity3(d[4], d[5], vuc_right);
-
-    d[6] = (vuc_left) | (p_left << 3) | (vuc_right << 4) | (p_right << 7);
+    d[6] = (p_left << 3) | (p_right << 7);
     compute_subpacket_parity(packet, i);
-  }
-
-  // Zero remaining subpackets
-  for (int i = num_samples; i < 4; i++) {
-    memset(packet->subpacket[i], 0, 8);
   }
 
   return temp_frame_count;
 }
 
-// ============================================================================
-// TERC4 Encoding for HSTX
-// ============================================================================
-
-// Create HSTX word from 3 lane symbols
 static inline uint32_t make_hstx_word(uint16_t lane0, uint16_t lane1,
                                       uint16_t lane2) {
   return (lane0 & 0x3FF) | ((lane1 & 0x3FF) << 10) | ((lane2 & 0x3FF) << 20);
 }
 
-// Encode header bits to lane 0 TERC4 symbols (includes hsync/vsync)
-static void encode_header_to_lane0(const data_packet_t *packet, uint16_t *lane0,
+static void encode_header_to_lane0(const hstx_packet_t *packet, uint16_t *lane0,
                                    int hv, bool first_packet) {
-  // HDMI Spec: Lane 0 TERC4 D[3] is the Data Island flag.
-  // It is 1 for all symbols in the Data Island Period EXCEPT the very first
-  // symbol of the first packet's header (per some implementations/receivers).
   int hv1 = hv | 0x08;
-  if (!first_packet) {
+  if (!first_packet)
     hv = hv1;
-  }
 
   int idx = 0;
   for (int i = 0; i < 4; i++) {
     uint8_t h = packet->header[i];
-    // 8 bits -> 8 TERC4 symbols (1 bit per symbol in bit 2)
     lane0[idx++] = TERC4[((h << 2) & 4) | hv];
     hv = hv1;
     lane0[idx++] = TERC4[((h << 1) & 4) | hv];
@@ -388,27 +268,17 @@ static void encode_header_to_lane0(const data_packet_t *packet, uint16_t *lane0,
   }
 }
 
-// Encode subpackets to lanes 1 and 2
-static void encode_subpackets_to_lanes(const data_packet_t *packet,
+static void encode_subpackets_to_lanes(const hstx_packet_t *packet,
                                        uint16_t *lane1, uint16_t *lane2) {
   for (int i = 0; i < 8; i++) {
-    // Interleave subpacket bytes across lanes
     uint32_t v =
         (packet->subpacket[0][i] << 0) | (packet->subpacket[1][i] << 8) |
         (packet->subpacket[2][i] << 16) | (packet->subpacket[3][i] << 24);
-
-    // Bit shuffle for TERC4 encoding
     uint32_t t = (v ^ (v >> 7)) & 0x00aa00aa;
     v = v ^ t ^ (t << 7);
     t = (v ^ (v >> 14)) & 0x0000cccc;
     v = v ^ t ^ (t << 14);
 
-    // Extract nibbles for TERC4 encoding
-    // hsdaoh packs 2 symbols per word: makeTERC4x2Char_2(a, b) = TERC4[a] |
-    // (TERC4[b] << 10) Then HSTX conversion unpacks: first output = lower 10
-    // bits, second = upper 10 bits So their symbol order per byte is: (v>>0),
-    // (v>>16), (v>>4), (v>>20) And for lane 2: (v>>8), (v>>24), (v>>12),
-    // (v>>28)
     lane1[i * 4 + 0] = TERC4[(v >> 0) & 0xF];
     lane1[i * 4 + 1] = TERC4[(v >> 16) & 0xF];
     lane1[i * 4 + 2] = TERC4[(v >> 4) & 0xF];
@@ -422,52 +292,34 @@ static void encode_subpackets_to_lanes(const data_packet_t *packet,
 }
 
 void hstx_encode_data_island(hstx_data_island_t *out,
-                             const data_packet_t *packet, bool vsync_active,
+                             const hstx_packet_t *packet, bool vsync_active,
                              bool hsync_active) {
-  // HDMI Sync bits are active LOW (0 = Active, 1 = Idle)
-  // TERC4 Lane 0 input: bit 0 = H, bit 1 = V
   int hv = (vsync_active ? 0 : 2) | (hsync_active ? 0 : 1);
+  uint16_t lane0[32], lane1[32], lane2[32];
 
-  // Temporary buffers for lane symbols (32 symbols per lane)
-  uint16_t lane0[32];
-  uint16_t lane1[32];
-  uint16_t lane2[32];
-
-  // Encode packet to lane symbols
   encode_header_to_lane0(packet, lane0, hv, true);
   encode_subpackets_to_lanes(packet, lane1, lane2);
 
-  // Guard band symbol for lane 0
-  uint16_t gb_lane0 = TERC4[0xC | hv]; // 0b1100 | hv
+  uint16_t gb_lane0 = TERC4[0xC | hv];
   uint32_t guard_word =
       make_hstx_word(gb_lane0, GUARD_BAND_SYMBOL, GUARD_BAND_SYMBOL);
 
-  // Data island structure (36 pixel clocks = 36 HSTX words):
-  // Words 0-1: Leading guard band (2 clocks)
   out->words[0] = guard_word;
   out->words[1] = guard_word;
-
-  // Words 2-33: Packet data (32 clocks)
-  for (int i = 0; i < 32; i++) {
+  for (int i = 0; i < 32; i++)
     out->words[i + 2] = make_hstx_word(lane0[i], lane1[i], lane2[i]);
-  }
-
-  // Words 34-35: Trailing guard band (2 clocks)
   out->words[34] = guard_word;
   out->words[35] = guard_word;
 }
 
-// Pre-computed null data islands for each sync state
 static hstx_data_island_t null_islands[4];
 static bool null_islands_initialized = false;
 
 static void init_null_islands(void) {
   if (null_islands_initialized)
     return;
-
-  data_packet_t null_packet;
-  packet_set_null(&null_packet);
-
+  hstx_packet_t null_packet;
+  hstx_packet_set_null(&null_packet);
   for (int vsync = 0; vsync < 2; vsync++) {
     for (int hsync = 0; hsync < 2; hsync++) {
       hstx_encode_data_island(&null_islands[vsync * 2 + hsync], &null_packet,

@@ -93,8 +93,8 @@ void audio_pipeline_stop(audio_pipeline_t *p);
 
 // Process audio: call this regularly from main loop
 // Reads from capture buffer, processes through stages, writes to output
-// output_fn: callback to write samples to HDMI audio ring
-typedef void (*audio_output_fn)(const ap_sample_t *samples, uint32_t count, void *ctx);
+// output_fn: callback to write samples to HSTX audio ring
+typedef void (*audio_output_fn)(const audio_sample_t *samples, uint32_t count, void *ctx);
 void audio_pipeline_process(audio_pipeline_t *p, audio_output_fn output_fn, void *ctx);
 
 // Poll buttons and handle toggles (call from main loop)

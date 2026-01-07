@@ -92,7 +92,7 @@ Core 0: Video Capture               Core 1: Audio Pipeline + HSTX
 
 ## Documentation
 
-- [HDMI & HSTX Implementation](docs/HDMI_HSTX_IMPLEMENTATION.md)
+- [HSTX Implementation](docs/HSTX_IMPLEMENTATION.md)
 - [OSD Implementation](docs/OSD_IMPLEMENTATION.md)
 - [MVS Digital Video Specs](docs/MVS_MV1C_DIGITAL_VIDEO.md)
 - [MVS Digital Audio Specs](docs/MVS_MV1C_DIGITAL_AUDIO.md)

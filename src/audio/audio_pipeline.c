@@ -16,8 +16,8 @@
 #define PROCESS_BUFFER_SIZE 64
 
 // Static buffers for processing
-static ap_sample_t process_in[PROCESS_BUFFER_SIZE];
-static ap_sample_t process_out[PROCESS_BUFFER_SIZE];
+static audio_sample_t process_in[PROCESS_BUFFER_SIZE];
+static audio_sample_t process_out[PROCESS_BUFFER_SIZE];
 
 bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *config)
 {
