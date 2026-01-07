@@ -53,8 +53,6 @@ static void audio_background_task(void) {
 }
 
 void audio_subsystem_init(void) {
-  printf("Initializing audio subsystem...\n");
-
   // Initialize PIO for I2S capture
   pio_clear_instruction_memory(pio2);
   pio_set_gpio_base(pio2, 0);
@@ -67,11 +65,7 @@ void audio_subsystem_init(void) {
                                           .pio = pio2,
                                           .sm = 0};
 
-  if (!audio_pipeline_init(&audio_pipeline, &audio_config)) {
-    printf("ERROR: Failed to init audio pipeline!\n");
-  } else {
-    printf("Audio subsystem ready.\n");
-  }
+  audio_pipeline_init(&audio_pipeline, &audio_config);
 
   // Register with video output Core 1 loop
   video_output_set_background_task(audio_background_task);
@@ -79,7 +73,6 @@ void audio_subsystem_init(void) {
 
 void audio_subsystem_start(void) {
   audio_pipeline_start(&audio_pipeline);
-  printf("Audio capture started.\n");
 }
 
 void audio_subsystem_stop(void) { audio_pipeline_stop(&audio_pipeline); }

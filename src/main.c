@@ -56,21 +56,12 @@ int main(void) {
   // Flush any pending output
   stdio_flush();
 
-  printf("\n\n");
-  printf("=================================\n");
-  printf("HSTX Lab - MVS Capture + HDMI\n");
-  printf("=================================\n");
-  printf("Core 0: MVS video capture\n");
-  printf("Core 1: HSTX 640x480 output\n\n");
-  stdio_flush();
-
   // Initialize shared resources before launching Core 1
   init_background();
   hdmi_di_queue_init();
   video_output_init();
 
   // 1. Initialize video capture
-  printf("Initializing video capture...\n");
   video_capture_init(framebuf, FRAMEBUF_WIDTH, FRAMEBUF_HEIGHT, 224);
   sleep_ms(200);
 
@@ -80,12 +71,8 @@ int main(void) {
   stdio_flush();
 
   // 3. Launch Core 1 for HSTX output
-  printf("Launching Core 1 for HSTX...\n");
   multicore_launch_core1(video_output_core1_run);
   sleep_ms(100);
-  printf("Core 1 running.\n\n");
-
-  printf("Starting continuous capture...\n");
 
   uint32_t led_toggle_frame = 0;
   bool led_state = false;

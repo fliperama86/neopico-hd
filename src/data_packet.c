@@ -10,7 +10,6 @@
  */
 
 #include "data_packet.h"
-#include <stdio.h>
 #include <string.h>
 
 // ============================================================================
@@ -420,113 +419,6 @@ static void encode_subpackets_to_lanes(const data_packet_t *packet,
     lane2[i * 4 + 2] = TERC4[(v >> 12) & 0xF];
     lane2[i * 4 + 3] = TERC4[(v >> 28) & 0xF];
   }
-}
-
-// Reverse TERC4 lookup for debugging
-static int terc4_to_nibble(uint16_t symbol) {
-  for (int i = 0; i < 16; i++) {
-    if (TERC4[i] == symbol)
-      return i;
-  }
-  return -1; // Invalid symbol
-}
-
-// Debug function to verify encoding
-void debug_encode_byte(uint8_t byte_val) {
-  // Simulate encoding a single byte replicated across 4 subpackets
-  uint32_t v = byte_val | (byte_val << 8) | (byte_val << 16) | (byte_val << 24);
-
-  // Bit shuffle
-  uint32_t t = (v ^ (v >> 7)) & 0x00aa00aa;
-  v = v ^ t ^ (t << 7);
-  t = (v ^ (v >> 14)) & 0x0000cccc;
-  v = v ^ t ^ (t << 14);
-
-  printf("Byte 0x%02x -> shuffled 0x%08lx\n", byte_val, v);
-  printf("  Lane1 nibbles (0,16,4,20): %lx %lx %lx %lx\n", (v >> 0) & 0xF,
-         (v >> 16) & 0xF, (v >> 4) & 0xF, (v >> 20) & 0xF);
-  printf("  Lane2 nibbles (8,24,12,28): %lx %lx %lx %lx\n", (v >> 8) & 0xF,
-         (v >> 24) & 0xF, (v >> 12) & 0xF, (v >> 28) & 0xF);
-}
-
-// Decode and print a data island for verification
-void debug_print_data_island(const hstx_data_island_t *island) {
-  printf("Data island words (guard, packet, guard):\n");
-  printf("  Guard[0-1]: %08lx %08lx\n", island->words[0], island->words[1]);
-
-  // Decode packet symbols
-  printf("  Packet byte layout:\n");
-  for (int byte_idx = 0; byte_idx < 8; byte_idx++) {
-    int base_symbol = byte_idx * 4;
-    int base_word = base_symbol + 2; // Skip guard band
-
-    // Extract lane1 and lane2 nibbles from 4 consecutive words
-    uint8_t lane1_nibbles[4], lane2_nibbles[4];
-    for (int i = 0; i < 4; i++) {
-      uint32_t w = island->words[base_word + i];
-      uint16_t l1 = (w >> 10) & 0x3FF;
-      uint16_t l2 = (w >> 20) & 0x3FF;
-      lane1_nibbles[i] = terc4_to_nibble(l1);
-      lane2_nibbles[i] = terc4_to_nibble(l2);
-    }
-
-    printf("    Byte %d (words %d-%d): L1=[%x,%x,%x,%x] L2=[%x,%x,%x,%x]\n",
-           byte_idx, base_word, base_word + 3, lane1_nibbles[0],
-           lane1_nibbles[1], lane1_nibbles[2], lane1_nibbles[3],
-           lane2_nibbles[0], lane2_nibbles[1], lane2_nibbles[2],
-           lane2_nibbles[3]);
-  }
-  printf("  Guard[34-35]: %08lx %08lx\n", island->words[34], island->words[35]);
-}
-
-// Print all 36 words of a data island in hex
-void debug_dump_data_island(const hstx_data_island_t *island) {
-  printf("Full data island dump (36 words):\n");
-  for (int i = 0; i < 36; i += 4) {
-    printf("  [%2d-%2d]: %08lx %08lx %08lx %08lx\n", i, i + 3, island->words[i],
-           island->words[i + 1], island->words[i + 2], island->words[i + 3]);
-  }
-}
-
-// Simulate what hsdaoh would produce for an ACR packet
-void debug_hsdaoh_acr_comparison(uint32_t n, uint32_t cts) {
-  printf("\nComparing with hsdaoh-style encoding:\n");
-
-  // hsdaoh packs 2 symbols per word, then converts to HSTX (1 per word)
-  // For ACR subpacket byte 1 (CTS[7:0] = 0x57):
-  uint8_t cts_byte0 = cts & 0xFF;         // 0x57
-  uint8_t cts_byte1 = (cts >> 8) & 0xFF;  // 0x62
-  uint8_t cts_byte2 = (cts >> 16) & 0x0F; // 0x00
-
-  printf("CTS bytes: [%02x, %02x, %02x]\n", cts_byte0, cts_byte1, cts_byte2);
-
-  // For each byte, show the bit shuffle result
-  // Byte 1 (SB1 = CTS[7:0]):
-  uint32_t v =
-      cts_byte0 | (cts_byte0 << 8) | (cts_byte0 << 16) | (cts_byte0 << 24);
-  uint32_t t = (v ^ (v >> 7)) & 0x00aa00aa;
-  v = v ^ t ^ (t << 7);
-  t = (v ^ (v >> 14)) & 0x0000cccc;
-  v = v ^ t ^ (t << 14);
-
-  printf("CTS[7:0]=0x%02x after shuffle: 0x%08lx\n", cts_byte0, v);
-
-  // hsdaoh packing: makeTERC4x2Char_2((v>>0)&15, (v>>16)&15)
-  uint16_t sym0 = TERC4[(v >> 0) & 0xF];
-  uint16_t sym1 = TERC4[(v >> 16) & 0xF];
-  uint32_t packed01 = sym0 | (sym1 << 10);
-  printf("  hsdaoh packed[0,1] = TERC4[%lx] | TERC4[%lx]<<10 = 0x%05lx\n",
-         (v >> 0) & 0xF, (v >> 16) & 0xF, packed01);
-
-  uint16_t sym2 = TERC4[(v >> 4) & 0xF];
-  uint16_t sym3 = TERC4[(v >> 20) & 0xF];
-  uint32_t packed23 = sym2 | (sym3 << 10);
-  printf("  hsdaoh packed[2,3] = TERC4[%lx] | TERC4[%lx]<<10 = 0x%05lx\n",
-         (v >> 4) & 0xF, (v >> 20) & 0xF, packed23);
-
-  // After HSTX conversion (unpack to 1 symbol per word)
-  printf("  HSTX words (lane1 only): [%03x, %03x, %03x, %03x]\n",
-         packed01 & 0x3FF, packed01 >> 10, packed23 & 0x3FF, packed23 >> 10);
 }
 
 void hstx_encode_data_island(hstx_data_island_t *out,
