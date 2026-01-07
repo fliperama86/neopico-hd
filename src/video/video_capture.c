@@ -264,7 +264,9 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
   // 4. Setup GPIOs (GP25-43: PCLK, RGB, DARK, SHADOW, CSYNC)
   for (uint i = PIN_MVS_BASE; i <= PIN_MVS_CSYNC; i++) {
     pio_gpio_init(g_pio_mvs, i);
-    gpio_disable_pulls(i);
+    gpio_disable_pulls(i); // SAFETY: Don't fight 5V signals
+    gpio_set_input_enabled(i, true);
+    gpio_set_input_hysteresis_enabled(i, true); // Clean up 5V -> 3.3V transitions
   }
 
   // 5. Configure Sync SM (GP45 as CSYNC)
@@ -393,9 +395,7 @@ bool video_capture_frame(void) {
   g_frame_count++;
 
   if (!wait_for_vsync(g_pio_mvs, g_sm_sync, 100)) {
-    // If we timeout, it means the MVS is likely off or the PIO is desynced.
-    // Perform a full hardware reset of the capture logic.
-    printf("VSync timeout - resetting capture hardware...\n");
+    // SILENT RESET: No printf allowed in the hot path
     video_capture_reset_hardware();
     g_consecutive_frames = 0;
     return false;

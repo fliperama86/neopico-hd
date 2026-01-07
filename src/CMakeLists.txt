@@ -5,6 +5,7 @@ add_executable(neopico_hd
     main.c
     data_packet.c
     video/video_capture.c
+    video/osd.c
     audio/i2s_capture.c
     audio/audio_pipeline.c
     audio/audio_buffer.c
@@ -20,6 +21,7 @@ target_include_directories(neopico_hd PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/video
     ${CMAKE_CURRENT_LIST_DIR}/audio
+    ${CMAKE_CURRENT_LIST_DIR}/assets
 )
 
 target_link_libraries(neopico_hd
@@ -40,54 +42,6 @@ target_compile_definitions(neopico_hd PRIVATE
 pico_enable_stdio_usb(neopico_hd 1)
 pico_enable_stdio_uart(neopico_hd 0)
 pico_add_extra_outputs(neopico_hd)
-
-# =============================================================================
-# DVI Main (backup/reference copy of main firmware)
-# =============================================================================
-add_executable(dvi_main
-    misc/dvi_main.c
-    video/video_capture.c
-    video/video_output.c
-    audio/audio_pipeline.c
-    audio/audio_output.c
-    audio/audio_buffer.c
-    audio/i2s_capture.c
-    audio/src.c
-    audio/dc_filter.c
-    audio/lowpass.c
-    misc/test_patterns.c
-    misc/debug_render.c
-)
-
-pico_generate_pio_header(dvi_main ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
-pico_generate_pio_header(dvi_main ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
-
-target_include_directories(dvi_main PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}
-    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
-    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
-)
-
-target_link_libraries(dvi_main
-    pico_stdlib
-    pico_multicore
-    hardware_pio
-    hardware_clocks
-    hardware_dma
-    hardware_irq
-    hardware_vreg
-    hardware_interp
-    libdvi
-)
-
-target_compile_definitions(dvi_main PRIVATE
-    DVI_VERTICAL_REPEAT=1
-    DVI_USE_PIO_CLOCK=1
-)
-
-pico_enable_stdio_usb(dvi_main 1)
-pico_enable_stdio_uart(dvi_main 0)
-pico_add_extra_outputs(dvi_main)
 
 # =============================================================================
 # GPIO Frequency Analyzer (debug tool)
@@ -194,38 +148,4 @@ target_link_libraries(bank1_gpio_speed_test
 pico_enable_stdio_usb(bank1_gpio_speed_test 1)
 pico_enable_stdio_uart(bank1_gpio_speed_test 0)
 pico_add_extra_outputs(bank1_gpio_speed_test)
-
-# =============================================================================
-# DVI Audio Test (HDMI audio output with test tone)
-# =============================================================================
-add_executable(dvi_audio_test
-    misc/dvi_audio_test.c
-)
-
-target_include_directories(dvi_audio_test PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}
-    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/include
-    ${CMAKE_CURRENT_LIST_DIR}/../lib/PicoDVI/software/libdvi
-)
-
-target_link_libraries(dvi_audio_test
-    pico_stdlib
-    pico_multicore
-    hardware_pio
-    hardware_gpio
-    hardware_clocks
-    hardware_dma
-    hardware_irq
-    hardware_vreg
-    libdvi
-)
-
-target_compile_definitions(dvi_audio_test PRIVATE
-    DVI_VERTICAL_REPEAT=1
-    DVI_USE_PIO_CLOCK=1
-)
-
-pico_enable_stdio_usb(dvi_audio_test 1)
-pico_enable_stdio_uart(dvi_audio_test 0)
-pico_add_extra_outputs(dvi_audio_test)
 

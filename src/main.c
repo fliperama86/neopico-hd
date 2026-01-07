@@ -29,11 +29,15 @@
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
+#include "hardware/resets.h"
 #include "hardware/structs/bus_ctrl.h"
 #include "hardware/structs/hstx_ctrl.h"
 #include "hardware/structs/hstx_fifo.h"
+#include "hardware/vreg.h"
+#include "osd.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
+#include "pins.h"
 #include "video_capture.h"
 #include <math.h>
 #include <stdbool.h>
@@ -230,21 +234,15 @@ static void audio_output_callback(const ap_sample_t *samples, uint32_t count,
 
 // Audio samples per frame (48kHz / 60fps = 800 samples)
 
-// ============================================================================
 // Framebuffer (320×240 MVS native, 2×2 doubled to 640×480, RGB565)
-// ============================================================================
-
 static uint16_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH]
     __attribute__((aligned(4)));
 
 // Line buffer for horizontal pixel doubling (320 → 640 pixels, RGB565)
-// Aligned for fast DMA access
 static uint16_t line_buffer[MODE_H_ACTIVE_PIXELS] __attribute__((aligned(4)));
 
 // Initialize framebuffer to black (called once at init)
-static void init_background(void) {
-  memset(framebuf, 0, sizeof(framebuf));
-}
+static void init_background(void) { memset(framebuf, 0, sizeof(framebuf)); }
 
 // ============================================================================
 // Command Lists (pre-computed at init time)
@@ -423,7 +421,7 @@ static void init_audio_packets(void) {
 #define DMACH_PONG 1
 
 static bool dma_pong = false;
-static uint32_t v_scanline = 2;
+static uint32_t v_scanline = 2; // Reverted to original
 static bool vactive_cmdlist_posted = false;
 
 void __scratch_x("") dma_irq_handler() {
@@ -460,16 +458,13 @@ void __scratch_x("") dma_irq_handler() {
   } else if (active_video && !vactive_cmdlist_posted) {
     audio_sample_accum += SAMPLES_PER_LINE_FP;
 
-    // Prepare pixel-doubled line BEFORE DMA reads it (critical for glitch-free
-    // output!)
+    // Preparation Phase: Prepare doubled line in ISR
     uint32_t active_line =
         v_scanline - (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES);
-    uint32_t fb_line = active_line / 2; // Vertical: each line shown twice
+    uint32_t fb_line = active_line / 2; // Vertical doubling
     const uint16_t *src = &framebuf[fb_line * FRAMEBUF_WIDTH];
     uint32_t *dst32 = (uint32_t *)line_buffer;
 
-    // Normal 2x pixel doubling (320→640 horizontal, 240→480 vertical via
-    // fb_line/2)
     for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i++) {
       uint32_t p = src[i];
       dst32[i] = p | (p << 16);
@@ -485,16 +480,15 @@ void __scratch_x("") dma_irq_handler() {
       ch->read_addr = (uintptr_t)buf;
       ch->transfer_count = vactive_di_len;
     } else {
-      // No audio sample available, send NULL Data Island to maintain HDMI sync
       ch->read_addr = (uintptr_t)vactive_di_null;
       ch->transfer_count = vactive_di_null_len;
     }
     vactive_cmdlist_posted = true;
   } else if (active_video && vactive_cmdlist_posted) {
-    // Data phase: DMA reads the line_buffer we prepared earlier
+    // Data phase: DMA reads the line_buffer we just prepared
     ch->read_addr = (uintptr_t)line_buffer;
-    ch->transfer_count = (MODE_H_ACTIVE_PIXELS * sizeof(uint16_t)) /
-                         sizeof(uint32_t); // RGB565: 640 pixels * 2 bytes / 4
+    ch->transfer_count =
+        (MODE_H_ACTIVE_PIXELS * sizeof(uint16_t)) / sizeof(uint32_t);
     vactive_cmdlist_posted = false;
   } else {
     audio_sample_accum += SAMPLES_PER_LINE_FP;
@@ -592,6 +586,7 @@ static void core1_entry(void) {
   dma_hw->ints0 = (1u << DMACH_PING) | (1u << DMACH_PONG);
   dma_hw->inte0 = (1u << DMACH_PING) | (1u << DMACH_PONG);
   irq_set_exclusive_handler(DMA_IRQ_0, dma_irq_handler);
+  irq_set_priority(DMA_IRQ_0, 0); // HIGHEST PRIORITY for HDMI stability
   irq_set_enabled(DMA_IRQ_0, true);
 
   bus_ctrl_hw->priority =
@@ -603,7 +598,6 @@ static void core1_entry(void) {
   while (1) {
 #if USE_MVS_AUDIO
     // Poll hardware and process samples.
-    // Draining the capture ring frequently on Core 1 to avoid jitter on Core 0.
     audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
     while (ap_ring_available(&audio_pipeline.capture_ring) > 0) {
       audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
@@ -619,9 +613,6 @@ static void core1_entry(void) {
 
 int main(void) {
   // Set system clock to 126 MHz for exact 25.2 MHz pixel clock
-  // Pixel clock = System clock / CLKDIV = 126 MHz / 5 = 25.2 MHz
-  // This matches PicoDVI's 25.2 MHz pixel clock (though they use 252 MHz with
-  // PIO)
   set_sys_clock_khz(126000, true);
 
   stdio_init_all();
@@ -662,23 +653,30 @@ int main(void) {
       vblank_di_ping, hstx_get_null_data_island(false, true), false, false);
   memcpy(vblank_di_pong, vblank_di_ping, sizeof(vblank_di_ping));
 
-  // Claim DMA channels for HSTX FIRST (channels 0 and 1)
-  // Audio will get channel 2+ via dma_claim_unused_channel()
+  // 1. Claim DMA channels for HSTX FIRST (channels 0 and 1)
+  // This "protects" them so other modules don't grab them.
   dma_channel_claim(DMACH_PING);
   dma_channel_claim(DMACH_PONG);
+
+  // 2. Initialize noisy video capture
+  // This starts the 5V switching activity BEFORE the HDMI handshake
+  printf("Initializing video capture...\n");
+  video_capture_init(framebuf, FRAMEBUF_WIDTH, FRAMEBUF_HEIGHT, 224);
+  sleep_ms(200); // Let power rail stabilize
+
+  // 3. Initialize audio pipeline
 
 #if USE_MVS_AUDIO
   // Initialize audio pipeline for MVS I2S capture
   // Must be AFTER HSTX DMA claim to avoid channel conflict
   printf("Initializing audio pipeline...\n");
-  audio_pipeline_config_t audio_config = {
-      .pin_bck = I2S_BCK_PIN,
-      .pin_dat = I2S_DAT_PIN,
-      .pin_ws = I2S_WS_PIN,
-      .pin_btn1 = 21, // Not used in hstx_lab
-      .pin_btn2 = 23, // Not used in hstx_lab
-      .pio = pio2, // Use PIO2 for audio (per AGENTS.md: PIO1=video, PIO2=audio)
-      .sm = 0};
+  audio_pipeline_config_t audio_config = {.pin_bck = I2S_BCK_PIN,
+                                          .pin_dat = I2S_DAT_PIN,
+                                          .pin_ws = I2S_WS_PIN,
+                                          .pin_btn1 = PIN_OSD_BTN_MENU,
+                                          .pin_btn2 = PIN_OSD_BTN_BACK,
+                                          .pio = pio2,
+                                          .sm = 0};
   if (!audio_pipeline_init(&audio_pipeline, &audio_config)) {
     printf("ERROR: Failed to init audio pipeline!\n");
   } else {
@@ -698,9 +696,6 @@ int main(void) {
   sleep_ms(100);
   printf("Core 1 running.\n\n");
 
-  // Initialize video capture
-  printf("Initializing video capture...\n");
-  video_capture_init(framebuf, FRAMEBUF_WIDTH, FRAMEBUF_HEIGHT, 224);
   printf("Starting continuous capture...\n");
 
   // Main loop: Core 0 captures frames, Core 1 displays them
@@ -719,27 +714,11 @@ int main(void) {
 #endif
     }
 
-    if (video_frame_count % 60 == 0 && video_frame_count != led_toggle_frame) {
-        printf("Frame %lu... \n", video_frame_count);
-        stdio_flush();
-    }
-
-    // LED heartbeat (toggles every 0.5s based on display frame count)
+    // Simplified LED heartbeat (no printf)
     if (video_frame_count >= led_toggle_frame + 30) {
       led_state = !led_state;
       gpio_put(PICO_DEFAULT_LED_PIN, led_state);
       led_toggle_frame = video_frame_count;
-
-#if USE_MVS_AUDIO
-      // Debug: print audio stats every 1s
-      if (++debug_frame % 2 == 0) {
-        audio_pipeline_status_t status;
-        audio_pipeline_get_status(&audio_pipeline, &status);
-        printf("cap=%lu rate=%lu out=%lu | ring h=%lu t=%lu\n",
-               status.samples_captured, status.capture_sample_rate,
-               audio_samples_received, audio_ring_head, audio_ring_tail);
-      }
-#endif
     }
   }
 

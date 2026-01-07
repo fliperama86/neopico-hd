@@ -13,14 +13,14 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 
 ## Status
 
-| Feature             | Status  |
-| ------------------- | ------- |
-| 480p HDMI video     | Working |
-| 60fps capture       | Working |
-| RGB555 + DARK/SHADOW| Working |
-| HDMI audio (48kHz)  | Working |
-| OSD Diagnostics     | Working |
-| RT4K / Tink 4K      | Tested  |
+| Feature              | Status  |
+| -------------------- | ------- |
+| 480p HDMI video      | Working |
+| 60fps capture        | Working |
+| RGB555 + DARK/SHADOW | Working |
+| HDMI audio (48kHz)   | Working |
+| OSD Diagnostics      | Working |
+| RT4K / Tink 4K       | Tested  |
 
 ## Hardware Requirements
 
@@ -41,12 +41,12 @@ To ensure clean audio and video capture, follow these best practices:
 
 #### Video Capture (Bank 1)
 
-| Function   | GPIO       | Notes                         |
-| ---------- | ---------- | ----------------------------- |
-| MVS PCLK   | GPIO 25    | 6 MHz pixel clock             |
-| MVS Pixels | GPIO 26-40 | RGB555 contiguous bus         |
-| MVS Dimming| GPIO 41-42 | DARK and SHADOW signals       |
-| MVS CSYNC  | GPIO 43    | Composite sync                |
+| Function    | GPIO       | Notes                   |
+| ----------- | ---------- | ----------------------- |
+| MVS PCLK    | GPIO 25    | 6 MHz pixel clock       |
+| MVS Pixels  | GPIO 26-40 | RGB555 contiguous bus   |
+| MVS Dimming | GPIO 41-42 | DARK and SHADOW signals |
+| MVS CSYNC   | GPIO 43    | Composite sync          |
 
 #### HSTX Output (Bank 0/1)
 
@@ -93,8 +93,10 @@ Core 0: Video Capture               Core 1: Audio Pipeline + HSTX
 ## Documentation
 
 - [HDMI & HSTX Implementation](docs/HDMI_HSTX_IMPLEMENTATION.md)
+- [OSD Implementation](docs/OSD_IMPLEMENTATION.md)
 - [MVS Digital Video Specs](docs/MVS_MV1C_DIGITAL_VIDEO.md)
 - [MVS Digital Audio Specs](docs/MVS_MV1C_DIGITAL_AUDIO.md)
+- [Known Issues & Troubleshooting](docs/KNOWN_ISSUES.md)
 
 ## License
 

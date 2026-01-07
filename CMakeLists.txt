@@ -26,8 +26,5 @@ set(CMAKE_CXX_STANDARD 17)
 # Initialize the Raspberry Pi Pico SDK
 pico_sdk_init()
 
-# Add PicoDVI library
-add_subdirectory(lib/PicoDVI/software/libdvi)
-
 # Add the src directory
 add_subdirectory(src)

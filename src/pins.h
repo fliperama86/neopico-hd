@@ -71,4 +71,16 @@
 #define PIN_I2S_WS 1  // I2S word select
 #define PIN_I2S_BCK 2 // I2S bit clock
 
+// =============================================================================
+// OSD Control (Direct Buttons & Shift Register)
+// =============================================================================
+// Option A: Direct Buttons (For physical buttons on the case)
+#define PIN_OSD_BTN_MENU 3 // Menu / Select Button
+#define PIN_OSD_BTN_BACK 4 // Back / Cycle Button
+
+// Option B: Shift Register (For FUTURE tapping Neo Geo Joystick)
+// #define PIN_OSD_LD 5  // Parallel Load (PL)
+// #define PIN_OSD_CLK 6 // Clock (CP)
+// #define PIN_OSD_DAT 7 // Serial Data (Q7)
+
 #endif // PINS_H

@@ -47,6 +47,14 @@ bool i2s_capture_init(i2s_capture_t *cap, const i2s_capture_config_t *config,
   gpio_set_dir(config->pin_bck, GPIO_IN);
   gpio_set_dir(config->pin_dat, GPIO_IN);
   gpio_set_dir(config->pin_ws, GPIO_IN);
+  
+  // SAFETY: Disable pulls and enable Schmitt triggers for 5V signals
+  gpio_disable_pulls(config->pin_bck);
+  gpio_disable_pulls(config->pin_dat);
+  gpio_disable_pulls(config->pin_ws);
+  gpio_set_input_hysteresis_enabled(config->pin_bck, true);
+  gpio_set_input_hysteresis_enabled(config->pin_dat, true);
+  gpio_set_input_hysteresis_enabled(config->pin_ws, true);
 
   // CRITICAL: Set gpio_base BEFORE adding the PIO program!
   // GP0-2 are in Bank 0, use GPIOBASE=0
@@ -139,25 +147,18 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap) {
       (write_ptr - (uint32_t)cap->dma_buffer) / sizeof(uint32_t);
 
   // Read all samples written by DMA since last poll
-  // Each sample is 2 words (Left then Right)
   if (cap->dma_buffer_idx != write_idx) {
     cap->last_activity_time = now;
 
     while (cap->dma_buffer_idx != write_idx) {
-      // Check if we have at least 2 words (one stereo sample)
       uint32_t next_idx = (cap->dma_buffer_idx + 1) & I2S_DMA_BUFFER_MASK;
       if (next_idx == write_idx)
         break;
 
-      // The PIO program pushes Right then Left.
       uint32_t raw_r = cap->dma_buffer[cap->dma_buffer_idx];
       uint32_t raw_l = cap->dma_buffer[next_idx];
-
-      // Move pointer forward by 2
       cap->dma_buffer_idx = (next_idx + 1) & I2S_DMA_BUFFER_MASK;
 
-      // NEO-YSA2 (MV1C) outputs 24-bit frames in Right-Justified format (MODE=1).
-      // The 16-bit PCM data is in the lower 16 bits of the 24-bit window.
       ap_sample_t sample;
       sample.left = (int16_t)(raw_l & 0xFFFF);
       sample.right = (int16_t)(raw_r & 0xFFFF);
@@ -171,28 +172,20 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap) {
       }
     }
   } else {
-    // No activity - check if we should reset
-    if (now - cap->last_activity_time > 50000) { // 50ms (tighter)
+    // SILENT RESET: No activity watchdog
+    if (now - cap->last_activity_time > 50000) { 
       i2s_capture_stop(cap);
       i2s_capture_start(cap);
+      cap->last_activity_time = now;
       return 0;
     }
   }
 
-  // Update sample rate measurement every 500ms
+  // Update sample rate measurement silently
   uint64_t elapsed = now - cap->last_measure_time;
   if (elapsed >= 500000) {
     uint32_t samples_since = cap->samples_captured - cap->last_sample_count;
     cap->measured_rate = (uint32_t)((uint64_t)samples_since * 1000000 / elapsed);
-
-    // Watchdog: If rate is wildly wrong, reset SM (it's likely bit-shifted)
-    // Valid MVS rate is ~55.5kHz.
-    if (cap->measured_rate > 0 &&
-        (cap->measured_rate < 50000 || cap->measured_rate > 60000)) {
-      i2s_capture_stop(cap);
-      i2s_capture_start(cap);
-    }
-
     cap->last_sample_count = cap->samples_captured;
     cap->last_measure_time = now;
   }
