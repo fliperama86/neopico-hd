@@ -56,6 +56,11 @@ Comprehensive record of the RP2350 HSTX implementation and HDMI audio findings.
 | **PIO1**   | Video Capture | 25-43 (Bank 1) |
 | **PIO2**   | I2S Audio     | 0-2 (Bank 0)   |
 
+### External Connection Requirements
+
+- **HDMI +5V**: Pin 18 on the HDMI connector MUST be powered with 5V.
+- **Compatibility Note**: While the Morph4K may work without it, the RetroTINK and many TVs require this for signal detection.
+
 ## 5. Reference References
 
 - `pico_lib` (Shuichi Takano): Original HDMI audio logic.

@@ -33,9 +33,10 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 To ensure clean audio and video capture, follow these best practices:
 
 1.  **Common Ground**: A solid ground connection between the MVS board and the Pico is **mandatory**.
-2.  **Cable Separation**: Physically separate the audio wires (Bank 1) from the video wire bundle to avoid coupling.
-3.  **Shielding**: Use a **GND-Signal-GND** pattern when using ribbon cables.
-4.  **Series Termination**: Add **33Ω resistors** in series with PCLK and BCK to suppress ringing.
+2.  **HDMI Power**: It is **absolutely mandatory** to have the HDMI connector properly powered with **+5V**. While some devices (like the Morph4K) may be forgiving, others (like the RetroTINK, TVs and monitors) will not pick up the signal without it.
+3.  **Cable Separation**: Physically separate the audio wires (Bank 1) from the video wire bundle to avoid coupling.
+4.  **Shielding**: Use a **GND-Signal-GND** pattern when using ribbon cables.
+5.  **Series Termination**: Add **33Ω resistors** in series with PCLK and BCK to suppress ringing.
 
 ### Pin Configuration
 
