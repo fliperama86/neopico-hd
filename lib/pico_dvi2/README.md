@@ -28,6 +28,10 @@ Unlike the original PicoDVI for RP2040 which required CPU-intensive PIO bit-bang
 3. Link against `pico_dvi2`.
 4. Initialize with `video_output_init()` and run the output loop on Core 1 with `video_output_core1_run()`.
 
+## Roadmap for Reusability
+
+For details on the planned transition to a fully generic library, see [REUSABILITY.md](./REUSABILITY.md).
+
 ## License
 
 Unlicense
