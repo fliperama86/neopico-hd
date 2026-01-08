@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "pico_div2/hstx_packet.h"
+#include "pico_dvi2/hstx_packet.h"
 
 // Sample rate conversion modes
 typedef enum {

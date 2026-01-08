@@ -1,4 +1,5 @@
 #include "pico_dvi2/video_output.h"
+#include "pico_dvi2/hstx_packet.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
@@ -6,7 +7,6 @@
 #include "hardware/structs/hstx_ctrl.h"
 #include "hardware/structs/hstx_fifo.h"
 #include "pico_dvi2/hstx_data_island_queue.h"
-#include "pico_dvi2/hstx_packet.h"
 // #include "osd.h"
 #include "pico/stdlib.h"
 #include "pico_dvi2/hstx_pins.h"

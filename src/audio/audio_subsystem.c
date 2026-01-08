@@ -1,10 +1,10 @@
 #include "audio_subsystem.h"
 #include "audio_pipeline.h"
 #include "hardware/pio.h"
-#include "pico_div2/hstx_data_island_queue.h"
-#include "pico_div2/hstx_packet.h"
-#include "pico_div2/hstx_pins.h"
-#include "pico_div2/video_output.h"
+#include "pico_dvi2/hstx_data_island_queue.h"
+#include "pico_dvi2/hstx_packet.h"
+#include "pico_dvi2/hstx_pins.h"
+#include "pico_dvi2/video_output.h"
 #include <stdio.h>
 
 // Audio pipeline instance

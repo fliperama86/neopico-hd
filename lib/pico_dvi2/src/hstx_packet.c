@@ -197,8 +197,8 @@ void hstx_packet_set_avi_infoframe(hstx_packet_t *packet, uint8_t vic) {
 }
 
 int hstx_packet_set_audio_samples(hstx_packet_t *packet,
-                                  const audio_sample_t *samples,
-                                  int num_samples, int frame_count) {
+                                  const audio_sample_t *samples, int num_samples,
+                                  int frame_count) {
   hstx_packet_init(packet);
   if (num_samples < 1)
     num_samples = 1;

@@ -4,12 +4,12 @@
  */
 
 #include "video_capture.h"
-#include "pico_div2/hstx_pins.h"
 #include "hardware/dma.h"
 #include "hardware/interp.h"
 #include "hardware/pio.h"
 #include "hardware_config.h"
 #include "pico/stdlib.h"
+#include "pico_dvi2/hstx_pins.h"
 #include "tusb.h"
 #include "video_capture.pio.h"
 #include <stdio.h>
@@ -235,7 +235,8 @@ void video_capture_init(uint16_t *framebuffer, uint frame_width,
     pio_gpio_init(g_pio_mvs, i);
     gpio_disable_pulls(i); // SAFETY: Don't fight 5V signals
     gpio_set_input_enabled(i, true);
-    gpio_set_input_hysteresis_enabled(i, true); // Clean up 5V -> 3.3V transitions
+    gpio_set_input_hysteresis_enabled(i,
+                                      true); // Clean up 5V -> 3.3V transitions
   }
 
   // 5. Configure Sync SM (GP45 as CSYNC)
