@@ -84,3 +84,6 @@ venv/
 
 # hstx_lab dependencies
 src/misc/hstx_lab/lib/
+.gemini/
+gha-creds-*.json
+.github/
