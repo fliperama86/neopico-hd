@@ -127,6 +127,104 @@ static uint32_t build_line_with_di(uint32_t *buf, const uint32_t *di_words,
   return (uint32_t)(p - buf);
 }
 
+typedef struct {
+  bool vsync_active;
+  bool front_porch;
+  bool back_porch;
+  bool active_video;
+  bool send_acr;
+  uint32_t active_line;
+} scanline_state_t;
+
+static inline void __scratch_x("")
+    get_scanline_state(uint32_t v_scanline, scanline_state_t *state) {
+  state->vsync_active = (v_scanline >= MODE_V_FRONT_PORCH &&
+                         v_scanline < (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH));
+  state->front_porch = (v_scanline < MODE_V_FRONT_PORCH);
+  state->back_porch =
+      (v_scanline >= MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH &&
+       v_scanline < MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH + MODE_V_BACK_PORCH);
+  state->active_video =
+      (!state->vsync_active && !state->front_porch && !state->back_porch);
+
+  state->send_acr = (v_scanline >= (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH) &&
+                     v_scanline < (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES) &&
+                     (v_scanline % 4 == 0));
+
+  if (state->active_video) {
+    state->active_line =
+        v_scanline - (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES);
+  } else {
+    state->active_line = 0;
+  }
+}
+
+static inline void __scratch_x("")
+    video_output_handle_vsync(dma_channel_hw_t *ch, uint32_t v_scanline) {
+  if (v_scanline == MODE_V_FRONT_PORCH) {
+    ch->read_addr = (uintptr_t)vblank_acr_vsync_on;
+    ch->transfer_count = vblank_acr_vsync_on_len;
+    video_frame_count++;
+  } else {
+    ch->read_addr = (uintptr_t)vblank_infoframe_vsync_on;
+    ch->transfer_count = vblank_infoframe_vsync_on_len;
+  }
+}
+
+static inline void __scratch_x("")
+    video_output_handle_active_start(dma_channel_hw_t *ch, uint32_t active_line,
+                                     bool dma_pong) {
+  uint32_t fb_line = active_line / 2;
+  const uint16_t *src = &framebuf[fb_line * FRAMEBUF_WIDTH];
+  uint32_t *dst32 = (uint32_t *)line_buffer;
+
+  for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i++) {
+    uint32_t p = src[i];
+    dst32[i] = p | (p << 16);
+  }
+
+  uint32_t *buf = dma_pong ? vactive_di_ping : vactive_di_pong;
+  const uint32_t *di_words = hstx_di_queue_get_audio_packet();
+  if (di_words) {
+    vactive_di_len = build_line_with_di(buf, di_words, false, true);
+    ch->read_addr = (uintptr_t)buf;
+    ch->transfer_count = vactive_di_len;
+  } else {
+    ch->read_addr = (uintptr_t)vactive_di_null;
+    ch->transfer_count = vactive_di_null_len;
+  }
+}
+
+static inline void __scratch_x("")
+    video_output_handle_blanking(dma_channel_hw_t *ch, uint32_t v_scanline,
+                                 bool send_acr, bool dma_pong) {
+  if (send_acr) {
+    ch->read_addr = (uintptr_t)vblank_acr_vsync_off;
+    ch->transfer_count = vblank_acr_vsync_off_len;
+  } else if (v_scanline == 0) {
+    ch->read_addr = (uintptr_t)vblank_avi_infoframe;
+    ch->transfer_count = vblank_avi_infoframe_len;
+  } else {
+    const uint32_t *di_words = hstx_di_queue_get_audio_packet();
+    if (di_words) {
+      uint32_t *buf = dma_pong ? vblank_di_ping : vblank_di_pong;
+      vblank_di_len = build_line_with_di(buf, di_words, false, false);
+      ch->read_addr = (uintptr_t)buf;
+      ch->transfer_count = vblank_di_len;
+    } else {
+      ch->read_addr = (uintptr_t)vblank_di_null;
+      ch->transfer_count = vblank_di_null_len;
+    }
+  }
+}
+
+static inline void __scratch_x("")
+    video_output_handle_active_data(dma_channel_hw_t *ch) {
+  ch->read_addr = (uintptr_t)line_buffer;
+  ch->transfer_count =
+      (MODE_H_ACTIVE_PIXELS * sizeof(uint16_t)) / sizeof(uint32_t);
+}
+
 // ============================================================================
 // DMA IRQ Handler
 // ============================================================================
@@ -142,74 +240,19 @@ void __scratch_x("") dma_irq_handler() {
     hstx_di_queue_tick();
   }
 
-  bool vsync_active = (v_scanline >= MODE_V_FRONT_PORCH &&
-                       v_scanline < (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH));
-  bool front_porch = (v_scanline < MODE_V_FRONT_PORCH);
-  bool back_porch =
-      (v_scanline >= MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH &&
-       v_scanline < MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH + MODE_V_BACK_PORCH);
-  bool active_video = (!vsync_active && !front_porch && !back_porch);
+  scanline_state_t state;
+  get_scanline_state(v_scanline, &state);
 
-  bool send_acr = (v_scanline >= (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH) &&
-                   v_scanline < (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES) &&
-                   (v_scanline % 4 == 0));
-
-  if (vsync_active) {
-    if (v_scanline == MODE_V_FRONT_PORCH) {
-      ch->read_addr = (uintptr_t)vblank_acr_vsync_on;
-      ch->transfer_count = vblank_acr_vsync_on_len;
-      video_frame_count++;
-    } else {
-      ch->read_addr = (uintptr_t)vblank_infoframe_vsync_on;
-      ch->transfer_count = vblank_infoframe_vsync_on_len;
-    }
-  } else if (active_video && !vactive_cmdlist_posted) {
-    uint32_t active_line =
-        v_scanline - (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES);
-    uint32_t fb_line = active_line / 2;
-    const uint16_t *src = &framebuf[fb_line * FRAMEBUF_WIDTH];
-    uint32_t *dst32 = (uint32_t *)line_buffer;
-
-    for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i++) {
-      uint32_t p = src[i];
-      dst32[i] = p | (p << 16);
-    }
-
-    uint32_t *buf = dma_pong ? vactive_di_ping : vactive_di_pong;
-    const uint32_t *di_words = hstx_di_queue_get_audio_packet();
-    if (di_words) {
-      vactive_di_len = build_line_with_di(buf, di_words, false, true);
-      ch->read_addr = (uintptr_t)buf;
-      ch->transfer_count = vactive_di_len;
-    } else {
-      ch->read_addr = (uintptr_t)vactive_di_null;
-      ch->transfer_count = vactive_di_null_len;
-    }
+  if (state.vsync_active) {
+    video_output_handle_vsync(ch, v_scanline);
+  } else if (state.active_video && !vactive_cmdlist_posted) {
+    video_output_handle_active_start(ch, state.active_line, dma_pong);
     vactive_cmdlist_posted = true;
-  } else if (active_video && vactive_cmdlist_posted) {
-    ch->read_addr = (uintptr_t)line_buffer;
-    ch->transfer_count =
-        (MODE_H_ACTIVE_PIXELS * sizeof(uint16_t)) / sizeof(uint32_t);
+  } else if (state.active_video && vactive_cmdlist_posted) {
+    video_output_handle_active_data(ch);
     vactive_cmdlist_posted = false;
   } else {
-    if (send_acr) {
-      ch->read_addr = (uintptr_t)vblank_acr_vsync_off;
-      ch->transfer_count = vblank_acr_vsync_off_len;
-    } else if (v_scanline == 0) {
-      ch->read_addr = (uintptr_t)vblank_avi_infoframe;
-      ch->transfer_count = vblank_avi_infoframe_len;
-    } else {
-      const uint32_t *di_words = hstx_di_queue_get_audio_packet();
-      if (di_words) {
-        uint32_t *buf = dma_pong ? vblank_di_ping : vblank_di_pong;
-        vblank_di_len = build_line_with_di(buf, di_words, false, false);
-        ch->read_addr = (uintptr_t)buf;
-        ch->transfer_count = vblank_di_len;
-      } else {
-        ch->read_addr = (uintptr_t)vblank_di_null;
-        ch->transfer_count = vblank_di_null_len;
-      }
-    }
+    video_output_handle_blanking(ch, v_scanline, state.send_acr, dma_pong);
   }
   if (!vactive_cmdlist_posted)
     v_scanline = (v_scanline + 1) % MODE_V_TOTAL_LINES;
