@@ -1,7 +1,7 @@
 #ifndef HARDWARE_CONFIG_H
 #define HARDWARE_CONFIG_H
 
-#include "pico_dvi2/hstx_pins.h"
+#include "mvs_pins.h"
 #include <stdint.h>
 
 // =============================================================================

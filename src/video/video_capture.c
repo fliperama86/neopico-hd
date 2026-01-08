@@ -8,8 +8,8 @@
 #include "hardware/interp.h"
 #include "hardware/pio.h"
 #include "hardware_config.h"
+#include "mvs_pins.h"
 #include "pico/stdlib.h"
-#include "pico_dvi2/hstx_pins.h"
 #include "tusb.h"
 #include "video_capture.pio.h"
 #include <stdio.h>

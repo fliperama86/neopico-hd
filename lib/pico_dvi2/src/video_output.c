@@ -1,5 +1,4 @@
 #include "pico_dvi2/video_output.h"
-#include "pico_dvi2/hstx_packet.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
@@ -7,6 +6,7 @@
 #include "hardware/structs/hstx_ctrl.h"
 #include "hardware/structs/hstx_fifo.h"
 #include "pico_dvi2/hstx_data_island_queue.h"
+#include "pico_dvi2/hstx_packet.h"
 // #include "osd.h"
 #include "pico/stdlib.h"
 #include "pico_dvi2/hstx_pins.h"
@@ -292,8 +292,9 @@ void video_output_core1_run(void) {
     hstx_ctrl_hw->bit[bit + 1] = lane_data_sel_bits;
   }
 
-  for (int i = 12; i <= 19; ++i)
-    gpio_set_function(i, 0);
+  // Set GPIO 12-19 to HSTX function
+  for (int i = PIN_HSTX_CLK; i <= PIN_HSTX_D2 + 1; ++i)
+    gpio_set_function(i, GPIO_FUNC_HSTX);
 
   // DMA Setup
   dma_channel_config c = dma_channel_get_default_config(DMACH_PING);

@@ -4,10 +4,10 @@
 
 #include "audio_subsystem.h"
 #include "hardware/clocks.h"
+#include "mvs_pins.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
 #include "pico_dvi2/hstx_data_island_queue.h"
-#include "pico_dvi2/hstx_pins.h"
 #include "pico_dvi2/video_output.h"
 #include "video_capture.h"
 #include <stdio.h>
