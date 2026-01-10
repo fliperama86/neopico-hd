@@ -22,9 +22,12 @@
 // Feature Flags
 // =============================================================================
 
-// Enable DARK/SHADOW processing
-// Uses 64KB LUT indexed by PIO bit order: [15:DARK][14-10:B][9-5:G][4-0:R]
-#define ENABLE_DARK_SHADOW 1
+// DARK/SHADOW processing (disabled)
+// When enabled, uses 64KB LUT indexed by PIO bit order: [15:DARK][14-10:B][9-5:G][4-0:R]
+// Currently disabled: causes pixel jitter, and visual difference vs MAME is imperceptible.
+// DARK subtracts ~1.5% brightness, SHADOW halves brightness for sprite shadows.
+// Most games don't heavily use these effects. Re-enable if needed for specific titles.
+#define ENABLE_DARK_SHADOW 0
 
 #if ENABLE_DARK_SHADOW
 #include "hardware/interp.h"
