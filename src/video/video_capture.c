@@ -22,13 +22,52 @@
 // Feature Flags
 // =============================================================================
 
-// Set to 1 to re-enable DARK/SHADOW processing via LUT
-#define ENABLE_DARK_SHADOW 0
+// Enable DARK/SHADOW processing
+// Uses 64KB LUT indexed by PIO bit order: [15:DARK][14-10:B][9-5:G][4-0:R]
+#define ENABLE_DARK_SHADOW 1
 
 #if ENABLE_DARK_SHADOW
 #include "hardware/interp.h"
-// 256KB LUT for fast pixel conversion (131072 entries * 2 bytes)
-static uint16_t g_pixel_lut[131072] __attribute__((aligned(4)));
+
+// 64KB LUT - indexed directly by (raw >> 1) & 0xFFFF
+static uint16_t g_pixel_lut[65536] __attribute__((aligned(4)));
+
+static void generate_pixel_lut(void) {
+    // LUT indexed by: [15:DARK][14-10:B][9-5:G][4-0:R] (matches PIO capture order)
+    for (uint32_t idx = 0; idx < 65536; idx++) {
+        uint32_t r5 = idx & 0x1F;
+        uint32_t g5 = (idx >> 5) & 0x1F;
+        uint32_t b5 = (idx >> 10) & 0x1F;
+        uint32_t dark = (idx >> 15) & 1;
+
+        // Expand 5->8 bit
+        uint32_t r8 = (r5 << 3) | (r5 >> 2);
+        uint32_t g8 = (g5 << 3) | (g5 >> 2);
+        uint32_t b8 = (b5 << 3) | (b5 >> 2);
+
+        // Apply DARK (-4 with saturation)
+        if (dark) {
+            r8 = (r8 > 4) ? r8 - 4 : 0;
+            g8 = (g8 > 4) ? g8 - 4 : 0;
+            b8 = (b8 > 4) ? b8 - 4 : 0;
+        }
+
+        // Pack as RGB565
+        g_pixel_lut[idx] = ((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3);
+    }
+}
+
+static void init_interp_for_lut(void) {
+    // Configure interpolator for fast LUT lookup
+    // Input: raw PIO value
+    // Output: pointer to LUT entry
+    // Mask bits 1-16: extracts (raw >> 1) & 0xFFFF, pre-scaled by 2 for uint16_t
+    interp_config cfg = interp_default_config();
+    interp_config_set_shift(&cfg, 0);
+    interp_config_set_mask(&cfg, 1, 16);  // bits 1-16 -> byte offset
+    interp_set_config(interp0, 0, &cfg);
+    interp0->base[0] = (uintptr_t)g_pixel_lut;
+}
 #endif
 
 // =============================================================================
@@ -73,7 +112,15 @@ static int g_consecutive_frames = 0;
 // PIO captures 18 bits: [17:SHADOW][16:DARK][15-11:B][10-6:G][5-1:R][0:PCLK]
 static inline uint16_t convert_pixel(uint32_t raw) {
 #if ENABLE_DARK_SHADOW
-    // Use LUT for DARK/SHADOW processing
+    // Check SHADOW bit (rare case)
+    if (__builtin_expect((raw >> 17) & 1, 0)) {
+        // SHADOW: halve each 5-bit component, force DARK, then LUT
+        uint32_t r5 = ((raw >> 1) & 0x1F) >> 1;
+        uint32_t g5 = ((raw >> 6) & 0x1F) >> 1;
+        uint32_t b5 = ((raw >> 11) & 0x1F) >> 1;
+        return g_pixel_lut[(1 << 15) | (b5 << 10) | (g5 << 5) | r5];
+    }
+    // Fast path: single-cycle interp lookup (handles DARK automatically)
     interp0->accum[0] = raw;
     return *(uint16_t *)interp0->peek[0];
 #else
@@ -86,40 +133,6 @@ static inline uint16_t convert_pixel(uint32_t raw) {
 #endif
 }
 
-#if ENABLE_DARK_SHADOW
-static void generate_intensity_lut(void) {
-    for (uint32_t i = 0; i < 131072; i++) {
-        uint8_t r5 = i & 0x1F;
-        uint8_t g5 = (i >> 5) & 0x1F;
-        uint8_t b5 = (i >> 10) & 0x1F;
-        bool dark = (i >> 15) & 1;
-        bool shadow = (i >> 16) & 1;
-
-        // 1. Apply SHADOW FIRST (on 5-bit values!)
-        if (shadow) {
-            r5 >>= 1;
-            g5 >>= 1;
-            b5 >>= 1;
-            dark = true; // FORCE DARK when SHADOW active!
-        }
-
-        // 2. Expand 5->8 bit
-        uint8_t r8 = (r5 << 3) | (r5 >> 2);
-        uint8_t g8 = (g5 << 3) | (g5 >> 2);
-        uint8_t b8 = (b5 << 3) | (b5 >> 2);
-
-        // 3. Apply DARK (-4 with saturation)
-        if (dark) {
-            r8 = (r8 > 4) ? r8 - 4 : 0;
-            g8 = (g8 > 4) ? g8 - 4 : 0;
-            b8 = (b8 > 4) ? b8 - 4 : 0;
-        }
-
-        // 4. Pack as RGB565
-        g_pixel_lut[i] = ((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3);
-    }
-}
-#endif
 
 // =============================================================================
 // MVS Sync Detection
@@ -216,14 +229,9 @@ void video_capture_init(uint mvs_height) {
     g_mvs_height = mvs_height;
 
 #if ENABLE_DARK_SHADOW
-    // Initialize LUT for DARK/SHADOW processing
-    generate_intensity_lut();
-
-    interp_config cfg = interp_default_config();
-    interp_config_set_shift(&cfg, 0);
-    interp_config_set_mask(&cfg, 1, 17);
-    interp_set_config(interp0, 0, &cfg);
-    interp0->base[0] = (uintptr_t)g_pixel_lut;
+    // Generate 64KB LUT for RGB555->RGB565 with DARK support
+    generate_pixel_lut();
+    init_interp_for_lut();
 #endif
 
     // 18-bit capture: 1 pixel per word
