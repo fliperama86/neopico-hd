@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# NeoPico-HD Release Script
+# Usage: ./release [version]
+# Example: ./release 0.2.0
+
+set -e
+
+# 1. Check for uncommitted changes
+if ! git diff-index --quiet HEAD --; then
+    echo "✗ Error: You have uncommitted changes. Please commit or stash them first."
+    exit 1
+fi
+
+# 2. Get the current branch
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [ "$CURRENT_BRANCH" != "main" ]; then
+    echo "! Warning: You are on branch '$CURRENT_BRANCH'. Releases are usually made from 'main'."
+    read -p "Do you want to continue? (y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
+# 3. Get the latest tag
+LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.0")
+echo "Latest tag: $LATEST_TAG"
+
+# 4. Determine new version
+if [ -z "$1" ]; then
+    # Suggest next patch version
+    VERSION_PART=$(echo $LATEST_TAG | sed 's/v//')
+    IFS='.' read -ra ADDR <<< "$VERSION_PART"
+    PATCH=$((ADDR[2] + 1))
+    SUGGESTED_VERSION="v${ADDR[0]}.${ADDR[1]}.$PATCH"
+    
+    read -p "Enter new version [$SUGGESTED_VERSION]: " NEW_VERSION
+    NEW_VERSION=${NEW_VERSION:-$SUGGESTED_VERSION}
+else
+    NEW_VERSION=$1
+fi
+
+# Ensure version starts with 'v'
+[[ $NEW_VERSION != v* ]] && NEW_VERSION="v$NEW_VERSION"
+
+echo "Preparing release $NEW_VERSION..."
+
+# 5. Confirmation
+read -p "Confirm release $NEW_VERSION and push to origin? (y/n) " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Release cancelled."
+    exit 1
+fi
+
+# 6. Execute Release
+echo "Tagging..."
+git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
+
+echo "Pushing to origin..."
+git push origin "$CURRENT_BRANCH"
+git push origin "$NEW_VERSION"
+
+echo ""
+echo "✓ Success! GitHub Actions will now build and publish $NEW_VERSION."
+echo "Monitor progress here: https://github.com/$(git remote get-url origin | sed 's/.*github.com[:\/]//;s/\.git$//')/actions"
