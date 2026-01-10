@@ -46,7 +46,6 @@
 // Audio/Video State
 // ============================================================================
 
-uint16_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH] __attribute__((aligned(4)));
 volatile uint32_t video_frame_count = 0;
 
 static uint16_t line_buffer[MODE_H_ACTIVE_PIXELS] __attribute__((aligned(4)));
@@ -55,6 +54,7 @@ static bool vactive_cmdlist_posted = false;
 static bool dma_pong = false;
 
 static video_output_task_fn background_task = NULL;
+static video_output_scanline_cb_t scanline_callback = NULL;
 
 #define DMACH_PING 0
 #define DMACH_PONG 1
@@ -172,15 +172,17 @@ static inline void __scratch_x("")
 }
 
 static inline void __scratch_x("")
-    video_output_handle_active_start(dma_channel_hw_t *ch, uint32_t active_line,
+    video_output_handle_active_start(dma_channel_hw_t *ch, uint32_t v_scanline, uint32_t active_line,
                                      bool dma_pong) {
-  uint32_t fb_line = active_line / 2;
-  const uint16_t *src = &framebuf[fb_line * FRAMEBUF_WIDTH];
   uint32_t *dst32 = (uint32_t *)line_buffer;
 
-  for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i++) {
-    uint32_t p = src[i];
-    dst32[i] = p | (p << 16);
+  if (scanline_callback) {
+    scanline_callback(v_scanline, active_line, dst32);
+  } else {
+    // If no callback, just output black pixels
+    for (uint32_t i = 0; i < MODE_H_ACTIVE_PIXELS / 2; i++) {
+        dst32[i] = 0;
+    }
   }
 
   uint32_t *buf = dma_pong ? vactive_di_ping : vactive_di_pong;
@@ -246,7 +248,7 @@ void __scratch_x("") dma_irq_handler() {
   if (state.vsync_active) {
     video_output_handle_vsync(ch, v_scanline);
   } else if (state.active_video && !vactive_cmdlist_posted) {
-    video_output_handle_active_start(ch, state.active_line, dma_pong);
+    video_output_handle_active_start(ch, v_scanline, state.active_line, dma_pong);
     vactive_cmdlist_posted = true;
   } else if (state.active_video && vactive_cmdlist_posted) {
     video_output_handle_active_data(ch);
@@ -303,6 +305,10 @@ void video_output_init(void) {
 
 void video_output_set_background_task(video_output_task_fn task) {
   background_task = task;
+}
+
+void video_output_set_scanline_callback(video_output_scanline_cb_t cb) {
+  scanline_callback = cb;
 }
 
 void video_output_core1_run(void) {

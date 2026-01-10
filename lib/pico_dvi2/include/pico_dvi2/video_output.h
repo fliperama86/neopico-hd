@@ -34,7 +34,6 @@
 // Global State
 // ============================================================================
 
-extern uint16_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH];
 extern volatile uint32_t video_frame_count;
 
 // ============================================================================
@@ -44,9 +43,26 @@ extern volatile uint32_t video_frame_count;
 typedef void (*video_output_task_fn)(void);
 
 /**
+ * Scanline Callback:
+ * Called by the DVI library when it needs pixel data for a scanline.
+ * 
+ * @param v_scanline The current vertical scanline (0 to MODE_V_TOTAL_LINES - 1)
+ * @param active_line The current active video line (0 to MODE_V_ACTIVE_LINES - 1), 
+ *                    only valid if active_video is true.
+ * @param line_buffer Buffer to fill with 640 RGB565 pixels (packed as uint32_t pairs).
+ *                    The buffer MUST be filled with (MODE_H_ACTIVE_PIXELS / 2) uint32_t words.
+ */
+typedef void (*video_output_scanline_cb_t)(uint32_t v_scanline, uint32_t active_line, uint32_t *line_buffer);
+
+/**
  * Initialize HSTX and DMA for video output.
  */
 void video_output_init(void);
+
+/**
+ * Register the scanline callback.
+ */
+void video_output_set_scanline_callback(video_output_scanline_cb_t cb);
 
 /**
  * Register a background task to run in the Core 1 loop.
