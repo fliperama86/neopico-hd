@@ -13,8 +13,69 @@
 #include <stdio.h>
 #include <string.h>
 
+// Main video framebuffer
+uint16_t framebuf[FRAMEBUF_HEIGHT * FRAMEBUF_WIDTH] __attribute__((aligned(4)));
+
 // Initialize framebuffer to black (called once at init)
 static void init_background(void) { memset(framebuf, 0, sizeof(framebuf)); }
+
+// ============================================================================
+// DVI Scanline Callback (Core 1)
+// ============================================================================
+
+/**
+ * This function is called by the DVI library on Core 1 for every active video line.
+ * It performs 2x vertical scaling (line doubling) from 240p to 480p.
+ */
+void __scratch_x("") mvs_scanline_doubler(uint32_t v_scanline, uint32_t active_line, uint32_t *line_buffer) {
+  // 2x Vertical Scaling: Every 240p line is shown twice to reach 480p
+  uint32_t fb_line = active_line / 2;
+  
+  if (fb_line >= FRAMEBUF_HEIGHT) {
+    memset(line_buffer, 0, MODE_H_ACTIVE_PIXELS * 2);
+    return;
+  }
+
+  const uint16_t *src = &framebuf[fb_line * FRAMEBUF_WIDTH];
+  uint32_t *dst = line_buffer;
+
+  // Box bounds
+  const uint32_t box_x = 10;
+  const uint32_t box_y = 10;
+  const uint32_t box_w = 16;
+  const uint32_t box_h = 16;
+  
+  bool in_box_y = (fb_line >= box_y && fb_line < (box_y + box_h));
+
+  if (!in_box_y) {
+      // Standard fast loop (No overlay)
+      for (uint32_t i = 0; i < FRAMEBUF_WIDTH; i++) {
+        uint32_t p = src[i];
+        dst[i] = p | (p << 16);
+      }
+  } else {
+      // Overlay Active: Split loop to avoid branching per pixel
+      uint32_t i = 0;
+      
+      // Before box
+      for (; i < box_x; i++) {
+        uint32_t p = src[i];
+        dst[i] = p | (p << 16);
+      }
+      
+      // Inside box
+      uint32_t green_pixel = 0x07E0 | (0x07E0 << 16);
+      for (; i < (box_x + box_w); i++) {
+          dst[i] = green_pixel;
+      }
+      
+      // After box
+      for (; i < FRAMEBUF_WIDTH; i++) {
+        uint32_t p = src[i];
+        dst[i] = p | (p << 16);
+      }
+  }
+}
 
 // ============================================================================
 // Main (Core 0)
@@ -39,6 +100,9 @@ int main(void) {
   init_background();
   hstx_di_queue_init();
   video_output_init();
+  
+  // Register the scanline doubler callback (with overlay)
+  video_output_set_scanline_callback(mvs_scanline_doubler);
 
   // 1. Initialize video capture
   video_capture_init(framebuf, FRAMEBUF_WIDTH, FRAMEBUF_HEIGHT, 224);

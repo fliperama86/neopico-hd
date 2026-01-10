@@ -98,6 +98,7 @@ Core 0: Video Capture               Core 1: Audio Pipeline + HSTX
 - **[Audio Implementation](docs/MVS_MV1C_DIGITAL_AUDIO.md)**: I2S format, ASRC strategy, and drift control.
 - **[HSTX & HDMI](docs/HSTX_IMPLEMENTATION.md)**: Output timing, TMDS, and Data Islands.
 - **[OSD](docs/OSD_IMPLEMENTATION.md)**: On-Screen Display rendering.
+- **[Best Practices](docs/BEST_PRACTICES.md)**: Critical Do's and Don'ts for developers.
 
 ## Architecture Highlights
 

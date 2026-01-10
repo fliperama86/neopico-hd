@@ -65,5 +65,6 @@ We implemented a **Proportional Control Loop**:
 
 ## 6. Critical Constraints
 
-*   **Interrupt Latency**: Core 1's DMA ISR must complete well within the horizontal blanking period to maintain HDMI sync.
+*   **Interrupt Latency**: Core 1's DMA ISR must complete well within the horizontal blanking period (~1.9µs) to maintain HDMI sync. 
+*   **CPU Cycle Sensitivity**: In the scanline generation phase, every nanosecond counts. Unoptimized logic (such as `if` statements inside pixel loops) will cause the HSTX FIFO to underrun, resulting in an immediate loss of video signal.
 *   **Grounding**: The digital video tap is extremely sensitive to ground loops. A low-impedance shared ground is mandatory.
