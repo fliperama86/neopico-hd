@@ -54,7 +54,9 @@ This approach:
 
 ## 40-Line Streaming Attempt (Shelved)
 
-We investigated reducing the buffer to 40 lines (~25 KB) inspired by cps2_digiav's approach.
+We investigated reducing the buffer to 40 lines inspired by cps2_digiav's approach.
+
+**Motivation:** Raw performance for OSD rendering, not memory savings. A tighter streaming pipeline would provide more predictable timing and reduce memory bandwidth contention during scanline processing.
 
 ### What We Tried
 
