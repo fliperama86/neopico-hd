@@ -117,10 +117,11 @@ int main(void) {
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
-    // Initialize OSD button (active high with internal pull-down)
+    // Initialize OSD button (active low with internal pull-up)
+    // Wire button between GPIO and GND
     gpio_init(PIN_OSD_BTN_MENU);
     gpio_set_dir(PIN_OSD_BTN_MENU, GPIO_IN);
-    gpio_pull_down(PIN_OSD_BTN_MENU);
+    gpio_pull_up(PIN_OSD_BTN_MENU);
 
     sleep_ms(1000);
     stdio_flush();

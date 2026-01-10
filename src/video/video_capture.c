@@ -309,8 +309,8 @@ void video_capture_run(void) {
     while (1) {
         g_frame_count++;
 
-        // Check OSD toggle button (active high, simple edge detection)
-        bool btn_pressed = gpio_get(PIN_OSD_BTN_MENU);
+        // Check OSD toggle button (active low, simple edge detection)
+        bool btn_pressed = !gpio_get(PIN_OSD_BTN_MENU);
         if (btn_pressed && !btn_was_pressed) {
             osd_toggle();
         }
