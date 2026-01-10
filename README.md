@@ -93,12 +93,18 @@ Core 0: Video Capture               Core 1: Audio Pipeline + HSTX
 
 ## Documentation
 
-- [HSTX Implementation](docs/HSTX_IMPLEMENTATION.md)
-- [OSD Implementation](docs/OSD_IMPLEMENTATION.md)
-- [MVS Digital Video Specs](docs/MVS_MV1C_DIGITAL_VIDEO.md)
-- [MVS Digital Audio Specs](docs/MVS_MV1C_DIGITAL_AUDIO.md)
-- [Known Issues & Troubleshooting](docs/KNOWN_ISSUES.md)
+- **[System Architecture](docs/ARCHITECTURE.md)**: High-level design, core partitioning, and the closed-loop audio sync.
+- **[Video Implementation](docs/MVS_MV1C_DIGITAL_VIDEO.md)**: Tap points, signal logic, and PIO capture.
+- **[Audio Implementation](docs/MVS_MV1C_DIGITAL_AUDIO.md)**: I2S format, ASRC strategy, and drift control.
+- **[HSTX & HDMI](docs/HSTX_IMPLEMENTATION.md)**: Output timing, TMDS, and Data Islands.
+- **[OSD](docs/OSD_IMPLEMENTATION.md)**: On-Screen Display rendering.
 
-## License
+## Architecture Highlights
+
+- **Dual-Core Design**: Dedicated cores for Video Capture (Core 0) and HDMI Output (Core 1).
+- **Closed-Loop Audio Sync**: Software-defined feedback loop effectively "genlocks" the MVS audio to the HDMI clock, preventing drift and glitches without an FPGA.
+- **Zero-Lag**: Scanline-doubling architecture with no framebuffer delay.
+
+## Installation
 
 Unlicense
