@@ -75,9 +75,8 @@ fi
 echo "Tagging..."
 git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
 
-echo "Pushing to origin..."
-git push origin "$CURRENT_BRANCH"
-git push origin "$NEW_VERSION"
+echo "Pushing $CURRENT_BRANCH and $NEW_VERSION to origin..."
+git push origin "$CURRENT_BRANCH" "$NEW_VERSION"
 
 echo ""
 echo "✓ Success! GitHub Actions will now build and publish $NEW_VERSION."
