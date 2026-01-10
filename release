@@ -24,8 +24,25 @@ if [ "$CURRENT_BRANCH" != "main" ]; then
 fi
 
 # 3. Get the latest tag
-LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.0")
-echo "Latest tag: $LATEST_TAG"
+LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+if [ -n "$LATEST_TAG" ]; then
+    echo "Latest tag: $LATEST_TAG"
+    
+    # Check for differences since last tag
+    if git diff --quiet "$LATEST_TAG"..HEAD; then
+        echo "i No changes detected since $LATEST_TAG."
+        read -p "Create a new release anyway? (y/n) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Release cancelled (no changes)."
+            exit 0
+        fi
+    fi
+else
+    echo "No previous tags found. Starting first release."
+    LATEST_TAG="v0.0.0"
+fi
 
 # 4. Determine new version
 if [ -z "$1" ]; then
