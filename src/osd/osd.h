@@ -4,45 +4,38 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define OSD_WIDTH 320
-#define OSD_HEIGHT 240
-#define OSD_BUFFER_SIZE (OSD_WIDTH * OSD_HEIGHT / 8)
+// OSD box dimensions (in 320x240 space, will be doubled to 640x480)
+#define OSD_BOX_X 80        // Start X position
+#define OSD_BOX_Y 88        // Start Y position
+#define OSD_BOX_W 160       // Width in pixels (must be multiple of 8)
+#define OSD_BOX_H 64        // Height in pixels
 
-// Global OSD buffer and state
-extern uint32_t osd_buffer[OSD_WIDTH * OSD_HEIGHT / 32];
-extern bool osd_visible;
-extern uint16_t osd_text_color;
+// Colors (RGB565)
+#define OSD_COLOR_BG    0x0000  // Black background
+#define OSD_COLOR_FG    0xFFFF  // White text
+
+// OSD state
+extern volatile bool osd_visible;
+
+// Pre-rendered RGB565 buffer for the OSD box
+// Placed in scratch_y to avoid bus contention with Core 0
+extern uint16_t osd_framebuffer[OSD_BOX_H][OSD_BOX_W];
 
 // Initialize OSD system
 void osd_init(void);
 
-// Clear the OSD buffer
+// Clear OSD to background color
 void osd_clear(void);
 
-// Draw a single pixel on the OSD buffer
-void osd_draw_pixel(int x, int y, bool val);
+// Draw a character at (x,y) relative to OSD box origin
+void osd_putchar(int x, int y, char c);
 
-// Draw a character using the internal 8x8 font
-void osd_draw_char(int x, int y, char c, bool val);
+// Draw a string at (x,y) relative to OSD box origin
+void osd_puts(int x, int y, const char *str);
 
-// Draw a string
-void osd_draw_string(int x, int y, const char *str, bool val);
-
-// Check if a pixel is active at given coordinates
-static inline bool osd_get_pixel(int x, int y) {
-  uint32_t idx = (y * OSD_WIDTH + x);
-  return (osd_buffer[idx >> 5] >> (idx & 31)) & 1;
-}
-
-// RLE Span structure for zero-cost ISR rendering
-typedef struct {
-    uint16_t length;   // Number of input pixels (1 to 320)
-    uint16_t color;    // RGB565 color (ignored if transparent)
-    bool is_solid;     // true = draw color, false = copy video
-} osd_span_t;
-
-// Max spans per line (enough for ~10 characters or complex shapes)
-#define MAX_OSD_SPANS 32
+// Show/hide OSD
+static inline void osd_show(void) { osd_visible = true; }
+static inline void osd_hide(void) { osd_visible = false; }
+static inline void osd_toggle(void) { osd_visible = !osd_visible; }
 
 #endif // OSD_H
-
