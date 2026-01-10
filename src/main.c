@@ -117,17 +117,23 @@ int main(void) {
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
+    // Initialize OSD button (active high with internal pull-down)
+    gpio_init(PIN_OSD_BTN_MENU);
+    gpio_set_dir(PIN_OSD_BTN_MENU, GPIO_IN);
+    gpio_pull_down(PIN_OSD_BTN_MENU);
+
     sleep_ms(1000);
     stdio_flush();
 
     // Initialize line ring buffer
     memset(&g_line_ring, 0, sizeof(g_line_ring));
 
-    // Initialize OSD
+    // Initialize OSD (hidden by default, press MENU button to toggle)
     osd_init();
     osd_puts(8, 8, "NeoPico-HD");
-    osd_puts(8, 24, "OSD Test");
-    osd_show();
+    osd_puts(8, 24, "Press MENU to hide");
+    // OSD starts hidden - press button to show
+    osd_hide();
 
     // Initialize HDMI output
     hstx_di_queue_init();

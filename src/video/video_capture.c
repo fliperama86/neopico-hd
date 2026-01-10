@@ -11,6 +11,7 @@
 #include "hardware/pio.h"
 #include "hardware_config.h"
 #include "mvs_pins.h"
+#include "osd/osd.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
 #include "video_capture.pio.h"
@@ -303,8 +304,17 @@ void video_capture_init(uint mvs_height) {
 }
 
 void video_capture_run(void) {
+    static bool btn_was_pressed = false;
+
     while (1) {
         g_frame_count++;
+
+        // Check OSD toggle button (active high, simple edge detection)
+        bool btn_pressed = gpio_get(PIN_OSD_BTN_MENU);
+        if (btn_pressed && !btn_was_pressed) {
+            osd_toggle();
+        }
+        btn_was_pressed = btn_pressed;
 
         // Wait for VSYNC
         if (!wait_for_vsync(g_pio_mvs, g_sm_sync, 100)) {
