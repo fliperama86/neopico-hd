@@ -44,6 +44,22 @@ else
     LATEST_TAG="v0.0.0"
 fi
 
+# Generate Changelog
+echo "Generating changelog..."
+if [ -n "$(git describe --tags --abbrev=0 2>/dev/null)" ]; then
+    # Get changes since last tag
+    REAL_LAST_TAG=$(git describe --tags --abbrev=0)
+    CHANGELOG=$(git log "${REAL_LAST_TAG}"..HEAD --pretty=format:"- %s (%h)")
+else
+    # First release, get all history
+    CHANGELOG=$(git log --pretty=format:"- %s (%h)")
+fi
+
+echo "----------------------------------------------------------------"
+echo "Proposed Changelog:"
+echo "$CHANGELOG"
+echo "----------------------------------------------------------------"
+
 # 4. Determine new version
 if [ -z "$1" ]; then
     # Suggest next patch version
@@ -73,7 +89,7 @@ fi
 
 # 6. Execute Release
 echo "Tagging..."
-git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
+git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION" -m "$CHANGELOG"
 
 echo "Pushing $CURRENT_BRANCH and $NEW_VERSION to origin..."
 git push origin "$CURRENT_BRANCH" "$NEW_VERSION"
