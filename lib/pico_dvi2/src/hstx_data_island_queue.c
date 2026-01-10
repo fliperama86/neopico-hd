@@ -32,6 +32,13 @@ bool hstx_di_queue_push(const hstx_data_island_t *island) {
     return true;
 }
 
+uint32_t hstx_di_queue_get_level(void) {
+    uint32_t head = di_ring_head;
+    uint32_t tail = di_ring_tail;
+    if (head >= tail) return head - tail;
+    return DI_RING_BUFFER_SIZE + head - tail;
+}
+
 void __scratch_x("") hstx_di_queue_tick(void) {
     audio_sample_accum += SAMPLES_PER_LINE_FP;
 }

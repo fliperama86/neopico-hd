@@ -49,7 +49,46 @@ static void audio_output_callback(const audio_sample_t *samples, uint32_t count,
   }
 }
 
+// Global frame count from video_output.c
+extern volatile uint32_t video_frame_count;
+static uint32_t last_rate_update_frame = 0;
+
+static void audio_background_task_control(void) {
+    if (video_frame_count - last_rate_update_frame >= 30) { // Every ~0.5s (at 60fps)
+        last_rate_update_frame = video_frame_count;
+        
+        uint32_t level = hstx_di_queue_get_level();
+        uint32_t current_rate = audio_pipeline.src.input_rate;
+        uint32_t new_rate = current_rate;
+        
+        // Target: 128 (half of 256)
+        // Deadband: +/- 32 (96 to 160)
+        if (level > 160) {
+            // Buffer filling up -> Produce LESS output relative to input
+            // SRC Drop Mode: out_count = (in_count * output_rate) / input_rate
+            // To reduce out_count, we need to INCREASE input_rate (denominator).
+            new_rate += 10; 
+        } else if (level < 96) {
+            // Buffer emptying -> Produce MORE output relative to input
+            // To increase out_count, we need to DECREASE input_rate (denominator).
+            new_rate -= 10;
+        }
+        
+        // Clamp to sane MVS limits (55.5kHz +/- 5%)
+        if (new_rate < 53000) new_rate = 53000;
+        if (new_rate > 58000) new_rate = 58000;
+        
+        if (new_rate != current_rate) {
+             // We modify the rate "live". 
+             // Accessing internal struct directly is atomic enough for uint32_t on ARM.
+             audio_pipeline.src.input_rate = new_rate;
+        }
+    }
+}
+
 static void audio_background_task(void) {
+  audio_background_task_control();
+  
   audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
   while (ap_ring_available(&audio_pipeline.capture_ring) > 0) {
     audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);

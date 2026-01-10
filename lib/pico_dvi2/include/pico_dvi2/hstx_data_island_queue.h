@@ -17,6 +17,11 @@ void hstx_di_queue_init(void);
 bool hstx_di_queue_push(const hstx_data_island_t *island);
 
 /**
+ * Get the current number of items in the queue.
+ */
+uint32_t hstx_di_queue_get_level(void);
+
+/**
  * Advance the Data Island scheduler by one scanline.
  * Must be called exactly once per scanline in the DMA ISR.
  */
