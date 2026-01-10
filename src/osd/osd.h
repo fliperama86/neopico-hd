@@ -34,5 +34,15 @@ static inline bool osd_get_pixel(int x, int y) {
   return (osd_buffer[idx >> 5] >> (idx & 31)) & 1;
 }
 
+// RLE Span structure for zero-cost ISR rendering
+typedef struct {
+    uint16_t length;   // Number of input pixels (1 to 320)
+    uint16_t color;    // RGB565 color (ignored if transparent)
+    bool is_solid;     // true = draw color, false = copy video
+} osd_span_t;
+
+// Max spans per line (enough for ~10 characters or complex shapes)
+#define MAX_OSD_SPANS 32
+
 #endif // OSD_H
 
