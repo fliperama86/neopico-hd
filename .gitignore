@@ -8,6 +8,7 @@ build_*/
 *.png
 data.txt
 screenlog.*
+tmp/
 
 # macOS
 .DS_Store

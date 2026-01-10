@@ -4,8 +4,9 @@ add_library(pico_dvi2
     src/hstx_packet.c
 )
 
-target_include_directories(pico_dvi2 PUBLIC 
+target_include_directories(pico_dvi2 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/include
+    ${CMAKE_CURRENT_LIST_DIR}/../../src
 )
 
 target_link_libraries(pico_dvi2

@@ -8,20 +8,16 @@
 /**
  * Initialize MVS video capture
  *
- * @param framebuffer Pointer to RGB565 framebuffer to write captured frames
- * @param frame_width Width of framebuffer (e.g., 320)
- * @param frame_height Height of framebuffer (e.g., 240)
  * @param mvs_height Active video lines from MVS (e.g., 224)
  */
-void video_capture_init(uint16_t *framebuffer, uint frame_width, uint frame_height, uint mvs_height);
+void video_capture_init(uint mvs_height);
 
 /**
- * Capture one frame from MVS
- * Blocks until a complete frame is captured
- *
- * @return true on success, false on timeout
+ * Run the video capture loop (never returns)
+ * Captures lines into the global line ring buffer
+ * Signals VSYNC to Core 1 at frame boundaries
  */
-bool video_capture_frame(void);
+void video_capture_run(void);
 
 /**
  * Get current frame count

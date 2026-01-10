@@ -7,7 +7,7 @@
 #include "hardware/structs/hstx_fifo.h"
 #include "pico_dvi2/hstx_data_island_queue.h"
 #include "pico_dvi2/hstx_packet.h"
-// #include "osd.h"
+#include "video/line_ring.h"
 #include "pico/stdlib.h"
 #include "pico_dvi2/hstx_pins.h"
 #include <math.h>
@@ -88,6 +88,45 @@ static uint32_t vblank_infoframe_vsync_off[64], vblank_infoframe_vsync_off_len;
 static uint32_t vblank_avi_infoframe[64], vblank_avi_infoframe_len;
 
 // ============================================================================
+// HSTX Resync - Reset output to sync with input VSYNC
+// ============================================================================
+
+static void __scratch_x("") hstx_resync(void) {
+    // 1. Abort DMA chains
+    dma_channel_abort(DMACH_PING);
+    dma_channel_abort(DMACH_PONG);
+
+    // 2. Disable HSTX (resets shift register, clock generator, and flushes FIFO)
+    hstx_ctrl_hw->csr &= ~HSTX_CTRL_CSR_EN_BITS;
+
+    // Small delay to ensure HSTX fully stops
+    __asm volatile("nop\nnop\nnop\nnop");
+
+    // 3. Reset state to start of frame
+    v_scanline = 0;
+    vactive_cmdlist_posted = false;
+    dma_pong = false;
+
+    // 4. Clear any pending DMA interrupts
+    dma_hw->ints0 = (1u << DMACH_PING) | (1u << DMACH_PONG);
+
+    // 5. Configure DMA PING to start from beginning of frame (Line 0)
+    dma_channel_hw_t *ch_ping = &dma_hw->ch[DMACH_PING];
+    ch_ping->read_addr = (uintptr_t)vblank_line_vsync_off;
+    ch_ping->transfer_count = count_of(vblank_line_vsync_off);
+
+    // 6. Configure DMA PONG for the NEXT line (Line 1)
+    // This ensures that when PING finishes and chains to PONG, PONG is ready.
+    dma_channel_hw_t *ch_pong = &dma_hw->ch[DMACH_PONG];
+    ch_pong->read_addr = (uintptr_t)vblank_line_vsync_off; // Line 1 is also blank
+    ch_pong->transfer_count = count_of(vblank_line_vsync_off);
+
+    // 7. Re-enable HSTX then start DMA
+    hstx_ctrl_hw->csr |= HSTX_CTRL_CSR_EN_BITS;
+    dma_channel_start(DMACH_PING);
+}
+
+// ============================================================================
 // Internal Helpers
 // ============================================================================
 
@@ -165,6 +204,9 @@ static inline void __scratch_x("")
     ch->read_addr = (uintptr_t)vblank_acr_vsync_on;
     ch->transfer_count = vblank_acr_vsync_on_len;
     video_frame_count++;
+    // Frame sync: switch to new input frame if available
+    // If no new frame ready, we'll redisplay the previous frame (duplicate)
+    line_ring_output_vsync();
   } else {
     ch->read_addr = (uintptr_t)vblank_infoframe_vsync_on;
     ch->transfer_count = vblank_infoframe_vsync_on_len;
@@ -236,6 +278,9 @@ void __scratch_x("") dma_irq_handler() {
   dma_channel_hw_t *ch = &dma_hw->ch[ch_num];
   dma_hw->intr = 1u << ch_num;
   dma_pong = !dma_pong;
+
+  // Clear any pending resync flag (soft sync via line_ring_output_vsync at output VSYNC)
+  (void)line_ring_should_resync();
 
   // Advance audio/data-island scheduler exactly once per scanline
   if (!vactive_cmdlist_posted) {
