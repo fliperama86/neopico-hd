@@ -1,0 +1,56 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+
+    - name: Setup Pico SDK
+      run: |
+        git clone --depth 1 https://github.com/raspberrypi/pico-sdk.git $HOME/pico-sdk
+        cd $HOME/pico-sdk
+        git submodule update --init
+
+    - name: Build NeoPico-HD
+      run: |
+        mkdir build
+        cd build
+        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release
+        make -j$(nproc)
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: neopico-hd-build
+        path: |
+          build/src/*.uf2
+          build/src/*.elf
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          build/src/neopico_hd.uf2
+          build/src/neopico_hd.elf
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

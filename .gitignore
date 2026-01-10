@@ -86,4 +86,5 @@ venv/
 src/misc/hstx_lab/lib/
 .gemini/
 gha-creds-*.json
-.github/
+**/gemini-*.yml
+**/gemini-*.toml
