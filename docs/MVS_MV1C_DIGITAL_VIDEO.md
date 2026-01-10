@@ -10,15 +10,15 @@ The MVS MV1C generates 15-bit RGB video digitally, clocked at 6 MHz with composi
 
 | Signal | Width  | Description                | Tap Point (MV1C) | GPIO (Pico) |
 | ------ | ------ | -------------------------- | ---------------- | ----------- |
-| PCLK   | 1 bit  | Pixel clock, 6 MHz         | PC23 pin 11      | GPIO 25     |
-| R[4:0] | 5 bits | Red MSB -> LSB             | R2R Input        | GPIO 26-30  |
-| G[4:0] | 5 bits | Green MSB -> LSB           | R2R Input        | GPIO 31-35  |
-| B[4:0] | 5 bits | Blue MSB -> LSB            | R2R Input        | GPIO 36-40  |
-| DARK   | 1 bit  | Intensity control          | Pre-DAC          | GPIO 41     |
-| SHADOW | 1 bit  | Intensity control          | Pre-DAC          | GPIO 42     |
-| CSYNC  | 1 bit  | Composite sync, active low | R51              | GPIO 43     |
+| PCLK   | 1 bit  | Pixel clock, 6 MHz         | PC23 pin 11      | GPIO 27     |
+| R[4:0] | 5 bits | Red MSB -> LSB             | R2R Input        | GPIO 28-32  |
+| G[4:0] | 5 bits | Green MSB -> LSB           | R2R Input        | GPIO 33-37  |
+| B[4:0] | 5 bits | Blue MSB -> LSB            | R2R Input        | GPIO 38-42  |
+| DARK   | 1 bit  | Intensity control          | Pre-DAC          | GPIO 43     |
+| SHADOW | 1 bit  | Intensity control          | Pre-DAC          | GPIO 44     |
+| CSYNC  | 1 bit  | Composite sync, active low | R51              | GPIO 45     |
 
-**Capture Logic**: PIO1 samples GPIO 25-42 (18 pins) as a contiguous block on the PCLK rising edge.
+**Capture Logic**: PIO1 samples GPIO 27-44 (18 pins) as a contiguous block on the PCLK rising edge. CSYNC (GPIO 45) is read separately by the state machine for synchronization.
 
 ## 2. Capture Strategy
 
