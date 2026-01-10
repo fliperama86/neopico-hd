@@ -14,3 +14,16 @@ Diagnostics:
   UnusedIncludes: None
   Suppress:
     - "-Wunused-*"
+  ClangTidy:
+    Remove:
+      - bugprone-reserved-identifier
+      - cert-dcl37-c
+      - cert-dcl51-cpp
+
+Index:
+  Background: Build
+
+InlayHints:
+  Enabled: true
+  ParameterNames: true
+  DeducedTypes: true

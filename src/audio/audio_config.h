@@ -15,7 +15,8 @@
 #define AUDIO_BUFFER_SIZE 1024
 
 // Sample rates
-#define AUDIO_INPUT_RATE 55555  // MVS I2S input rate (approximately)
+// MVS I2S input: 8MHz / 144 = 55,555.555... Hz (55556 minimizes rounding error)
+#define AUDIO_INPUT_RATE 55556
 #define AUDIO_OUTPUT_RATE 48000 // HSTX audio output rate
 
 // =============================================================================

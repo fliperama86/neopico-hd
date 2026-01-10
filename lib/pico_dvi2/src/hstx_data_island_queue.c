@@ -13,6 +13,10 @@ static uint32_t audio_sample_accum = 0; // Fixed-point accumulator
 #define SAMPLES_PER_FRAME (48000 / 60)
 #define SAMPLES_PER_LINE_FP ((SAMPLES_PER_FRAME << 16) / MODE_V_TOTAL_LINES)
 
+// Limit accumulator to avoid overflow if we run dry.
+// Clamping to 1 packet (plus a tiny margin is implicit) ensures we don't burst.
+#define MAX_AUDIO_ACCUM (4 << 16)
+
 void hstx_di_queue_init(void) {
     di_ring_head = 0;
     di_ring_tail = 0;
@@ -40,6 +44,13 @@ const uint32_t* __scratch_x("") hstx_di_queue_get_audio_packet(void) {
             const uint32_t *words = di_ring_buffer[di_ring_tail].words;
             di_ring_tail = (di_ring_tail + 1) % DI_RING_BUFFER_SIZE;
             return words;
+        } else {
+            // Queue is empty but we owe samples.
+            // Clamp accumulator to prevent 32-bit overflow during long silence.
+            // Also prevents bursting when data returns.
+            if (audio_sample_accum > MAX_AUDIO_ACCUM) {
+                audio_sample_accum = MAX_AUDIO_ACCUM;
+            }
         }
     }
     return NULL;

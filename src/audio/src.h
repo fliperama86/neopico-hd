@@ -11,8 +11,9 @@
 #include "audio_common.h"
 
 // Default rates
-// Neo Geo MVS (MV1C) outputs at ~55.5kHz (Master Clock 8MHz / 144)
-#define SRC_INPUT_RATE_DEFAULT 55555
+// Neo Geo MVS (MV1C) outputs at 8MHz / 144 = 55,555.555... Hz
+// Using 55556 minimizes the rounding error (0.44 Hz vs 0.56 Hz with 55555)
+#define SRC_INPUT_RATE_DEFAULT 55556
 #define SRC_OUTPUT_RATE_DEFAULT 48000
 
 // SRC instance
