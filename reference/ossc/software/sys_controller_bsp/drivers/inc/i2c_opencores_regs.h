@@ -1,0 +1,1 @@
+../../../../ip/i2c_opencores/inc/i2c_opencores_regs.h
