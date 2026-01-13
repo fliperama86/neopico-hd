@@ -1,4 +1,4 @@
-(version 1)
-(rule "HDMI_clearance"
-  (condition "A.NetClass == 'HDMI'")
-  (constraint clearance (min 0.01mm)))
+  (version 1)
+  (rule "HDMI_clearance"
+    (condition "A.NetClass == 'HDMI' && A.Layer == 'F.Cu'")
+    (constraint clearance (min 0.1mm)))

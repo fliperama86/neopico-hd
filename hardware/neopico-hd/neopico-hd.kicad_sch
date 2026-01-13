@@ -5904,14 +5904,6 @@
 		(uuid "b85f3dd8-4467-4709-9fa5-a6ecabe16522")
 	)
 	(no_connect
-		(at 254 87.63)
-		(uuid "c188e3f5-c1e5-4007-9e3a-dc1c22ed18e9")
-	)
-	(no_connect
-		(at 266.7 97.79)
-		(uuid "c6af67f1-3ea4-4e75-9615-abf99dfbc152")
-	)
-	(no_connect
 		(at 228.6 43.18)
 		(uuid "c8ce5853-eab6-4e5b-a734-da255b1b9988")
 	)
@@ -5997,16 +5989,6 @@
 	)
 	(wire
 		(pts
-			(xy 246.38 72.39) (xy 241.3 72.39)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "3915d68a-ef2e-44bd-a93d-709a46891f89")
-	)
-	(wire
-		(pts
 			(xy 73.66 182.88) (xy 73.66 185.42)
 		)
 		(stroke
@@ -6054,6 +6036,16 @@
 			(type default)
 		)
 		(uuid "79b48ae4-84fa-45f7-be6f-6d00c69977d3")
+	)
+	(wire
+		(pts
+			(xy 247.65 72.39) (xy 254 72.39)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "7b66996d-2b2a-460d-b645-91dfb7900a26")
 	)
 	(wire
 		(pts
@@ -6893,7 +6885,7 @@
 	)
 	(global_label "CEC_PICO"
 		(shape bidirectional)
-		(at 254 72.39 270)
+		(at 250.19 72.39 270)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -6903,7 +6895,7 @@
 		)
 		(uuid "44ef38d5-e5a2-4c65-967e-137685ba956d")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 254 85.6184 90)
+			(at 250.19 85.6184 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -9388,7 +9380,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "C_Polarized"
+		(property "Value" "47u"
 			(at 77.47 179.4509 0)
 			(effects
 				(font
@@ -10056,7 +10048,7 @@
 	)
 	(symbol
 		(lib_id "power:+3V3")
-		(at 241.3 72.39 180)
+		(at 240.03 72.39 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -10064,7 +10056,7 @@
 		(dnp no)
 		(uuid "48f8a16c-25e9-4b58-8b33-f562c8aa6d3a")
 		(property "Reference" "#PWR035"
-			(at 241.3 68.58 0)
+			(at 240.03 76.2 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10073,7 +10065,7 @@
 			)
 		)
 		(property "Value" "+3V3"
-			(at 241.2999 76.2 90)
+			(at 240.0301 68.58 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10082,7 +10074,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 241.3 72.39 0)
+			(at 240.03 72.39 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10091,7 +10083,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 241.3 72.39 0)
+			(at 240.03 72.39 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10100,7 +10092,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+3V3\""
-			(at 241.3 72.39 0)
+			(at 240.03 72.39 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10615,6 +10607,73 @@
 		)
 	)
 	(symbol
+		(lib_id "power:+5V")
+		(at 246.38 87.63 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "5c277bfe-829f-473c-9e7c-95971b0186af")
+		(property "Reference" "#PWR036"
+			(at 250.19 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+5V"
+			(at 242.57 87.6299 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 246.38 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 246.38 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+5V\""
+			(at 246.38 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "72f7598b-06e0-4bc6-871f-c559fd8ebd23")
+		)
+		(instances
+			(project ""
+				(path "/e43af130-6d9a-4b98-bcf6-f3f51cb37ae8"
+					(reference "#PWR036")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:C")
 		(at 100.33 96.52 90)
 		(unit 1)
@@ -10945,7 +11004,7 @@
 	)
 	(symbol
 		(lib_id "Device:R")
-		(at 250.19 72.39 90)
+		(at 243.84 72.39 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -10953,7 +11012,7 @@
 		(dnp no)
 		(uuid "7909ad6f-5400-46e1-b415-a62187997191")
 		(property "Reference" "R1"
-			(at 250.698 75.184 90)
+			(at 244.348 75.184 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10961,7 +11020,7 @@
 			)
 		)
 		(property "Value" "27K"
-			(at 250.698 77.724 90)
+			(at 244.348 77.724 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10970,7 +11029,7 @@
 			)
 		)
 		(property "Footprint" "Resistor_SMD:R_0805_2012Metric"
-			(at 250.19 74.168 90)
+			(at 243.84 74.168 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10979,7 +11038,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 250.19 72.39 0)
+			(at 243.84 72.39 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10988,7 +11047,7 @@
 			)
 		)
 		(property "Description" "Resistor"
-			(at 250.19 72.39 0)
+			(at 243.84 72.39 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11220,7 +11279,6 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "8dc01a60-7b83-4e1e-ba14-617acb7076e5")
 		(property "Reference" "#PWR032"
 			(at 259.08 104.14 0)
@@ -11232,7 +11290,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 259.08 102.87 0)
+			(at 266.7 102.87 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11657,6 +11715,71 @@
 	)
 	(symbol
 		(lib_id "power:GND")
+		(at 266.7 97.79 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "9be42a6c-42b3-403f-865c-03381d017b79")
+		(property "Reference" "#PWR040"
+			(at 266.7 104.14 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 259.08 102.87 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 266.7 97.79 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 266.7 97.79 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 266.7 97.79 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "23f5a94b-f588-4ae7-a025-44228bded6e0")
+		)
+		(instances
+			(project "neopico-hd"
+				(path "/e43af130-6d9a-4b98-bcf6-f3f51cb37ae8"
+					(reference "#PWR040")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
 		(at 182.88 33.02 270)
 		(unit 1)
 		(exclude_from_sim no)
@@ -11989,6 +12112,74 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:R")
+		(at 250.19 87.63 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "c084341a-1ec6-4500-8eb1-517d0a412473")
+		(property "Reference" "R2"
+			(at 250.444 90.424 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10K"
+			(at 250.698 92.964 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
+			(at 250.19 89.408 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 250.19 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 250.19 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "47cacaa4-a497-4564-9f2e-3cc3d63d93fc")
+		)
+		(pin "2"
+			(uuid "75e0823f-8bb1-4343-922e-b76391b162b2")
+		)
+		(instances
+			(project "neopico-hd"
+				(path "/e43af130-6d9a-4b98-bcf6-f3f51cb37ae8"
+					(reference "R2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:GND")
 		(at 269.24 97.79 0)
 		(unit 1)
@@ -12258,7 +12449,6 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "cea10adc-9bb2-4638-826c-1140024e580f")
 		(property "Reference" "#PWR034"
 			(at 264.16 104.14 0)
@@ -12270,7 +12460,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 264.16 102.87 0)
+			(at 261.62 102.87 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13220,7 +13410,6 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "ea1f9ea5-d000-450f-ade9-cbfa7e004b1a")
 		(property "Reference" "#PWR033"
 			(at 261.62 104.14 0)
@@ -13232,7 +13421,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 261.62 102.87 0)
+			(at 264.16 102.87 90)
 			(effects
 				(font
 					(size 1.27 1.27)

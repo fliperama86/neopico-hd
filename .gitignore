@@ -60,6 +60,7 @@ sym-lib-table.backup
 
 # Gerber job files (generated)
 *-job.gbrjob
+hardware/neopico-hd/**gerbers**
 
 # Drill files backup
 *.drl.bak
