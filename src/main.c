@@ -11,9 +11,9 @@
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
 #include "pico_dvi2/hstx_data_island_queue.h"
-#include "pico_dvi2/video_config.h"
 #include "pico_dvi2/video_output.h"
 #include "video/line_ring.h"
+#include "video/video_config.h"
 #include "video_capture.h"
 #include <stdio.h>
 #include <string.h>
@@ -22,10 +22,15 @@
 line_ring_t g_line_ring __attribute__((aligned(64)));
 
 // ============================================================================
-// DVI Scanline Callback (Core 1)
+// DVI Callbacks (Core 1)
 // ============================================================================
 
-// V_OFFSET is defined in video_config.h for vertical centering
+/**
+ * VSYNC callback - called once per frame to sync input/output buffers
+ */
+void __scratch_x("") mvs_vsync_callback(void) {
+    line_ring_output_vsync();
+}
 
 /**
  * Fast 2x pixel doubling: reads 2 pixels, writes 2 doubled words
@@ -138,10 +143,11 @@ int main(void) {
 
     // Initialize HDMI output
     hstx_di_queue_init();
-    video_output_init();
+    video_output_init(FRAME_WIDTH, FRAME_HEIGHT);
 
-    // Register the scanline callback
+    // Register video output callbacks
     video_output_set_scanline_callback(mvs_scanline_doubler);
+    video_output_set_vsync_callback(mvs_vsync_callback);
 
     // Initialize video capture
     video_capture_init(MVS_HEIGHT);

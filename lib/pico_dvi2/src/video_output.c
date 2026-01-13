@@ -7,9 +7,8 @@
 #include "hardware/structs/hstx_fifo.h"
 #include "pico_dvi2/hstx_data_island_queue.h"
 #include "pico_dvi2/hstx_packet.h"
-#include "video/line_ring.h"
-#include "pico/stdlib.h"
 #include "pico_dvi2/hstx_pins.h"
+#include "pico/stdlib.h"
 #include <math.h>
 #include <string.h>
 
@@ -46,6 +45,8 @@
 // Audio/Video State
 // ============================================================================
 
+uint16_t frame_width = 0;
+uint16_t frame_height = 0;
 volatile uint32_t video_frame_count = 0;
 
 static uint16_t line_buffer[MODE_H_ACTIVE_PIXELS] __attribute__((aligned(4)));
@@ -55,6 +56,7 @@ static bool dma_pong = false;
 
 static video_output_task_fn background_task = NULL;
 static video_output_scanline_cb_t scanline_callback = NULL;
+static video_output_vsync_cb_t vsync_callback = NULL;
 
 #define DMACH_PING 0
 #define DMACH_PONG 1
@@ -204,9 +206,7 @@ static inline void __scratch_x("")
     ch->read_addr = (uintptr_t)vblank_acr_vsync_on;
     ch->transfer_count = vblank_acr_vsync_on_len;
     video_frame_count++;
-    // Frame sync: switch to new input frame if available
-    // If no new frame ready, we'll redisplay the previous frame (duplicate)
-    line_ring_output_vsync();
+    if (vsync_callback) vsync_callback();
   } else {
     ch->read_addr = (uintptr_t)vblank_infoframe_vsync_on;
     ch->transfer_count = vblank_infoframe_vsync_on_len;
@@ -279,9 +279,6 @@ void __scratch_x("") dma_irq_handler() {
   dma_hw->intr = 1u << ch_num;
   dma_pong = !dma_pong;
 
-  // Clear any pending resync flag (soft sync via line_ring_output_vsync at output VSYNC)
-  (void)line_ring_should_resync();
-
   // Advance audio/data-island scheduler exactly once per scanline
   if (!vactive_cmdlist_posted) {
     hstx_di_queue_tick();
@@ -309,7 +306,10 @@ void __scratch_x("") dma_irq_handler() {
 // Public Interface
 // ============================================================================
 
-void video_output_init(void) {
+void video_output_init(uint16_t width, uint16_t height) {
+  frame_width = width;
+  frame_height = height;
+
   // Claim DMA channels for HSTX (channels 0 and 1)
   dma_channel_claim(DMACH_PING);
   dma_channel_claim(DMACH_PONG);
@@ -356,6 +356,10 @@ void video_output_set_scanline_callback(video_output_scanline_cb_t cb) {
   scanline_callback = cb;
 }
 
+void video_output_set_vsync_callback(video_output_vsync_cb_t cb) {
+  vsync_callback = cb;
+}
+
 void video_output_core1_run(void) {
   // HSTX Hardware Setup
   hstx_ctrl_hw->expand_tmds = 4 << HSTX_CTRL_EXPAND_TMDS_L2_NBITS_LSB |
@@ -386,9 +390,9 @@ void video_output_core1_run(void) {
     hstx_ctrl_hw->bit[bit + 1] = lane_data_sel_bits;
   }
 
-  // Set GPIO 12-19 to HSTX function
+  // Set GPIO 12-19 to HSTX function (function 0 on RP2350)
   for (int i = PIN_HSTX_CLK; i <= PIN_HSTX_D2 + 1; ++i)
-    gpio_set_function(i, GPIO_FUNC_HSTX);
+    gpio_set_function(i, 0);
 
   // DMA Setup
   dma_channel_config c = dma_channel_get_default_config(DMACH_PING);
