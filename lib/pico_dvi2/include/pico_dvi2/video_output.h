@@ -1,7 +1,6 @@
 #ifndef VIDEO_OUTPUT_H
 #define VIDEO_OUTPUT_H
 
-#include "pico_dvi2/video_config.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -26,9 +25,9 @@
   (MODE_V_FRONT_PORCH + MODE_V_SYNC_WIDTH + MODE_V_BACK_PORCH +                \
    MODE_V_ACTIVE_LINES)
 
-// Framebuffer resolution (MVS native, 2x scaled to 640x480)
-#define FRAMEBUF_WIDTH FRAME_WIDTH
-#define FRAMEBUF_HEIGHT FRAME_HEIGHT
+// Frame dimensions (set via video_output_init)
+extern uint16_t frame_width;
+extern uint16_t frame_height;
 
 // ============================================================================
 // Global State
@@ -41,6 +40,7 @@ extern volatile uint32_t video_frame_count;
 // ============================================================================
 
 typedef void (*video_output_task_fn)(void);
+typedef void (*video_output_vsync_cb_t)(void);
 
 /**
  * Scanline Callback:
@@ -56,13 +56,20 @@ typedef void (*video_output_scanline_cb_t)(uint32_t v_scanline, uint32_t active_
 
 /**
  * Initialize HSTX and DMA for video output.
+ * @param width Framebuffer width in pixels (e.g., 320)
+ * @param height Framebuffer height in pixels (e.g., 240)
  */
-void video_output_init(void);
+void video_output_init(uint16_t width, uint16_t height);
 
 /**
  * Register the scanline callback.
  */
 void video_output_set_scanline_callback(video_output_scanline_cb_t cb);
+
+/**
+ * Register a VSYNC callback, called once per frame at the start of vertical sync.
+ */
+void video_output_set_vsync_callback(video_output_vsync_cb_t cb);
 
 /**
  * Register a background task to run in the Core 1 loop.
