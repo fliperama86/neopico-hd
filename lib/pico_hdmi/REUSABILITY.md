@@ -1,6 +1,6 @@
-# pico_dvi2 Reusability Roadmap
+# pico_hdmi Reusability Roadmap
 
-This document outlines the planned architectural changes to transition `pico_dvi2` from a firmware-specific component to a generic, reusable library for any RP2350 project requiring HSTX-based DVI/HDMI output.
+This document outlines the planned architectural changes to transition `pico_hdmi` from a firmware-specific component to a generic, reusable library for any RP2350 project requiring HSTX-based DVI/HDMI output.
 
 ## Priority 1: High - Decouple Pixel Source (Provider Pattern)
 

@@ -1,7 +1,7 @@
 /**
- * pico_dvi2 Pin Configuration
+ * pico_hdmi Pin Configuration
  *
- * Default HSTX output pin mapping for the pico_dvi2 library.
+ * Default HSTX output pin mapping for the pico_hdmi library.
  */
 
 #ifndef HSTX_PINS_H

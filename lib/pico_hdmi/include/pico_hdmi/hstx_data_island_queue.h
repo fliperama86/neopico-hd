@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "pico_dvi2/hstx_packet.h"
+#include "pico_hdmi/hstx_packet.h"
 
 /**
  * Initialize the Data Island queue and scheduler.

@@ -13,8 +13,8 @@ set(CMAKE_CXX_STANDARD 17)
 
 pico_sdk_init()
 
-# Add pico_dvi2 library
-add_subdirectory(../.. pico_dvi2)
+# Add pico_hdmi library
+add_subdirectory(../.. pico_hdmi)
 
 add_executable(bouncing_box
     main.c
@@ -26,7 +26,7 @@ target_link_libraries(bouncing_box
     hardware_clocks
     hardware_dma
     hardware_irq
-    pico_dvi2
+    pico_hdmi
 )
 
 # Enable USB output, disable UART

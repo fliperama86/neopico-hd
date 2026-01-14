@@ -112,7 +112,7 @@ The RP2350 has 520 KB SRAM, leaving ~279 KB free for future features (OSD, setti
 |------|---------|
 | `src/video/line_ring.h` | Ring buffer API and data structure |
 | `src/video/video_capture.c` | Core 0 capture loop, writes to ring |
-| `lib/pico_dvi2/src/video_output.c` | Core 1 HDMI output, reads from ring |
+| `lib/pico_hdmi/src/video_output.c` | Core 1 HDMI output, reads from ring |
 | `src/main.c` | Scanline callback with 2x scaling |
 
 ---

@@ -1,6 +1,6 @@
-# pico_dvi2 Examples
+# pico_hdmi Examples
 
-Example projects demonstrating the pico_dvi2 HDMI output library for RP2350.
+Example projects demonstrating the pico_hdmi HDMI output library for RP2350.
 
 ## bouncing_box
 

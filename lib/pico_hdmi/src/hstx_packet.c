@@ -1,4 +1,4 @@
-#include "pico_dvi2/hstx_packet.h"
+#include "pico_hdmi/hstx_packet.h"
 #include <string.h>
 
 // ============================================================================

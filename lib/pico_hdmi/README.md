@@ -1,12 +1,12 @@
-# PicoDVI²
+# PicoHDMI
 
-An HSTX-native DVI/HDMI output library for the RP2350 (Raspberry Pi Pico 2).
+An HSTX-native HDMI output library for the RP2350 (Raspberry Pi Pico 2).
 
-Unlike the original PicoDVI for RP2040 which required CPU-intensive PIO bit-banging, PicoDVI² leverages the RP2350's dedicated **HSTX (High-Speed Transmit)** peripheral with hardware TMDS encoding. This means near-zero CPU overhead for video output.
+Unlike the original PicoDVI for RP2040 which required CPU-intensive PIO bit-banging, PicoHDMI leverages the RP2350's dedicated **HSTX (High-Speed Transmit)** peripheral with hardware TMDS encoding. This means near-zero CPU overhead for video output.
 
 ## Overview
 
-`pico_dvi2` provides a high-performance video and audio output pipeline using the RP2350's HSTX hardware. It is designed to be decoupled from specific application logic, focusing strictly on the generation of stable TMDS signals and Data Island injection (e.g., for audio).
+`pico_hdmi` provides a high-performance video and audio output pipeline using the RP2350's HSTX hardware. It is designed to be decoupled from specific application logic, focusing strictly on the generation of stable TMDS signals and Data Island injection (e.g., for audio).
 
 ## Key Features
 
@@ -17,15 +17,15 @@ Unlike the original PicoDVI for RP2040 which required CPU-intensive PIO bit-bang
 
 ## Directory Structure
 
-- `include/pico_dvi2/`: Public headers. Use `#include <pico_dvi2/...>` in your project.
+- `include/pico_hdmi/`: Public headers. Use `#include <pico_hdmi/...>` in your project.
 - `src/`: Implementation files.
 - `CMakeLists.txt`: Build configuration.
 
 ## Usage
 
 1. Add this directory to your project's `lib` folder.
-2. Add `add_subdirectory(path/to/pico_dvi2)` to your `CMakeLists.txt`.
-3. Link against `pico_dvi2`.
+2. Add `add_subdirectory(path/to/pico_hdmi)` to your `CMakeLists.txt`.
+3. Link against `pico_hdmi`.
 4. Initialize with `video_output_init()` and run the output loop on Core 1 with `video_output_core1_run()`.
 
 ## Roadmap for Reusability

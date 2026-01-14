@@ -1,7 +1,7 @@
 /**
- * pico_dvi2 Bouncing Box Example
+ * pico_hdmi Bouncing Box Example
  *
- * Demonstrates basic usage of the pico_dvi2 library:
+ * Demonstrates basic usage of the pico_hdmi library:
  * - 640x480 @ 60Hz HDMI output
  * - Scanline callback for rendering
  * - HDMI audio (Für Elise melody)
@@ -13,9 +13,9 @@
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include "hardware/clocks.h"
-#include "pico_dvi2/video_output.h"
-#include "pico_dvi2/hstx_data_island_queue.h"
-#include "pico_dvi2/hstx_packet.h"
+#include "pico_hdmi/video_output.h"
+#include "pico_hdmi/hstx_data_island_queue.h"
+#include "pico_hdmi/hstx_packet.h"
 #include <string.h>
 #include <math.h>
 

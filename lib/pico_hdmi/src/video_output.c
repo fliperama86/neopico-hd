@@ -1,13 +1,13 @@
-#include "pico_dvi2/video_output.h"
+#include "pico_hdmi/video_output.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 #include "hardware/structs/bus_ctrl.h"
 #include "hardware/structs/hstx_ctrl.h"
 #include "hardware/structs/hstx_fifo.h"
-#include "pico_dvi2/hstx_data_island_queue.h"
-#include "pico_dvi2/hstx_packet.h"
-#include "pico_dvi2/hstx_pins.h"
+#include "pico_hdmi/hstx_data_island_queue.h"
+#include "pico_hdmi/hstx_packet.h"
+#include "pico_hdmi/hstx_pins.h"
 #include "pico/stdlib.h"
 #include <math.h>
 #include <string.h>
