@@ -9,7 +9,7 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 - **Hardware-Accelerated Pixel Conversion** - Uses RP2350 Interpolators + 256KB LUT for zero-overhead RGB565 conversion
 - **Digital audio capture** from I2S bus (before DAC) with 48kHz HDMI output
 - **Zero-overhead DMA video capture** - uses PIO + DMA with ping-pong buffering for perfect stability
-- **Hardware HSTX encoder** - uses RP2350's native TMDS encoder for efficient HDMI output
+- **PicoHDMI Output** - Powered by the [PicoHDMI](https://github.com/fliperama86/pico_hdmi) library for efficient, hardware-native TMDS encoding via RP2350 HSTX.
 
 ## Status
 
@@ -81,7 +81,7 @@ Requires [Pico SDK](https://github.com/raspberrypi/pico-sdk) with `PICO_SDK_PATH
 Core 0: Video Capture               Core 1: Audio Pipeline + HSTX
 +--------------------------+       +--------------------------+
 | Video: PIO1 -> DMA (PP)  |       | Audio: PIO2 -> processing|
-| Conv: Interp + 256KB LUT |       | HSTX hardware encoder    |
+| Conv: Interp + 256KB LUT |       | [ PicoHDMI Library ]     |
 | Main loop: Control       |       | - 640x480 @ 60Hz         |
 | Heartbeat LED            |       | - HDMI Data Islands      |
 +--------------------------+       +--------------------------+
@@ -90,6 +90,15 @@ Core 0: Video Capture               Core 1: Audio Pipeline + HSTX
           +--------- framebuf ----------------+
                   (320x240 RGB565)
 ```
+
+### PicoHDMI Library Integration
+
+The project leverages the [PicoHDMI](https://github.com/fliperama86/pico_hdmi) library (found in `lib/pico_hdmi`) to interface with the RP2350's HSTX peripheral. This library provides the high-performance TMDS encoding and Data Island management required for stable HDMI output.
+
+- **Dedicated Output Core**: To ensure rock-solid HDMI timing (exactly 800 cycles per line), the library runs its main loop on **Core 1**. This isolates the high-priority TMDS serialization from the video capture logic on Core 0.
+- **Zero-Latency Scaling**: We use the library's `video_output_set_scanline_callback()` to implement a scanline doubler. This performs 2x vertical upscaling (240p to 480p) on-the-fly as pixels are streamed to the HSTX, avoiding the need for a full 480p framebuffer.
+- **HDMI Audio Injection**: Audio data is integrated via the library's Data Island queue (`hstx_di_queue`). The audio subsystem pushes TERC4-encoded packets into this queue, which the library then automatically injects during the horizontal blanking intervals.
+- **Frame Synchronization**: A VSYNC callback is used to keep the video capture ring buffer and the HDMI output in perfect sync, minimizing latency and preventing screen tearing.
 
 ## Documentation
 
