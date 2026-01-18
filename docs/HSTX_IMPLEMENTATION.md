@@ -65,4 +65,3 @@ Comprehensive record of the RP2350 HSTX implementation and HDMI audio findings.
 
 - `pico_lib` (Shuichi Takano): Original HDMI audio logic.
 - `hsdaoh-rp2350` (Steve Markgraf): HSTX Data Island proof-of-concept.
-- `PicoDVI` (Luke Wren): Timing and TMDS reference.
