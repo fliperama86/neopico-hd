@@ -2,7 +2,6 @@
  * Audio Pipeline - Common Types
  *
  * Shared type definitions for all audio modules.
- * Note: Uses "ap_" prefix to avoid conflicts with PicoDVI's audio types.
  */
 
 #ifndef AUDIO_COMMON_H
