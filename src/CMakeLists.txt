@@ -12,6 +12,7 @@ add_executable(neopico_hd
     audio/dc_filter.c
     audio/lowpass.c
     audio/src.c
+    video/video_pipeline.c
 )
 
 # Add pico_hdmi library

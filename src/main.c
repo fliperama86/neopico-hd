@@ -14,6 +14,7 @@
 #include "pico_hdmi/video_output.h"
 #include "video/line_ring.h"
 #include "video/video_config.h"
+#include "video/video_pipeline.h"
 #include "video_capture.h"
 #include <stdio.h>
 #include <string.h>
@@ -83,6 +84,9 @@ void __scratch_x("") mvs_scanline_doubler(uint32_t v_scanline, uint32_t active_l
 
     const uint16_t *src = line_ring_read_ptr(mvs_line);
 
+    // Scanline effect: only on even rows of the 480p output
+    bool use_scanlines = fx_scanlines_enabled && (active_line % 2 == 0);
+
     // Check if OSD is visible AND this line intersects OSD box
     // OSD coordinates are in 240p space (fb_line), same as video
     if (osd_visible && fb_line >= OSD_BOX_Y && fb_line < OSD_BOX_Y + OSD_BOX_H) {
@@ -104,7 +108,11 @@ void __scratch_x("") mvs_scanline_doubler(uint32_t v_scanline, uint32_t active_l
                           LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
     } else {
         // Fast path: no OSD on this line, full video doubling
-        double_pixels_fast(dst, src, LINE_WIDTH);
+        if (use_scanlines) {
+            video_pipeline_double_pixels_scanline(dst, src, LINE_WIDTH);
+        } else {
+            double_pixels_fast(dst, src, LINE_WIDTH);
+        }
     }
 }
 
