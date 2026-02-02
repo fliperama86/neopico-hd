@@ -3,6 +3,8 @@
 #include <string.h>
 
 #include "font_8x8.h"
+#include "pico.h"
+#include "video/video_config.h"
 
 // OSD state
 volatile bool osd_visible = false;
@@ -11,10 +13,11 @@ volatile bool osd_visible = false;
 // Aligned for efficient 32-bit access
 uint16_t __attribute__((aligned(4))) osd_framebuffer[OSD_BOX_H][OSD_BOX_W];
 
+
 void osd_init(void)
 {
     osd_clear();
-    osd_visible = false;
+    osd_visible = true;
 }
 
 void osd_clear(void)
@@ -68,3 +71,4 @@ void osd_puts(int x, int y, const char *str)
             break;
     }
 }
+
