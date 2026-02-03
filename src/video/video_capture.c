@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "audio_subsystem.h"
 #include "hardware_config.h"
 #include "line_ring.h"
 #include "mvs_pins.h"
@@ -74,6 +75,11 @@ static void generate_pixel_lut(void)
 #define V_SKIP_LINES 16
 #define NEO_V_ACTIVE 224
 
+// Require this many consecutive vsyncs before trusting signal (reduces lock to noise on power-up)
+#define STABLE_FRAME_COUNT 30
+// Start audio this many frames after we begin capturing (lets MVS video + audio clocks settle)
+#define AUDIO_DELAY_FRAMES 30
+
 // =============================================================================
 // State
 // =============================================================================
@@ -116,12 +122,10 @@ static int g_consecutive_frames = 0;
 #define MVS_REVERSE_G 1
 #define MVS_REVERSE_B 1
 #define MVS_RAW_COLOR_MASK 0
-// Channel swap: PCB may have R/G/B pins wired to different channels (1 = enable swap)
-#define MVS_SWAP_RG 0
-#define MVS_SWAP_RB 0
-#define MVS_SWAP_GB 0
 // Reverse entire 15-bit color word (bus wired MSB↔LSB on PCB)
 #define MVS_REVERSE_15BIT 0
+// Black level: clamp 5-bit R/G/B at or below this to 0 (fixes gray blacks from MVS pedestal). 0 = off, 1–3 = clamp.
+#define MVS_BLACK_LEVEL_CLAMP 2
 
 static inline uint32_t mvs_reverse_15(uint32_t x)
 {
@@ -152,23 +156,13 @@ static void generate_color_correct_lut(void)
         uint32_t r5 = mvs_correct_5bit((idx >> 10) & 0x1F, MVS_INVERT_R, MVS_REVERSE_R);
         uint32_t g5 = mvs_correct_5bit((idx >> 5) & 0x1F, MVS_INVERT_G, MVS_REVERSE_G);
         uint32_t b5 = mvs_correct_5bit(idx & 0x1F, MVS_INVERT_B, MVS_REVERSE_B);
-        uint32_t tmp;
-#if MVS_SWAP_RG
-        tmp = r5;
-        r5 = g5;
-        g5 = tmp;
-#endif
-#if MVS_SWAP_RB
-        tmp = r5;
-        r5 = b5;
-        b5 = tmp;
-#endif
-#if MVS_SWAP_GB
-        tmp = g5;
-        g5 = b5;
-        b5 = tmp;
-#endif
-        g_color_correct_lut[idx] = (uint16_t)((r5 << 11) | (g5 << 6) | (g5 >> 4) | b5);
+        // Black-level clamp: MVS often has a slight pedestal so "black" is a few LSB above 0
+        if (MVS_BLACK_LEVEL_CLAMP > 0 && r5 <= MVS_BLACK_LEVEL_CLAMP && g5 <= MVS_BLACK_LEVEL_CLAMP &&
+            b5 <= MVS_BLACK_LEVEL_CLAMP) {
+            g_color_correct_lut[idx] = 0;
+        } else {
+            g_color_correct_lut[idx] = (uint16_t)((r5 << 11) | (g5 << 6) | (g5 >> 4) | b5);
+        }
     }
 }
 
@@ -372,6 +366,8 @@ void video_capture_init(uint mvs_height)
 void video_capture_run(void)
 {
     static bool btn_was_pressed = false;
+    static bool audio_started = false;
+    static uint32_t frames_since_lock = 0;
 
     while (1) {
         g_frame_count++;
@@ -387,13 +383,23 @@ void video_capture_run(void)
         if (!wait_for_vsync(g_pio_mvs, g_sm_sync, 100)) {
             video_capture_reset_hardware();
             g_consecutive_frames = 0;
+            frames_since_lock = 0;
             continue;
         }
 
         g_consecutive_frames++;
-        if (g_consecutive_frames < 10) {
-            // Wait for signal to stabilize
+        if (g_consecutive_frames < STABLE_FRAME_COUNT) {
+            // Wait for signal to stabilize before feeding video or starting audio
             continue;
+        }
+
+        // Start audio only after we've been capturing for a while (lets MVS clocks settle)
+        if (!audio_started) {
+            frames_since_lock++;
+            if (frames_since_lock >= AUDIO_DELAY_FRAMES) {
+                audio_subsystem_start();
+                audio_started = true;
+            }
         }
 
         // Signal VSYNC to Core 1
