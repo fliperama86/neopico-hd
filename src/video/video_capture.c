@@ -8,8 +8,10 @@
 #include "video_capture.h"
 
 #include "pico/stdlib.h"
+#include "pico/sync.h"
 
 #include "hardware/dma.h"
+#include "hardware/irq.h"
 #include "hardware/pio.h"
 
 #include <stdio.h>
@@ -75,10 +77,10 @@ static void generate_pixel_lut(void)
 #define V_SKIP_LINES 16
 #define NEO_V_ACTIVE 224
 
-// Require this many consecutive vsyncs before trusting signal (reduces lock to noise on power-up)
-#define STABLE_FRAME_COUNT 30
-// Start audio this many frames after we begin capturing (lets MVS video + audio clocks settle)
-#define AUDIO_DELAY_FRAMES 30
+// PIO IRQ index: sync SM raises this on every line push for event-driven vsync (no polling)
+#define MVS_SYNC_IRQ_INDEX 0
+// No-signal timeout: only used to detect cable unplug / loss of signal; normal path is IRQ-driven
+#define MVS_NO_SIGNAL_TIMEOUT_MS 100
 
 // =============================================================================
 // State
@@ -100,7 +102,9 @@ static volatile uint32_t g_frame_count = 0;
 static int g_skip_start_words = 0;
 static int g_active_words = 0;
 static int g_line_words = 0;
-static int g_consecutive_frames = 0;
+
+// Semaphore released by sync IRQ handler when vsync is detected (one release per frame)
+static semaphore_t g_vsync_sem;
 
 // =============================================================================
 // Pixel Conversion
@@ -200,45 +204,34 @@ static inline void drain_sync_fifo(PIO pio, uint sm)
     }
 }
 
-static bool wait_for_vsync(PIO pio, uint sm_sync, uint32_t timeout_ms)
+// Runs in IRQ context: one word per line from sync PIO; detect vsync (long pulse after 8 short) and release semaphore
+static void sync_irq_handler(void)
 {
-    uint32_t equ_count = 0;
-    absolute_time_t timeout = make_timeout_time_ms(timeout_ms);
-    bool in_vsync = false;
-    static uint32_t timeout_count = 0;
+    pio_interrupt_clear(g_pio_mvs, MVS_SYNC_IRQ_INDEX);
+    if (pio_sm_is_rx_fifo_empty(g_pio_mvs, g_sm_sync))
+        return;
 
-    while (true) {
-        if (absolute_time_diff_us(get_absolute_time(), timeout) <= 0) {
-            timeout_count++;
-            tud_task(); // Keep USB alive
-            return false;
-        }
+    uint32_t h_ctr = pio_sm_get(g_pio_mvs, g_sm_sync);
+    bool is_short_pulse = (h_ctr <= H_THRESHOLD);
 
-        if (pio_sm_is_rx_fifo_empty(pio, sm_sync)) {
-            tight_loop_contents();
-            continue;
-        }
+    static uint32_t equ_count = 0;
+    static bool in_vsync = false;
 
-        uint32_t h_ctr = pio_sm_get(pio, sm_sync);
-        bool is_short_pulse = (h_ctr <= H_THRESHOLD);
-
-        if (!in_vsync) {
-            if (is_short_pulse) {
-                equ_count++;
-            } else {
-                if (equ_count >= 8) {
-                    in_vsync = true;
-                    equ_count = 0;
-                }
-                equ_count = 0;
-            }
+    if (!in_vsync) {
+        if (is_short_pulse) {
+            equ_count++;
         } else {
-            if (is_short_pulse) {
-                equ_count++;
-            } else {
-                timeout_count = 0;
-                return true;
-            }
+            if (equ_count >= 8)
+                in_vsync = true;
+            equ_count = 0;
+        }
+    } else {
+        if (is_short_pulse) {
+            equ_count++;
+        } else {
+            equ_count = 0;
+            in_vsync = false;
+            sem_release(&g_vsync_sem);
         }
     }
 }
@@ -275,8 +268,9 @@ static void video_capture_reset_hardware(void)
     // 4. Re-feed the pixel count to the Pixel SM
     pio_sm_put_blocking(g_pio_mvs, g_sm_pixel, NEO_H_TOTAL - 1);
 
-    // 5. Clear any pending trigger IRQ
+    // 5. Clear any pending trigger IRQ and sync data-ready IRQ
     pio_interrupt_clear(g_pio_mvs, 4);
+    pio_interrupt_clear(g_pio_mvs, MVS_SYNC_IRQ_INDEX);
 }
 
 // =============================================================================
@@ -361,13 +355,24 @@ void video_capture_init(uint mvs_height)
     channel_config_set_write_increment(&dc, true);
     channel_config_set_dreq(&dc, pio_get_dreq(g_pio_mvs, g_sm_pixel, false));
     dma_channel_configure(g_dma_chan, &dc, g_line_buffers[0], &g_pio_mvs->rxf[g_sm_pixel], 0, false);
+
+    // 9. Sync IRQ: event-driven vsync (no polling). Sync SM raises IRQ 0 on every line push.
+    sem_init(&g_vsync_sem, 0, 2);
+    pio_interrupt_clear(g_pio_mvs, MVS_SYNC_IRQ_INDEX);
+    g_pio_mvs->inte0 |= (1U << MVS_SYNC_IRQ_INDEX);
+    irq_set_exclusive_handler(PIO1_IRQ_0, sync_irq_handler);
+    irq_set_enabled(PIO1_IRQ_0, true);
 }
 
 void video_capture_run(void)
 {
     static bool btn_was_pressed = false;
     static bool audio_started = false;
-    static uint32_t frames_since_lock = 0;
+
+    // One-time: wait for first vsync (IRQ-driven) then drain FIFO for clean phase
+    if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
+        drain_sync_fifo(g_pio_mvs, g_sm_sync);
+    }
 
     while (1) {
         g_frame_count++;
@@ -379,27 +384,23 @@ void video_capture_run(void)
         }
         btn_was_pressed = btn_pressed;
 
-        // Wait for VSYNC
-        if (!wait_for_vsync(g_pio_mvs, g_sm_sync, 100)) {
+        // Block until vsync (IRQ gives semaphore) or no-signal timeout
+        if (!sem_acquire_timeout_ms(&g_vsync_sem, MVS_NO_SIGNAL_TIMEOUT_MS)) {
             video_capture_reset_hardware();
-            g_consecutive_frames = 0;
-            frames_since_lock = 0;
-            continue;
-        }
-
-        g_consecutive_frames++;
-        if (g_consecutive_frames < STABLE_FRAME_COUNT) {
-            // Wait for signal to stabilize before feeding video or starting audio
-            continue;
-        }
-
-        // Start audio only after we've been capturing for a while (lets MVS clocks settle)
-        if (!audio_started) {
-            frames_since_lock++;
-            if (frames_since_lock >= AUDIO_DELAY_FRAMES) {
-                audio_subsystem_start();
-                audio_started = true;
+            if (audio_started) {
+                audio_subsystem_set_muted(true);
+                audio_subsystem_stop();
+                audio_started = false;
             }
+            tud_task();
+            continue;
+        }
+
+        // Start audio on first vsync (event-driven; no arbitrary frame counts)
+        if (!audio_started) {
+            audio_subsystem_start();
+            audio_subsystem_set_muted(false);
+            audio_started = true;
         }
 
         // Signal VSYNC to Core 1

@@ -20,6 +20,16 @@ static int audio_frame_counter = 0;
 static audio_sample_t audio_collect_buffer[AUDIO_COLLECT_SIZE];
 static uint32_t audio_collect_count = 0;
 
+// When true, push silence to HDMI instead of captured samples (CPS2_DIGAV-style: no garbage on power-on/timeout)
+static volatile bool audio_output_muted = true;
+
+static const audio_sample_t audio_silence[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
+
+void audio_subsystem_set_muted(bool muted)
+{
+    audio_output_muted = muted;
+}
+
 static void audio_output_callback(const audio_sample_t *samples, uint32_t count, void *ctx)
 {
     (void)ctx;
@@ -31,23 +41,20 @@ static void audio_output_callback(const audio_sample_t *samples, uint32_t count,
 
         if (audio_collect_count >= 4) {
             hstx_packet_t packet;
-            // Get the new frame counter but don't commit it yet
-            int new_frame_counter =
-                hstx_packet_set_audio_samples(&packet, audio_collect_buffer, 4, audio_frame_counter);
+            const audio_sample_t *src = audio_output_muted ? audio_silence : audio_collect_buffer;
+            int new_frame_counter = hstx_packet_set_audio_samples(&packet, src, 4, audio_frame_counter);
 
             hstx_data_island_t island;
             hstx_encode_data_island(&island, &packet, false, true);
 
             if (hstx_di_queue_push(&island)) {
-                // Only advance frame counter after successful push to maintain
-                // IEC 60958 block synchronization (B_FLAG every 192 samples)
                 audio_frame_counter = new_frame_counter;
                 audio_collect_count -= 4;
                 for (uint32_t j = 0; j < audio_collect_count; j++) {
                     audio_collect_buffer[j] = audio_collect_buffer[j + 4];
                 }
             } else {
-                break; // Queue full - frame counter NOT advanced, packet will be retried
+                break;
             }
         }
     }
