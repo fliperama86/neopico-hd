@@ -6471,7 +6471,7 @@
 			)
 		)
 	)
-	(global_label "MVS_PCKL"
+	(global_label "MVS_PCLK"
 		(shape input)
 		(at 82.55 80.01 180)
 		(fields_autoplaced yes)
@@ -6753,7 +6753,7 @@
 			)
 		)
 	)
-	(global_label "MVS_PCKL"
+	(global_label "MVS_PCLK"
 		(shape output)
 		(at 26.67 50.8 180)
 		(fields_autoplaced yes)
@@ -6829,7 +6829,7 @@
 			)
 		)
 	)
-	(global_label "PCKL"
+	(global_label "PCLK"
 		(shape output)
 		(at 102.87 80.01 0)
 		(fields_autoplaced yes)
@@ -8191,7 +8191,7 @@
 			)
 		)
 	)
-	(global_label "PCKL"
+	(global_label "PCLK"
 		(shape input)
 		(at 228.6 91.44 0)
 		(fields_autoplaced yes)
