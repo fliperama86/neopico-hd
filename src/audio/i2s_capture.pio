@@ -1,46 +1,48 @@
 .program i2s_capture
 
-; Pins (GPIO numbers, PIO2 Bank 0): DAT=0 (in pins, 1), WS=2, BCK=4
+; Pins: OUT_BASE = DAT, so pin 0=DAT, 1=WS, 2=BCK (C code sets OUT_BASE to pin_dat)
 
     ; Simple sync: Wait for WS to go high then low to start at Right channel
-    wait 1 pin 2                ; WS High
-    wait 0 pin 2                ; WS Low
+    wait 1 pin 1                ; WS High  (pin 1 = WS)
+    wait 0 pin 1                ; WS Low
 
 .wrap_target
     ; === RIGHT CHANNEL (WS LOW) ===
     set x, 23                   ; Capture 24 bits
 right_loop:
-    wait 0 pin 4                ; BCK Low
-    wait 1 pin 4                ; BCK High (Rising Edge)
+    wait 0 pin 2                ; BCK Low  (pin 2 = BCK)
+    wait 1 pin 2                ; BCK High (Rising Edge)
     nop                         ; Hold margin before sampling DAT (reduces cracking)
-    in pins, 1                  ; Sample DAT (GP0)
+    in pins, 1                  ; Sample DAT (in_base)
     jmp x-- right_loop
     push noblock                ; Push 24 bits
 
     ; === LEFT CHANNEL (WS HIGH) ===
-    wait 1 pin 2                ; Wait for WS to go High
+    wait 1 pin 1                ; Wait for WS to go High
     set x, 23                   ; Capture 24 bits
 left_loop:
-    wait 0 pin 4                ; BCK Low
-    wait 1 pin 4                ; BCK High (Rising Edge)
+    wait 0 pin 2                ; BCK Low
+    wait 1 pin 2                ; BCK High (Rising Edge)
     nop                         ; Hold margin before sampling DAT (reduces cracking)
-    in pins, 1                  ; Sample DAT (GP0)
+    in pins, 1                  ; Sample DAT
     jmp x-- left_loop
     push noblock                ; Push 24 bits
 
-    wait 0 pin 2                ; Wait for WS to go Low again for next frame
+    wait 0 pin 1                ; Wait for WS to go Low again for next frame
 .wrap
 
 % c-sdk {
 #include "hardware/gpio.h"
 
-// Pin definitions: DAT=0, WS=2, BCK=4 (PIO program uses wait pin 2 and 4)
+// Pin definitions: DAT, WS, BCK. OUT_BASE = DAT so wait pin 0=DAT, 1=WS, 2=BCK.
 
 static inline void i2s_capture_program_init(PIO pio, uint sm, uint offset, uint pin_dat, uint pin_ws, uint pin_bck) {
     pio_sm_config c = i2s_capture_program_get_default_config(offset);
 
-    // Set IN pin base to DAT (PIO samples this pin; wait instructions use pin 2 = WS, pin 4 = BCK)
+    // IN pin base = DAT (in pins, 1 samples DAT)
     sm_config_set_in_pins(&c, pin_dat);
+    // OUT pin set = DAT, WS, BCK so "wait pin 0/1/2" map to these GPIOs
+    sm_config_set_out_pins(&c, pin_dat, 3);
 
     // Shift LEFT (MSB first), no autopush.
     // Data arrives MSB first and shifts into ISR bit 0, moving up.

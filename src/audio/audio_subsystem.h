@@ -19,4 +19,10 @@ void audio_subsystem_start(void);
  */
 void audio_subsystem_stop(void);
 
+/**
+ * Mute/unmute HDMI audio output (push silence when muted).
+ * Core 0 sets muted on timeout, unmuted when video is locked (CPS2_DIGAV-style).
+ */
+void audio_subsystem_set_muted(bool muted);
+
 #endif // AUDIO_SUBSYSTEM_H

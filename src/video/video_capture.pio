@@ -15,9 +15,10 @@ count_loop:
 check_pin:
     jmp pin count_loop          ; If CSYNC still High, keep counting (JMP_PIN = GP27)
 
-    ; CSYNC went Low - push count
+    ; CSYNC went Low - push count and raise IRQ for event-driven vsync (Core 0)
     mov isr, !x
     push noblock
+    irq set 0
     jmp entry_point
 
 

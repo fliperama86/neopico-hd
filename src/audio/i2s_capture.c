@@ -176,8 +176,9 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap)
             }
         }
     } else {
-        // SILENT RESET: No activity watchdog
-        if (now - cap->last_activity_time > 50000) {
+        // No activity: only reset after sustained silence (avoids scratchiness from brief dropouts).
+        // 200 ms = ~11k samples at 55.5 kHz; IRQ-driven video doesn't rely on this for sync.
+        if (now - cap->last_activity_time > 200000) {
             i2s_capture_stop(cap);
             i2s_capture_start(cap);
             cap->last_activity_time = now;

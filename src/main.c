@@ -66,9 +66,8 @@ int main(void)
     video_capture_init(MVS_HEIGHT);
     sleep_ms(200);
 
-    // Initialize audio subsystem
+    // Initialize audio subsystem (capture starts after video lock in video_capture_run)
     audio_subsystem_init();
-    audio_subsystem_start();
     stdio_flush();
 
     // Launch Core 1 for HSTX output
