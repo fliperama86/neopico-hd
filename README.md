@@ -1,3 +1,5 @@
+[![Discord](https://img.shields.io/discord/1469422496833863884)](https://discord.gg/KwRTbtee)
+
 # NeoPico-HD
 
 Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware using Raspberry Pi Pico 2 (RP2350B).
