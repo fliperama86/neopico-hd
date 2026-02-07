@@ -15,14 +15,15 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 
 ## Status
 
-| Feature              | Status  |
-| -------------------- | ------- |
-| 480p HDMI video      | Working |
-| 60fps capture        | Working |
-| RGB555 + DARK/SHADOW | Working |
-| HDMI audio (48kHz)   | Working |
-| OSD Diagnostics      | Working |
-| RT4K / Tink 4K       | Tested  |
+| Feature                 | Status  |
+| ----------------------- | ------- |
+| 480p HDMI video         | Working |
+| 60fps capture           | Working |
+| RGB555 + DARK/SHADOW    | Working |
+| HDMI audio (48kHz)      | Working |
+| OSD Diagnostics         | Working |
+| Morhph4K, RetroTink 4K  | Working |
+| Samsung Q80, Acer Pred. | Working |
 
 ## Hardware Requirements
 
