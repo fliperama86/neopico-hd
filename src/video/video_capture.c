@@ -7,9 +7,12 @@
 
 #include "video_capture.h"
 
+#include "pico_hdmi/video_output_rt.h"
+
 #include "pico/stdlib.h"
 #include "pico/sync.h"
 
+#include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "hardware/pio.h"
@@ -364,10 +367,16 @@ void video_capture_init(uint mvs_height)
     irq_set_enabled(PIO1_IRQ_0, true);
 }
 
+// Genlock: 60 Hz = 126 MHz sysclk, ~59.18 Hz = 124.1 MHz (nominal MVS)
+#define SYS_CLK_60HZ_KHZ 126000
+#define SYS_CLK_GENLOCK_KHZ 124100
+
 void video_capture_run(void)
 {
     static bool btn_was_pressed = false;
+    static bool back_was_pressed = false;
     static bool audio_started = false;
+    static bool genlock_enabled = false;
 
     // One-time: wait for first vsync (IRQ-driven) then drain FIFO for clean phase
     if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
@@ -377,12 +386,21 @@ void video_capture_run(void)
     while (1) {
         g_frame_count++;
 
-        // Check OSD toggle button (active low, simple edge detection)
+        // OSD toggle (MENU)
         bool btn_pressed = !gpio_get(PIN_OSD_BTN_MENU);
         if (btn_pressed && !btn_was_pressed) {
             osd_toggle();
         }
         btn_was_pressed = btn_pressed;
+
+        // 240p/480p mode toggle (BACK button)
+        bool back_pressed = !gpio_get(PIN_OSD_BTN_BACK);
+        if (back_pressed && !back_was_pressed) {
+            bool is_240p = (video_output_active_mode == &VIDEO_MODE_240P);
+            video_output_set_mode(is_240p ? &VIDEO_MODE_480P : &VIDEO_MODE_240P);
+            osd_puts(8, 40, is_240p ? "Mode: 480p " : "Mode: 240p ");
+        }
+        back_was_pressed = back_pressed;
 
         // Block until vsync (IRQ gives semaphore) or no-signal timeout
         if (!sem_acquire_timeout_ms(&g_vsync_sem, MVS_NO_SIGNAL_TIMEOUT_MS)) {

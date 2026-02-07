@@ -4,6 +4,7 @@
 add_executable(neopico_hd
     main.c
     video/video_capture.c
+    video/video_pipeline.c
     osd/osd.c
     audio/i2s_capture.c
     audio/audio_pipeline.c
@@ -12,10 +13,15 @@ add_executable(neopico_hd
     audio/dc_filter.c
     audio/lowpass.c
     audio/src.c
-    video/video_pipeline.c
 )
 
-# Add pico_hdmi library
+# 240p direct mode: uncomment to enable (requires pico_hdmi 240p support)
+# add_compile_definitions(VIDEO_MODE_320x240=1)
+
+# Enable runtime video mode switching in pico_hdmi
+set(PICO_HDMI_RUNTIME_MODES ON CACHE BOOL "" FORCE)
+
+# Add pico_hdmi library (MUST be after add_compile_definitions and option overrides)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../lib/pico_hdmi ${CMAKE_CURRENT_BINARY_DIR}/pico_hdmi)
 
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)

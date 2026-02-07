@@ -5,7 +5,7 @@
  */
 
 #include "pico_hdmi/hstx_data_island_queue.h"
-#include "pico_hdmi/video_output.h"
+#include "pico_hdmi/video_output_rt.h"
 
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
@@ -46,6 +46,10 @@ int main(void)
     gpio_init(PIN_OSD_BTN_MENU);
     gpio_set_dir(PIN_OSD_BTN_MENU, GPIO_IN);
     gpio_pull_up(PIN_OSD_BTN_MENU);
+
+    gpio_init(PIN_OSD_BTN_BACK);
+    gpio_set_dir(PIN_OSD_BTN_BACK, GPIO_IN);
+    gpio_pull_up(PIN_OSD_BTN_BACK);
 
     sleep_ms(1000);
     stdio_flush();
