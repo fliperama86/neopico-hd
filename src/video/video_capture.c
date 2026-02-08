@@ -381,9 +381,9 @@ void video_capture_run(void)
     static bool led_state = false;
 
     // One-time: wait for first vsync (IRQ-driven) then drain FIFO for clean phase
-    // if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
-    //     drain_sync_fifo(g_pio_mvs, g_sm_sync);
-    // }
+    if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
+        drain_sync_fifo(g_pio_mvs, g_sm_sync);
+    }
 
     while (1) {
         g_frame_count++;

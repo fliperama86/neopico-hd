@@ -37,9 +37,12 @@ To ensure clean audio and video capture, follow these best practices:
 
 1.  **Common Ground**: A solid ground connection between the MVS board and the Pico is **mandatory**.
 2.  **HDMI Power**: It is **absolutely mandatory** to have the HDMI connector properly powered with **+5V**. While some devices (like the Morph4K) may be forgiving, others (like the RetroTINK, TVs and monitors) will not pick up the signal without it.
-3.  **Cable Separation**: Physically separate the audio wires (Bank 1) from the video wire bundle to avoid coupling.
-4.  **Shielding**: Use a **GND-Signal-GND** pattern when using ribbon cables.
-5.  **Series Termination**: Add **33Ω resistors** in series with PCLK and BCK to suppress ringing.
+3.  **Level Shifting**: Route all MVS -> Pico digital lines through proper **5V-to-3.3V level shifters**.
+4.  **Clock Conditioning**: Keep **Schmitt-trigger conditioning** on PCLK and BCK for clean edges.
+5.  **Power-Path Isolation**: Prevent back-feed between external 5V and USB 5V (ideal diode/power mux approach recommended).
+6.  **Cable Separation**: Physically separate the I2S audio wires (GPIO 22-24 path) from the video wire bundle to avoid coupling.
+7.  **Shielding**: Use a **GND-Signal-GND** pattern when using ribbon cables.
+8.  **Series Termination**: Add **33Ω resistors** in series with PCLK and BCK to suppress ringing.
 
 ### Pin Configuration
 

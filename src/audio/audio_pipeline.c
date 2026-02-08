@@ -43,13 +43,13 @@ bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *con
         return false;
     }
 
-    // Initialize DC filter (enabled to remove DC offset)
+    // Initialize DC filter (disabled — minimal path)
     dc_filter_init(&p->dc_filter);
-    p->dc_filter.enabled = true;
+    p->dc_filter.enabled = false;
 
-    // Initialize lowpass filter (enabled to reduce noise)
+    // Initialize lowpass filter (disabled — minimal path)
     lowpass_init(&p->lowpass);
-    p->lowpass.enabled = true;
+    p->lowpass.enabled = false;
 
     // Initialize SRC (DROP mode by default - proper decimation)
     src_init(&p->src, SRC_INPUT_RATE_DEFAULT, SRC_OUTPUT_RATE_DEFAULT);

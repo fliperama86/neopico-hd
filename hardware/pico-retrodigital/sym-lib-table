@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "pico-retrodigital")(type "KiCad")(uri "${KIPRJMOD}/pico-retrodigital.kicad_sym")(options "")(descr ""))
+)

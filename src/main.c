@@ -1,7 +1,8 @@
 /**
  * NeoPico-HD - MVS Video Capture + HSTX Output
  *
- * Streaming architecture: line ring buffer between Core 0 (capture) and Core 1 (output)
+ * Core 0: Audio capture + processing
+ * Core 1: HSTX HDMI output (DMA IRQ handler consumes DI queue)
  */
 
 #include "pico_hdmi/hstx_data_island_queue.h"
@@ -26,13 +27,6 @@
 // Line ring buffer (shared between Core 0 and Core 1)
 line_ring_t g_line_ring __attribute__((aligned(64)));
 
-// Single Core 1 background task: run OSD then audio (video output API takes one task)
-static void core1_background_task(void)
-{
-    audio_subsystem_background_task();
-    // osd_background_task();
-}
-
 // ============================================================================
 // Main (Core 0)
 // ============================================================================
@@ -49,7 +43,6 @@ int main(void)
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
     // Initialize OSD button (active low with internal pull-up)
-    // Wire button between GPIO and GND
     gpio_init(PIN_OSD_BTN_MENU);
     gpio_set_dir(PIN_OSD_BTN_MENU, GPIO_IN);
     gpio_pull_up(PIN_OSD_BTN_MENU);
@@ -64,36 +57,30 @@ int main(void)
     // Initialize line ring buffer
     memset(&g_line_ring, 0, sizeof(g_line_ring));
 
-    // Initialize OSD (hidden by default, press MENU button to toggle)
-    // osd_init();
-    // osd_puts(8, 8, "NeoPico-HD");
-    // osd_show();
-
-    // Initialize video pipeline (HDMI output + callbacks)
+    // Initialize HDMI output pipeline
     hstx_di_queue_init();
     video_pipeline_init(FRAME_WIDTH, FRAME_HEIGHT);
+
+    // Initialize audio hardware (GPIO, PIO2, DMA) — on Core 0, before HSTX
+    audio_subsystem_init();
+
+    // Pre-fill DI queue with silence (HSTX has valid audio from first frame)
+    audio_subsystem_prefill_di_queue();
+
+    // Start I2S capture muted — begin BCK measurement immediately
+    audio_subsystem_start();
 
     // Initialize video capture
     video_capture_init(MVS_HEIGHT);
     sleep_ms(200);
-
-    // Initialize audio subsystem (capture starts after video lock in video_capture_run)
-    audio_subsystem_init();
     stdio_flush();
 
-    // Register Core 1 background task (OSD then audio)
-    video_output_set_background_task(core1_background_task);
-
-    // Launch Core 1 for HSTX output
+    // Launch Core 1 for HSTX output only (audio fed from Core 0 via DI queue)
     multicore_launch_core1(video_output_core1_run);
-    sleep_ms(100);
 
-    // Core 0: Run video capture loop (never returns)
-    // This captures lines into the ring buffer and signals VSYNC to Core 1
-    // video_capture_run();
-
-    audio_subsystem_start();
-    audio_subsystem_set_muted(false);
-
-    return 0;
+    // Core 0: audio processing (muted for 2s warmup, then unmute)
+    while (1) {
+        audio_subsystem_core0_poll();
+        tight_loop_contents();
+    }
 }
