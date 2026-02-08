@@ -65,9 +65,9 @@ int main(void)
     memset(&g_line_ring, 0, sizeof(g_line_ring));
 
     // Initialize OSD (hidden by default, press MENU button to toggle)
-    osd_init();
-    osd_puts(8, 8, "NeoPico-HD");
-    osd_show();
+    // osd_init();
+    // osd_puts(8, 8, "NeoPico-HD");
+    // osd_show();
 
     // Initialize video pipeline (HDMI output + callbacks)
     hstx_di_queue_init();

@@ -25,6 +25,7 @@
 #include "line_ring.h"
 #include "mvs_pins.h"
 #include "osd/osd.h"
+#include "pico.h"
 #include "tusb.h"
 #include "video_capture.pio.h"
 
@@ -377,14 +378,19 @@ void video_capture_run(void)
     static bool back_was_pressed = false;
     static bool audio_started = false;
     static bool genlock_enabled = false;
+    static bool led_state = false;
 
     // One-time: wait for first vsync (IRQ-driven) then drain FIFO for clean phase
-    if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
-        drain_sync_fifo(g_pio_mvs, g_sm_sync);
-    }
+    // if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
+    //     drain_sync_fifo(g_pio_mvs, g_sm_sync);
+    // }
 
     while (1) {
         g_frame_count++;
+        if (g_frame_count % 60 == 0) {
+            led_state = !led_state;
+            gpio_put(PICO_DEFAULT_LED_PIN, led_state);
+        }
 
         if (!sem_acquire_timeout_ms(&g_vsync_sem, MVS_NO_SIGNAL_TIMEOUT_MS)) {
             video_capture_reset_hardware();
@@ -404,59 +410,58 @@ void video_capture_run(void)
             audio_started = true;
         }
 
+        continue;
+
         // Signal VSYNC to Core 1
-        // line_ring_vsync();
+        line_ring_vsync();
 
-        // drain_sync_fifo(g_pio_mvs, g_sm_sync);
+        drain_sync_fifo(g_pio_mvs, g_sm_sync);
 
-        // // Reset Pixel Capture SM for frame alignment
-        // pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
-        // pio_sm_clear_fifos(g_pio_mvs, g_sm_pixel);
-        // pio_sm_exec(g_pio_mvs, g_sm_pixel, pio_encode_jmp(g_offset_pixel + 2));
-        // pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, true);
+        // Reset Pixel Capture SM for frame alignment
+        pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
+        pio_sm_clear_fifos(g_pio_mvs, g_sm_pixel);
+        pio_sm_exec(g_pio_mvs, g_sm_pixel, pio_encode_jmp(g_offset_pixel + 2));
+        pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, true);
 
-        // // Prepare first DMA
-        // dma_channel_set_trans_count(g_dma_chan, g_line_words, false);
-        // dma_channel_set_write_addr(g_dma_chan, g_line_buffers[0], true);
+        // Prepare first DMA
+        dma_channel_set_trans_count(g_dma_chan, g_line_words, false);
+        dma_channel_set_write_addr(g_dma_chan, g_line_buffers[0], true);
 
-        // // Trigger capture
-        // pio_interrupt_clear(g_pio_mvs, 4);
-        // pio_sm_exec(g_pio_mvs, g_sm_sync, pio_encode_irq_set(false, 4));
+        // Trigger capture
+        pio_interrupt_clear(g_pio_mvs, 4);
+        pio_sm_exec(g_pio_mvs, g_sm_sync, pio_encode_irq_set(false, 4));
 
-        // // Skip V border lines
-        // for (int skip = 0; skip < V_SKIP_LINES; skip++) {
-        //     dma_channel_wait_for_finish_blocking(g_dma_chan);
-        //     dma_channel_set_trans_count(g_dma_chan, g_line_words, false);
-        //     dma_channel_set_write_addr(g_dma_chan, g_line_buffers[0], true);
-        // }
+        // Skip V border lines
+        for (int skip = 0; skip < V_SKIP_LINES; skip++) {
+            dma_channel_wait_for_finish_blocking(g_dma_chan);
+            dma_channel_set_trans_count(g_dma_chan, g_line_words, false);
+            dma_channel_set_write_addr(g_dma_chan, g_line_buffers[0], true);
+        }
 
-        // // Capture active lines into ring buffer
-        // for (uint16_t line = 0; line < g_mvs_height; line++) {
-        //     uint16_t *dst = line_ring_write_ptr(line);
+        // Capture active lines into ring buffer
+        for (uint16_t line = 0; line < g_mvs_height; line++) {
+            uint16_t *dst = line_ring_write_ptr(line);
 
-        //     dma_channel_wait_for_finish_blocking(g_dma_chan);
+            dma_channel_wait_for_finish_blocking(g_dma_chan);
 
-        //     // Start next DMA (ping-pong)
-        //     uint32_t *buf = g_line_buffers[line % 2];
-        //     if (line + 1 < g_mvs_height) {
-        //         dma_channel_set_trans_count(g_dma_chan, g_line_words, false);
-        //         dma_channel_set_write_addr(g_dma_chan, g_line_buffers[(line + 1) % 2], true);
-        //     }
+            // Start next DMA (ping-pong)
+            uint32_t *buf = g_line_buffers[line % 2];
+            if (line + 1 < g_mvs_height) {
+                dma_channel_set_trans_count(g_dma_chan, g_line_words, false);
+                dma_channel_set_write_addr(g_dma_chan, g_line_buffers[(line + 1) % 2], true);
+            }
 
-        //     // Convert pixels directly to ring buffer
-        //     for (int i = 0; i < g_active_words; i++) {
-        //         dst[i] = convert_pixel(buf[g_skip_start_words + i]);
-        //     }
+            // Convert pixels directly to ring buffer
+            for (int i = 0; i < g_active_words; i++) {
+                dst[i] = convert_pixel(buf[g_skip_start_words + i]);
+            }
 
-        //     // Signal line ready
-        //     line_ring_commit(line + 1);
-        // }
+            // Signal line ready
+            line_ring_commit(line + 1);
+        }
 
         // Disable SM until next frame
-        // TODO: Investigate why the line below is causing issue when not commented out
         // pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
-        // OSD must be updated only on Core 1; updating from Core 0 here races with
-        // Core 1's DMA ISR reading osd_framebuffer and can crash.
     }
 }
 
