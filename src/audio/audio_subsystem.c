@@ -110,6 +110,11 @@ static void audio_background_task(void)
     }
 }
 
+void audio_subsystem_background_task(void)
+{
+    audio_background_task();
+}
+
 void audio_subsystem_init(void)
 {
     // Initialize PIO for I2S capture
@@ -125,9 +130,6 @@ void audio_subsystem_init(void)
                                             .sm = 0};
 
     audio_pipeline_init(&audio_pipeline, &audio_config);
-
-    // Register with video output Core 1 loop
-    video_output_set_background_task(audio_background_task);
 }
 
 void audio_subsystem_start(void)

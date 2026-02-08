@@ -47,4 +47,5 @@ static inline void osd_toggle(void)
     osd_visible = !osd_visible;
 }
 
+void osd_background_task(void);
 #endif // OSD_H

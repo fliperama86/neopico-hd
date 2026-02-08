@@ -25,4 +25,9 @@ void audio_subsystem_stop(void);
  */
 void audio_subsystem_set_muted(bool muted);
 
+/**
+ * Background task for audio subsystem (call from Core 1 only).
+ */
+void audio_subsystem_background_task(void);
+
 #endif // AUDIO_SUBSYSTEM_H

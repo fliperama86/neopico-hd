@@ -26,6 +26,13 @@
 // Line ring buffer (shared between Core 0 and Core 1)
 line_ring_t g_line_ring __attribute__((aligned(64)));
 
+// Single Core 1 background task: run OSD then audio (video output API takes one task)
+static void core1_background_task(void)
+{
+    audio_subsystem_background_task();
+    // osd_background_task();
+}
+
 // ============================================================================
 // Main (Core 0)
 // ============================================================================
@@ -60,7 +67,7 @@ int main(void)
     // Initialize OSD (hidden by default, press MENU button to toggle)
     osd_init();
     osd_puts(8, 8, "NeoPico-HD");
-    osd_puts(8, 24, "Press MENU to hide");
+    osd_show();
 
     // Initialize video pipeline (HDMI output + callbacks)
     hstx_di_queue_init();
@@ -73,6 +80,9 @@ int main(void)
     // Initialize audio subsystem (capture starts after video lock in video_capture_run)
     audio_subsystem_init();
     stdio_flush();
+
+    // Register Core 1 background task (OSD then audio)
+    video_output_set_background_task(core1_background_task);
 
     // Launch Core 1 for HSTX output
     multicore_launch_core1(video_output_core1_run);
