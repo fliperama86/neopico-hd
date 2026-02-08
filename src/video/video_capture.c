@@ -386,23 +386,6 @@ void video_capture_run(void)
     while (1) {
         g_frame_count++;
 
-        // OSD toggle (MENU)
-        bool btn_pressed = !gpio_get(PIN_OSD_BTN_MENU);
-        if (btn_pressed && !btn_was_pressed) {
-            osd_toggle();
-        }
-        btn_was_pressed = btn_pressed;
-
-        // 240p/480p mode toggle (BACK button)
-        bool back_pressed = !gpio_get(PIN_OSD_BTN_BACK);
-        if (back_pressed && !back_was_pressed) {
-            bool is_240p = (video_output_active_mode == &VIDEO_MODE_240P);
-            video_output_set_mode(is_240p ? &VIDEO_MODE_480P : &VIDEO_MODE_240P);
-            osd_puts(8, 40, is_240p ? "Mode: 480p " : "Mode: 240p ");
-        }
-        back_was_pressed = back_pressed;
-
-        // Block until vsync (IRQ gives semaphore) or no-signal timeout
         if (!sem_acquire_timeout_ms(&g_vsync_sem, MVS_NO_SIGNAL_TIMEOUT_MS)) {
             video_capture_reset_hardware();
             if (audio_started) {
@@ -470,7 +453,8 @@ void video_capture_run(void)
         }
 
         // Disable SM until next frame
-        pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
+        // TODO: Investigate why the line below is causing issue when not commented out
+        // pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
     }
 }
 

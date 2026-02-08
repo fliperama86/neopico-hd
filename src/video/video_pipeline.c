@@ -110,7 +110,7 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
 {
     (void)v_scanline;
 
-    bool is_240p = (video_output_active_mode == &VIDEO_MODE_240P);
+    bool is_240p = (video_output_active_mode == &video_mode_240_p);
     uint32_t h_words = video_output_active_mode->h_active_pixels / 2;
 
     // 240p: 1:1 line mapping, 480p: 2 output lines per source line
