@@ -394,23 +394,9 @@ void video_capture_run(void)
 
         if (!sem_acquire_timeout_ms(&g_vsync_sem, MVS_NO_SIGNAL_TIMEOUT_MS)) {
             video_capture_reset_hardware();
-            if (audio_started) {
-                audio_subsystem_set_muted(true);
-                audio_subsystem_stop();
-                audio_started = false;
-            }
             tud_task();
             continue;
         }
-
-        // Start audio on first vsync (event-driven; no arbitrary frame counts)
-        if (!audio_started) {
-            audio_subsystem_start();
-            audio_subsystem_set_muted(false);
-            audio_started = true;
-        }
-
-        continue;
 
         // Signal VSYNC to Core 1
         line_ring_vsync();

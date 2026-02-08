@@ -90,7 +90,10 @@ int main(void)
 
     // Core 0: Run video capture loop (never returns)
     // This captures lines into the ring buffer and signals VSYNC to Core 1
-    video_capture_run();
+    // video_capture_run();
+
+    audio_subsystem_start();
+    audio_subsystem_set_muted(false);
 
     return 0;
 }

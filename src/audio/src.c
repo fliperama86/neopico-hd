@@ -101,7 +101,7 @@ static uint32_t src_process_linear(src_t *s, const audio_sample_t *in, uint32_t 
         in_idx = 1;
     }
 
-    while (out_count < out_max && in_idx <= in_count) {
+    while (out_count < out_max && in_idx < in_count) {
         // Get integer and fractional parts of phase
         uint32_t int_phase = s->phase >> 16;
         uint32_t frac = s->phase & 0xFFFF;

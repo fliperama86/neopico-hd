@@ -16,8 +16,8 @@ bool fx_scanlines_enabled = false;
 void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
 {
     video_output_init(frame_width, frame_height);
-    video_output_set_scanline_callback(video_pipeline_scanline_callback);
-    video_output_set_vsync_callback(video_pipeline_vsync_callback);
+    // video_output_set_scanline_callback(video_pipeline_scanline_callback);
+    // video_output_set_vsync_callback(video_pipeline_vsync_callback);
 }
 
 /**
