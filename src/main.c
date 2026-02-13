@@ -33,6 +33,7 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 
 int main(void)
 {
+    sleep_ms(2000);
     // Set system clock to 126 MHz for HSTX timing
     set_sys_clock_khz(126000, true);
 

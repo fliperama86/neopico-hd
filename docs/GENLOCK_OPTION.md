@@ -44,7 +44,7 @@ The CPS2_digiav reference project (in `~/Projects/references/cps2_digiav`) avoid
 
 Yes, but with an important constraint.
 
-- **RP2350 clock inputs:** The chip has **GPIN0** and **GPIN1** (e.g. GPIO 20 and 22 on some packages; GPIO 22 is already used for I2S DAT on NeoPico-HD, so only one may be free). The datasheet allows **clk_ref** and **clk_sys** to be driven from these inputs, up to **50 MHz**. So in principle we could run the system from an external clock and get true hardware genlock.
+- **RP2350 clock inputs:** The chip has **GPIN0** and **GPIN1** (e.g. GPIO 20 and 22 on some packages; GPIO 22 is free on NeoPico-HD since I2S moved to GPIO 0-2). The datasheet allows **clk_ref** and **clk_sys** to be driven from these inputs, up to **50 MHz**. So in principle we could run the system from an external clock and get true hardware genlock.
 - **What the MVS gives us:** The only clock we currently tap from the MVS is **PCLK at 6 MHz** (pixel clock). That is well under 50 MHz, so we could feed it into GPIN0.
 - **The problem:** We need **~25.2 MHz** for the HDMI pixel clock (or ~24.8 MHz when genlocked). We cannot get 25.2 MHz from 6 MHz by *division* alone. The RP2350’s **PLL reference is tied to the crystal (XOSC)**, not to GPIN, so we cannot multiply the 6 MHz from GPIN inside the chip.
 - **Practical options if we want “wire MVS clock in”:**

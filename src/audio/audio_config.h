@@ -31,8 +31,8 @@
 // - WS and BCK must be consecutive above DAT (accessible via `wait pin N`)
 //
 // See mvs_pins.h for actual GPIO numbers:
-//   PIN_I2S_DAT (GPIO 22) - Serial data / OPO
-//   PIN_I2S_WS  (GPIO 23) - Word select / SH1
-//   PIN_I2S_BCK (GPIO 24) - Bit clock / øS
+//   PIN_I2S_DAT (GPIO 0) - Serial data / OPO
+//   PIN_I2S_WS  (GPIO 1) - Word select / SH1
+//   PIN_I2S_BCK (GPIO 2) - Bit clock / øS
 
 #endif // AUDIO_CONFIG_H

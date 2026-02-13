@@ -26,15 +26,15 @@
         },
         "fab_line_width": 0.1,
         "fab_text_italic": false,
-        "fab_text_size_h": 1.0,
-        "fab_text_size_v": 1.0,
-        "fab_text_thickness": 0.15,
+        "fab_text_size_h": 0.5,
+        "fab_text_size_v": 0.5,
+        "fab_text_thickness": 0.125,
         "fab_text_upright": false,
         "other_line_width": 0.1,
         "other_text_italic": false,
-        "other_text_size_h": 1.0,
-        "other_text_size_v": 1.0,
-        "other_text_thickness": 0.15,
+        "other_text_size_h": 0.5,
+        "other_text_size_v": 0.5,
+        "other_text_thickness": 0.125,
         "other_text_upright": false,
         "pads": {
           "drill": 0.8,
@@ -43,9 +43,9 @@
         },
         "silk_line_width": 0.1,
         "silk_text_italic": false,
-        "silk_text_size_h": 1.0,
-        "silk_text_size_v": 1.0,
-        "silk_text_thickness": 0.1,
+        "silk_text_size_h": 0.5,
+        "silk_text_size_v": 0.5,
+        "silk_text_thickness": 0.05,
         "silk_text_upright": false,
         "zones": {
           "min_clearance": 0.5
@@ -488,20 +488,6 @@
         "wire_width": 6
       },
       {
-        "clearance": 0.24,
-        "diff_pair_gap": 0.25,
-        "diff_pair_width": 0.2,
-        "microvia_diameter": 0.508,
-        "microvia_drill": 0.127,
-        "name": "75ohm_vid",
-        "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 0,
-        "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.64,
-        "via_diameter": 0.686,
-        "via_drill": 0.35
-      },
-      {
         "clearance": 0.16,
         "diff_pair_gap": 0.25,
         "diff_pair_width": 0.2,
@@ -509,7 +495,7 @@
         "microvia_drill": 0.127,
         "name": "FAT_power",
         "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 1,
+        "priority": 0,
         "schematic_color": "rgba(0, 0, 0, 0.000)",
         "track_width": 1.0,
         "via_diameter": 1.5,
@@ -523,7 +509,7 @@
         "microvia_drill": 0.127,
         "name": "HDMI",
         "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 3,
+        "priority": 2,
         "schematic_color": "rgba(0, 0, 0, 0.000)",
         "track_width": 0.18,
         "via_diameter": 0.686,
@@ -537,7 +523,7 @@
         "microvia_drill": 0.127,
         "name": "Power",
         "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 2,
+        "priority": 1,
         "schematic_color": "rgba(0, 0, 0, 0.000)",
         "track_width": 0.25,
         "via_diameter": 0.686,
@@ -574,7 +560,20 @@
         "HDMI"
       ]
     },
-    "netclass_patterns": []
+    "netclass_patterns": [
+      {
+        "netclass": "Power",
+        "pattern": "GND"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "5V"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "3V3"
+      }
+    ]
   },
   "pcbnew": {
     "last_paths": {
