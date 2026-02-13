@@ -25,4 +25,21 @@ void audio_subsystem_stop(void);
  */
 void audio_subsystem_set_muted(bool muted);
 
+/**
+ * Background task for audio subsystem (call from Core 1 only).
+ */
+void audio_subsystem_background_task(void);
+
+/**
+ * Pre-fill DI queue with silence packets.
+ * Call from Core 0 before launching Core 1.
+ */
+void audio_subsystem_prefill_di_queue(void);
+
+/**
+ * Core 0 audio poll — BCK-driven state machine.
+ * Validates BCK, warms up, then processes audio continuously.
+ */
+void audio_subsystem_core0_poll(void);
+
 #endif // AUDIO_SUBSYSTEM_H

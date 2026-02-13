@@ -69,8 +69,8 @@ This mechanism effectively "locks" the audio production rate to the HDMI consump
 
 | Signal  | Location        |
 | ------- | --------------- |
-| I2S WS  | R90 (or GPIO 1) |
-| I2S DAT | R91 (or GPIO 0) |
-| I2S BCK | R92 (or GPIO 2) |
+| I2S WS  | R90 (GPIO 23) |
+| I2S DAT | R91 (GPIO 22) |
+| I2S BCK | R92 (GPIO 24) |
 
 **Mandatory**: Use a solid shared ground between the MVS and the Pico board. Digital audio is extremely sensitive to ground potential differences.

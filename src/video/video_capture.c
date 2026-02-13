@@ -25,6 +25,7 @@
 #include "line_ring.h"
 #include "mvs_pins.h"
 #include "osd/osd.h"
+#include "pico.h"
 #include "tusb.h"
 #include "video_capture.pio.h"
 
@@ -377,6 +378,7 @@ void video_capture_run(void)
     static bool back_was_pressed = false;
     static bool audio_started = false;
     static bool genlock_enabled = false;
+    static bool led_state = false;
 
     // One-time: wait for first vsync (IRQ-driven) then drain FIFO for clean phase
     if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
@@ -386,22 +388,15 @@ void video_capture_run(void)
     while (1) {
         g_frame_count++;
 
-        if (!sem_acquire_timeout_ms(&g_vsync_sem, MVS_NO_SIGNAL_TIMEOUT_MS)) {
-            video_capture_reset_hardware();
-            if (audio_started) {
-                audio_subsystem_set_muted(true);
-                audio_subsystem_stop();
-                audio_started = false;
-            }
-            tud_task();
-            continue;
+        if (g_frame_count % 60 == 0) {
+            led_state = !led_state;
+            gpio_put(PICO_DEFAULT_LED_PIN, led_state);
         }
 
-        // Start audio on first vsync (event-driven; no arbitrary frame counts)
-        if (!audio_started) {
-            audio_subsystem_start();
-            audio_subsystem_set_muted(false);
-            audio_started = true;
+        if (!sem_acquire_timeout_ms(&g_vsync_sem, MVS_NO_SIGNAL_TIMEOUT_MS)) {
+            video_capture_reset_hardware();
+            tud_task();
+            continue;
         }
 
         // Signal VSYNC to Core 1
@@ -453,8 +448,7 @@ void video_capture_run(void)
         }
 
         // Disable SM until next frame
-        // TODO: Investigate why the line below is causing issue when not commented out
-        // pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
+        pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
     }
 }
 

@@ -2,9 +2,27 @@
 
 ; Pins: OUT_BASE = DAT, so pin 0=DAT, 1=WS, 2=BCK (C code sets OUT_BASE to pin_dat)
 
-    ; Simple sync: Wait for WS to go high then low to start at Right channel
+    ; Robust sync: verify I2S bus is active before starting capture.
+    ; Prevents locking onto power-up glitches when MVS clocks aren't stable yet.
+
+    ; Step 1: Stall until BCK is toggling (bus alive)
+    wait 0 pin 2                ; BCK Low  (pin 2 = BCK)
+    wait 1 pin 2                ; BCK High — bus is clocking
+
+    ; Step 2: Sync to WS falling edge (right channel boundary)
     wait 1 pin 1                ; WS High  (pin 1 = WS)
     wait 0 pin 1                ; WS Low
+
+    ; Step 3: Count 24 BCK edges to verify real I2S frame timing
+    set x, 23
+sync_verify:
+    wait 0 pin 2
+    wait 1 pin 2
+    jmp x-- sync_verify
+
+    ; Step 4: Re-sync to next clean WS cycle for proper alignment
+    wait 1 pin 1                ; WS High
+    wait 0 pin 1                ; WS Low — right channel starts clean
 
 .wrap_target
     ; === RIGHT CHANNEL (WS LOW) ===

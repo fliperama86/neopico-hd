@@ -43,29 +43,17 @@ bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *con
         return false;
     }
 
-    // Initialize DC filter (enabled to remove DC offset)
+    // Initialize DC filter (disabled — minimal path)
     dc_filter_init(&p->dc_filter);
-    p->dc_filter.enabled = true;
+    p->dc_filter.enabled = false;
 
-    // Initialize lowpass filter (enabled to reduce noise)
+    // Initialize lowpass filter (disabled — minimal path)
     lowpass_init(&p->lowpass);
-    p->lowpass.enabled = true;
+    p->lowpass.enabled = false;
 
     // Initialize SRC (DROP mode by default - proper decimation)
     src_init(&p->src, SRC_INPUT_RATE_DEFAULT, SRC_OUTPUT_RATE_DEFAULT);
-    p->src.mode = SRC_MODE_LINEAR;
-
-    // Configure button pins as inputs with pull-ups
-    // Skip in HSTX_LAB_BUILD - buttons not used there
-#ifndef HSTX_LAB_BUILD
-    gpio_init(config->pin_btn1);
-    gpio_set_dir(config->pin_btn1, GPIO_IN);
-    gpio_pull_up(config->pin_btn1);
-
-    gpio_init(config->pin_btn2);
-    gpio_set_dir(config->pin_btn2, GPIO_IN);
-    gpio_pull_up(config->pin_btn2);
-#endif
+    p->src.mode = SRC_MODE_DROP;
 
     // Initialize button state
     p->btn1_last_state = true; // Pull-up means idle high

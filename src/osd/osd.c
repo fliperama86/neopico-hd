@@ -1,10 +1,12 @@
 #include "osd.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "font_8x8.h"
 #include "pico.h"
 #include "video/video_config.h"
+#include "video_capture.h"
 
 // OSD state
 volatile bool osd_visible = false;
@@ -69,4 +71,25 @@ void osd_puts(int x, int y, const char *str)
         if (x + 8 > OSD_BOX_W)
             break;
     }
+}
+
+#define OSD_FRAME_LINE_X 8
+#define OSD_FRAME_LINE_Y 24
+#define OSD_FRAME_UPDATE_INTERVAL 60
+
+static char osd_frame_buf[24];
+static uint32_t last_osd_frame = 0;
+
+void osd_update_frame_count(uint32_t frame_count)
+{
+    return;
+    if (frame_count % OSD_FRAME_UPDATE_INTERVAL != 0)
+        return;
+    snprintf(osd_frame_buf, sizeof(osd_frame_buf), "Frame: %lu", (unsigned long)frame_count);
+    osd_puts(OSD_FRAME_LINE_X, OSD_FRAME_LINE_Y, osd_frame_buf);
+}
+
+void osd_background_task(void)
+{
+    osd_update_frame_count(video_capture_get_frame_count());
 }
