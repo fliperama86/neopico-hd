@@ -28,6 +28,15 @@
 line_ring_t g_line_ring __attribute__((aligned(64)));
 
 // ============================================================================
+// Core 1 Background Task (runs between HSTX scanlines)
+// ============================================================================
+static void combined_background_task(void)
+{
+    audio_subsystem_background_task();
+    osd_background_task();
+}
+
+// ============================================================================
 // Main (Core 0)
 // ============================================================================
 
@@ -58,30 +67,23 @@ int main(void)
     // Initialize line ring buffer
     memset(&g_line_ring, 0, sizeof(g_line_ring));
 
+    // Initialize OSD (before video pipeline so framebuffer is ready)
+    osd_init();
+
     // Initialize HDMI output pipeline
     hstx_di_queue_init();
     video_pipeline_init(FRAME_WIDTH, FRAME_HEIGHT);
-
-    // Initialize audio hardware (GPIO, PIO2, DMA) — on Core 0, before HSTX
-    audio_subsystem_init();
-
-    // Pre-fill DI queue with silence (HSTX has valid audio from first frame)
-    audio_subsystem_prefill_di_queue();
-
-    // Start I2S capture muted — begin BCK measurement immediately
-    audio_subsystem_start();
+    video_output_set_background_task(combined_background_task);
 
     // Initialize video capture
     video_capture_init(MVS_HEIGHT);
     sleep_ms(200);
     stdio_flush();
 
-    // Launch Core 1 for HSTX output only (audio fed from Core 0 via DI queue)
+    // Launch Core 1 for HSTX output
     multicore_launch_core1(video_output_core1_run);
+    sleep_ms(100);
 
-    // Core 0: audio processing (muted for 2s warmup, then unmute)
-    while (1) {
-        audio_subsystem_core0_poll();
-        tight_loop_contents();
-    }
+    // Core 0: video capture loop (never returns)
+    video_capture_run();
 }

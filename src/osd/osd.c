@@ -82,6 +82,7 @@ static uint32_t last_osd_frame = 0;
 
 void osd_update_frame_count(uint32_t frame_count)
 {
+    return;
     if (frame_count % OSD_FRAME_UPDATE_INTERVAL != 0)
         return;
     snprintf(osd_frame_buf, sizeof(osd_frame_buf), "Frame: %lu", (unsigned long)frame_count);

@@ -387,6 +387,7 @@ void video_capture_run(void)
 
     while (1) {
         g_frame_count++;
+
         if (g_frame_count % 60 == 0) {
             led_state = !led_state;
             gpio_put(PICO_DEFAULT_LED_PIN, led_state);
@@ -447,7 +448,7 @@ void video_capture_run(void)
         }
 
         // Disable SM until next frame
-        // pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
+        pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
     }
 }
 

@@ -40,7 +40,7 @@ To ensure clean audio and video capture, follow these best practices:
 3.  **Level Shifting**: Route all MVS -> Pico digital lines through proper **5V-to-3.3V level shifters**.
 4.  **Clock Conditioning**: Keep **Schmitt-trigger conditioning** on PCLK and BCK for clean edges.
 5.  **Power-Path Isolation**: Prevent back-feed between external 5V and USB 5V (ideal diode/power mux approach recommended).
-6.  **Cable Separation**: Physically separate the I2S audio wires (GPIO 0-2 path) from the video wire bundle to avoid coupling.
+6.  **Cable Separation**: Physically separate the I2S audio wires (GPIO 22-24 path) from the video wire bundle to avoid coupling.
 7.  **Shielding**: Use a **GND-Signal-GND** pattern when using ribbon cables.
 8.  **Series Termination**: Add **33Ω resistors** in series with PCLK and BCK to suppress ringing.
 
@@ -70,9 +70,9 @@ To ensure clean audio and video capture, follow these best practices:
 
 | Function | GPIO    | MV1C Tap Point |
 | -------- | ------- | -------------- |
-| I2S DAT  | GPIO 0  | R91            |
-| I2S WS   | GPIO 1  | R90            |
-| I2S BCK  | GPIO 2  | R92            |
+| I2S DAT  | GPIO 22 | R91            |
+| I2S WS   | GPIO 23 | R90            |
+| I2S BCK  | GPIO 24 | R92            |
 
 ## Building
 

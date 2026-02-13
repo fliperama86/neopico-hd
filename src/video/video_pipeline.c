@@ -3,6 +3,7 @@
 #include "pico_hdmi/video_output.h"
 
 #include "line_ring.h"
+#include "osd/osd.h"
 #include "pico.h"
 #include "video_config.h"
 
@@ -16,8 +17,8 @@ bool fx_scanlines_enabled = false;
 void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
 {
     video_output_init(frame_width, frame_height);
-    // video_output_set_scanline_callback(video_pipeline_scanline_callback);
-    // video_output_set_vsync_callback(video_pipeline_vsync_callback);
+    video_output_set_scanline_callback(video_pipeline_scanline_callback);
+    video_output_set_vsync_callback(video_pipeline_vsync_callback);
 }
 
 /**
@@ -103,29 +104,45 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     uint32_t h_words = MODE_H_ACTIVE_PIXELS / 2;
     uint32_t fb_line = active_line / 2;
 
-    // // Bounds check
-    // if (fb_line >= FRAME_HEIGHT) {
-    //     for (uint32_t i = 0; i < h_words; i++)
-    //         dst[i] = 0;
-    //     return;
-    // }
-
-    // // Vertical centering
-    // if (fb_line < V_OFFSET || fb_line >= V_OFFSET + MVS_HEIGHT) {
-    //     for (uint32_t i = 0; i < h_words; i++)
-    //         dst[i] = 0;
-    //     return;
-    // }
+    // Bounds check + vertical centering
+    if (fb_line >= FRAME_HEIGHT || fb_line < V_OFFSET || fb_line >= V_OFFSET + MVS_HEIGHT) {
+        for (uint32_t i = 0; i < h_words; i++)
+            dst[i] = 0;
+        return;
+    }
 
     uint16_t mvs_line = fb_line - V_OFFSET;
 
     // Get source line (NULL if not ready)
     const uint16_t *src = line_ring_ready(mvs_line) ? line_ring_read_ptr(mvs_line) : NULL;
 
-    if (src) {
-        video_pipeline_double_pixels_fast(dst, src, LINE_WIDTH);
+    // OSD overlay: Before/Inside/After split (no per-pixel branching)
+    if (osd_visible && fb_line >= OSD_BOX_Y && fb_line < OSD_BOX_Y + OSD_BOX_H) {
+        uint32_t osd_line = fb_line - OSD_BOX_Y;
+        const uint16_t *osd_src = osd_framebuffer[osd_line];
+
+        if (src) {
+            // Before OSD
+            video_pipeline_double_pixels_fast(dst, src, OSD_BOX_X);
+            // OSD region (blit from OSD framebuffer)
+            video_pipeline_double_pixels_fast(dst + OSD_BOX_X, osd_src, OSD_BOX_W);
+            // After OSD
+            video_pipeline_double_pixels_fast(dst + OSD_BOX_X + OSD_BOX_W, src + OSD_BOX_X + OSD_BOX_W,
+                                              LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
+        } else {
+            // No video: black + OSD
+            for (uint32_t i = 0; i < (uint32_t)OSD_BOX_X; i++)
+                dst[i] = 0;
+            video_pipeline_double_pixels_fast(dst + OSD_BOX_X, osd_src, OSD_BOX_W);
+            for (uint32_t i = OSD_BOX_X + OSD_BOX_W; i < h_words; i++)
+                dst[i] = 0;
+        }
     } else {
-        for (uint32_t i = 0; i < h_words; i++)
-            dst[i] = 0;
+        if (src) {
+            video_pipeline_double_pixels_fast(dst, src, LINE_WIDTH);
+        } else {
+            for (uint32_t i = 0; i < h_words; i++)
+                dst[i] = 0;
+        }
     }
 }

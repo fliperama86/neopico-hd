@@ -55,11 +55,11 @@
 #define PIN_MVS_SHADOW 44 // Bit 17 (no DARK pin in this hardware layout)
 
 // =============================================================================
-// I2S Audio Input Pins (DAT=GP0, WS=GP1, BCK=GP2)
+// I2S Audio Input Pins (DAT=GP22, WS=GP23, BCK=GP24)
 // =============================================================================
-#define PIN_I2S_DAT 0 // I2S data
-#define PIN_I2S_WS 1  // I2S word select
-#define PIN_I2S_BCK 2 // I2S bit clock
+#define PIN_I2S_DAT 22 // I2S data
+#define PIN_I2S_WS 23  // I2S word select
+#define PIN_I2S_BCK 24 // I2S bit clock
 
 // =============================================================================
 // OSD Control (Direct Buttons)
