@@ -9,10 +9,13 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
 
-  - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v17.0.6
+  - repo: local
     hooks:
       - id: clang-format
+        name: clang-format
+        entry: bash -c 'if command -v clang-format >/dev/null; then clang-format -i "$@"; elif [ -f /opt/homebrew/opt/llvm/bin/clang-format ]; then /opt/homebrew/opt/llvm/bin/clang-format -i "$@"; else echo "clang-format not found"; exit 1; fi' --
+        language: system
+        types: [c]
 
   - repo: local
     hooks:
