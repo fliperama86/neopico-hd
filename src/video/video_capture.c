@@ -378,7 +378,6 @@ void video_capture_run(void)
     static bool back_was_pressed = false;
     static bool audio_started = false;
     static bool genlock_enabled = false;
-    static bool led_state = false;
 
     // One-time: wait for first vsync (IRQ-driven) then drain FIFO for clean phase
     if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
@@ -387,11 +386,6 @@ void video_capture_run(void)
 
     while (1) {
         g_frame_count++;
-
-        if (g_frame_count % 60 == 0) {
-            led_state = !led_state;
-            gpio_put(PICO_DEFAULT_LED_PIN, led_state);
-        }
 
         if (!sem_acquire_timeout_ms(&g_vsync_sem, MVS_NO_SIGNAL_TIMEOUT_MS)) {
             video_capture_reset_hardware();

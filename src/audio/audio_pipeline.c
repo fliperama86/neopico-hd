@@ -2,16 +2,11 @@
  * Audio Pipeline Orchestrator
  *
  * Connects all audio modules and handles:
- * - Button input with debouncing
  * - Data flow between stages
  * - Status reporting
  */
 
 #include "audio_pipeline.h"
-
-#include "pico/time.h"
-
-#include "hardware/gpio.h"
 
 #include <string.h>
 
@@ -54,12 +49,6 @@ bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *con
     // Initialize SRC (DROP mode by default - proper decimation)
     src_init(&p->src, SRC_INPUT_RATE_DEFAULT, SRC_OUTPUT_RATE_DEFAULT);
     p->src.mode = SRC_MODE_DROP;
-
-    // Initialize button state
-    p->btn1_last_state = true; // Pull-up means idle high
-    p->btn2_last_state = true;
-    p->btn1_last_press = 0;
-    p->btn2_last_press = 0;
 
     p->initialized = true;
     return true;
@@ -124,32 +113,7 @@ void audio_pipeline_process(audio_pipeline_t *p, audio_output_fn output_fn, void
 
 void audio_pipeline_poll_buttons(audio_pipeline_t *p)
 {
-    if (!p->initialized)
-        return;
-
-    uint32_t now = to_ms_since_boot(get_absolute_time());
-
-    // Read button states (active low with pull-up)
-    bool btn1_pressed = !gpio_get(p->config.pin_btn1);
-    bool btn2_pressed = !gpio_get(p->config.pin_btn2);
-
-    // Button 1: Toggle DC filter (on press with debounce)
-    if (btn1_pressed && !p->btn1_last_state) {
-        if (now - p->btn1_last_press > BUTTON_DEBOUNCE_MS) {
-            dc_filter_toggle(&p->dc_filter);
-            p->btn1_last_press = now;
-        }
-    }
-    p->btn1_last_state = btn1_pressed;
-
-    // Button 2: Cycle SRC mode (on press with debounce)
-    if (btn2_pressed && !p->btn2_last_state) {
-        if (now - p->btn2_last_press > BUTTON_DEBOUNCE_MS) {
-            src_cycle_mode(&p->src);
-            p->btn2_last_press = now;
-        }
-    }
-    p->btn2_last_state = btn2_pressed;
+    (void)p;
 }
 
 void audio_pipeline_get_status(audio_pipeline_t *p, audio_pipeline_status_t *status)

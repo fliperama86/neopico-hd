@@ -17,13 +17,6 @@
 #include "lowpass.h"
 #include "src.h"
 
-// Button pins (using freed Bank 0 pins - old audio pins)
-#define AUDIO_BTN1_PIN 21 // DC filter toggle (was BCK)
-#define AUDIO_BTN2_PIN 23 // SRC mode cycle (was DAT)
-
-// Debounce time in milliseconds
-#define BUTTON_DEBOUNCE_MS 50
-
 // Pipeline status (for display)
 typedef struct {
     // Capture stats
@@ -49,10 +42,6 @@ typedef struct {
     uint pin_dat;
     uint pin_ws;
 
-    // Button pins
-    uint pin_btn1;
-    uint pin_btn2;
-
     // PIO resources
     PIO pio;
     uint sm;
@@ -68,12 +57,6 @@ typedef struct {
     dc_filter_t dc_filter;
     lowpass_t lowpass;
     src_t src;
-
-    // Button state (for debouncing)
-    uint32_t btn1_last_press;
-    uint32_t btn2_last_press;
-    bool btn1_last_state;
-    bool btn2_last_state;
 
     // Output stats
     uint32_t samples_output;

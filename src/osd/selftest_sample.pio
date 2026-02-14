@@ -1,0 +1,17 @@
+;
+; Self-test GPIO sampler
+;
+; Continuously reads 23 GPIO pins (GPIO 22-44) via autopush.
+; Requires: GPIOBASE=16, IN_BASE=6, left shift, autopush threshold=23
+;
+; Bit mapping in pushed word:
+;   0=DAT(22) 1=WS(23) 2=BCK(24) 3=BTN_MENU(25) 4=BTN_BACK(26)
+;   5=CSYNC(27) 6=PCLK(28) 7-11=B4-B0(29-33) 12-16=G4-G0(34-38)
+;   17-21=R4-R0(39-43) 22=SHADOW(44)
+;
+
+.program selftest_sample
+
+.wrap_target
+    in pins, 23
+.wrap
