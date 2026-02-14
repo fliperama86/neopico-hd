@@ -165,14 +165,9 @@ void audio_subsystem_background_task(void)
 
         case AUDIO_STATE_INIT:
             audio_subsystem_init();
-#ifdef AUDIO_TEST_TONE
-            audio_subsystem_set_muted(false);
-            audio_state = AUDIO_STATE_RUNNING;
-#else
             audio_subsystem_start();
             audio_state_enter_frame = video_frame_count;
             audio_state = AUDIO_STATE_WARM;
-#endif
             break;
 
         case AUDIO_STATE_WARM:
@@ -191,6 +186,8 @@ void audio_subsystem_background_task(void)
 
         case AUDIO_STATE_RUNNING:
             audio_background_task();
+            break;
+        default:
             break;
     }
 }

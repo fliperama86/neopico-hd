@@ -6,6 +6,7 @@ add_executable(neopico_hd
     video/video_capture.c
     video/video_pipeline.c
     osd/osd.c
+    osd/selftest.c
     audio/i2s_capture.c
     audio/audio_pipeline.c
     audio/audio_subsystem.c
@@ -26,6 +27,7 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../lib/pico_hdmi ${CMAKE_CURRENT_BINA
 
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
+pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/osd/selftest_sample.pio)
 
 target_include_directories(neopico_hd PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}

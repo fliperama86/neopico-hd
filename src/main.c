@@ -19,6 +19,7 @@
 #include "audio_subsystem.h"
 #include "mvs_pins.h"
 #include "osd/osd.h"
+#include "osd/selftest.h"
 #include "video/line_ring.h"
 #include "video/video_config.h"
 #include "video/video_pipeline.h"
@@ -26,15 +27,6 @@
 
 // Line ring buffer (shared between Core 0 and Core 1)
 line_ring_t g_line_ring __attribute__((aligned(64)));
-
-// ============================================================================
-// Core 1 Background Task (runs between HSTX scanlines)
-// ============================================================================
-static void combined_background_task(void)
-{
-    audio_subsystem_background_task();
-    osd_background_task();
-}
 
 // ============================================================================
 // Main (Core 0)
@@ -48,11 +40,7 @@ int main(void)
 
     stdio_init_all();
 
-    // Initialize LED for heartbeat
-    gpio_init(PICO_DEFAULT_LED_PIN);
-    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
-
-    // Initialize OSD button (active low with internal pull-up)
+    // Initialize OSD buttons (active low with internal pull-up)
     gpio_init(PIN_OSD_BTN_MENU);
     gpio_set_dir(PIN_OSD_BTN_MENU, GPIO_IN);
     gpio_pull_up(PIN_OSD_BTN_MENU);
@@ -73,10 +61,11 @@ int main(void)
     // Initialize HDMI output pipeline
     hstx_di_queue_init();
     video_pipeline_init(FRAME_WIDTH, FRAME_HEIGHT);
-    video_output_set_background_task(combined_background_task);
+    video_output_set_background_task(audio_subsystem_background_task);
 
     // Initialize video capture
     video_capture_init(MVS_HEIGHT);
+
     sleep_ms(200);
     stdio_flush();
 
