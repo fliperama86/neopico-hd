@@ -201,13 +201,8 @@ void audio_subsystem_init(void)
     pio_clear_instruction_memory(pio2);
     pio_set_gpio_base(pio2, 0);
 
-    audio_pipeline_config_t audio_config = {.pin_bck = PIN_I2S_BCK,
-                                            .pin_dat = PIN_I2S_DAT,
-                                            .pin_ws = PIN_I2S_WS,
-                                            .pin_btn1 = PIN_OSD_BTN_MENU,
-                                            .pin_btn2 = PIN_OSD_BTN_BACK,
-                                            .pio = pio2,
-                                            .sm = 0};
+    audio_pipeline_config_t audio_config = {
+        .pin_bck = PIN_I2S_BCK, .pin_dat = PIN_I2S_DAT, .pin_ws = PIN_I2S_WS, .pio = pio2, .sm = 0};
 
     audio_pipeline_init(&audio_pipeline, &audio_config);
 }
