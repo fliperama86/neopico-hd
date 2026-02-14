@@ -426,25 +426,41 @@ void video_capture_run(void)
         }
 
         // Capture active lines into ring buffer
-        for (uint16_t line = 0; line < g_mvs_height; line++) {
+        uint8_t buf_idx = 0;
+        for (uint16_t line = 0; line + 1 < g_mvs_height; line++) {
             uint16_t *dst = line_ring_write_ptr(line);
 
             dma_channel_wait_for_finish_blocking(g_dma_chan);
 
             // Start next DMA (ping-pong)
-            uint32_t *buf = g_line_buffers[line % 2];
-            if (line + 1 < g_mvs_height) {
-                dma_channel_set_trans_count(g_dma_chan, g_line_words, false);
-                dma_channel_set_write_addr(g_dma_chan, g_line_buffers[(line + 1) % 2], true);
-            }
+            uint32_t *buf = g_line_buffers[buf_idx];
+            buf_idx ^= 1U;
+            dma_channel_set_trans_count(g_dma_chan, g_line_words, false);
+            dma_channel_set_write_addr(g_dma_chan, g_line_buffers[buf_idx], true);
 
             // Convert pixels directly to ring buffer
+            uint32_t *src = buf + g_skip_start_words;
             for (int i = 0; i < g_active_words; i++) {
-                dst[i] = convert_pixel(buf[g_skip_start_words + i]);
+                dst[i] = convert_pixel(*src++);
             }
 
             // Signal line ready
             line_ring_commit(line + 1);
+        }
+
+        // Last active line (no next DMA to schedule)
+        if (g_mvs_height > 0) {
+            uint16_t last_line = (uint16_t)(g_mvs_height - 1);
+            uint16_t *dst = line_ring_write_ptr(last_line);
+
+            dma_channel_wait_for_finish_blocking(g_dma_chan);
+
+            uint32_t *src = g_line_buffers[buf_idx] + g_skip_start_words;
+            for (int i = 0; i < g_active_words; i++) {
+                dst[i] = convert_pixel(*src++);
+            }
+
+            line_ring_commit(g_mvs_height);
         }
 
         // Disable SM until next frame
