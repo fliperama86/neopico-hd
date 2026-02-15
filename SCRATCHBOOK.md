@@ -2,6 +2,45 @@
 
 Working notes for intermittent audio corruption, power-domain behavior, and fast validation experiments.
 
+## Session Memory Policy
+
+- This file is the persistent memory log across sessions.
+- Update on nearly every interaction with concise, factual notes.
+- Track:
+  - User preferences (process/style constraints).
+  - What worked, what failed, and regressions observed.
+  - Active hypotheses and safest next steps.
+- Keep append-only, timestamped entries.
+
+## User Preferences (Persistent)
+
+- Do not run commands or change code without informing first.
+- Proceed methodically, one step at a time, validating before continuing.
+- Do not commit unless explicitly requested.
+- Prefer factual/source-grounded decisions; avoid guesses.
+- Prefer introducing non-trivial/experimental changes behind compile-time feature flags (`#ifdef`/macros), off by default.
+- For experiments, prioritize reversible rollout and minimal-regression paths over invasive direct changes.
+
+## Current Session Highlights
+
+### 2026-02-14
+
+- Goal: Port selftest OSD layout to `fast_osd` while preserving sync stability.
+- Implemented: `fast_osd` geometry/color/special glyph support and selftest-style layout module.
+- Confirmed working: static layout + basic updates through `fast_osd`.
+- Regressions observed:
+  - Multiple attempts at diagnostics sampling (PIO/DMA sampler and capture-pause strategies) caused eventual sync drops or no-signal behavior.
+  - Disabling `g_sm_pixel` in runtime control flow (`pio_sm_set_enabled(..., false)`) was identified by user as destabilizing.
+  - Even presence of extra timing-sensitive code in capture path can perturb long-run stability.
+- Current safe stance:
+  - Keep capture hot path minimal.
+  - Avoid runtime stop/start of pixel SM outside explicit hardware reset paths.
+  - Prefer incremental, easily reversible experiments with strict A/B validation.
+- User-directed stabilization change:
+  - Removed diagnostics and OSD handling code from `video_capture.c` capture path entirely.
+  - Rationale: even dormant/non-visible diagnostics code presence perturbs long-run sync stability.
+  - Operational preference: keep capture loop strictly focused on VSYNC + DMA + pixel conversion.
+
 ## Context
 
 - Symptom: On some cold power-ups (MVS + Pico on together), HDMI audio starts heavily scratched/corrupted.

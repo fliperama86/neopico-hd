@@ -35,11 +35,11 @@ void selftest_layout_reset(void)
     fast_osd_puts_color(ST_VIDEO_LABEL_ROW, 10, "PCLK", OSD_COLOR_GRAY);
     fast_osd_puts_color(ST_VIDEO_LABEL_ROW, 19, "Shadow", OSD_COLOR_GRAY);
 
-    fast_osd_puts_color(ST_BITS_HEADER_ROW, 8, "4", OSD_COLOR_GRAY);
-    fast_osd_puts_color(ST_BITS_HEADER_ROW, 10, "3", OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_BITS_HEADER_ROW, 8, "0", OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_BITS_HEADER_ROW, 10, "1", OSD_COLOR_GRAY);
     fast_osd_puts_color(ST_BITS_HEADER_ROW, 12, "2", OSD_COLOR_GRAY);
-    fast_osd_puts_color(ST_BITS_HEADER_ROW, 14, "1", OSD_COLOR_GRAY);
-    fast_osd_puts_color(ST_BITS_HEADER_ROW, 16, "0", OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_BITS_HEADER_ROW, 14, "3", OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_BITS_HEADER_ROW, 16, "4", OSD_COLOR_GRAY);
 
     fast_osd_puts_color(ST_RED_ROW, 1, "Red", OSD_COLOR_GRAY);
     fast_osd_puts_color(ST_GREEN_ROW, 1, "Green", OSD_COLOR_GRAY);
@@ -65,9 +65,41 @@ void selftest_layout_reset(void)
     selftest_render_icon(ST_AUDIO_LABEL_ROW, 22, false);
 }
 
-void selftest_layout_update(uint32_t frame_count)
+void selftest_layout_update(uint32_t frame_count, bool has_snapshot, uint32_t toggled_bits)
 {
+    static uint8_t dat_hold = 0;
+    static const uint32_t red_bits[5] = {SELFTEST_BIT_R0, SELFTEST_BIT_R1, SELFTEST_BIT_R2, SELFTEST_BIT_R3,
+                                         SELFTEST_BIT_R4};
+    static const uint32_t green_bits[5] = {SELFTEST_BIT_G0, SELFTEST_BIT_G1, SELFTEST_BIT_G2, SELFTEST_BIT_G3,
+                                           SELFTEST_BIT_G4};
+    static const uint32_t blue_bits[5] = {SELFTEST_BIT_B0, SELFTEST_BIT_B1, SELFTEST_BIT_B2, SELFTEST_BIT_B3,
+                                          SELFTEST_BIT_B4};
     static const char spinner[4] = {'|', '/', '-', '\\'};
     const char spin = spinner[(frame_count / 60U) & 3U];
     fast_osd_putc_color(ST_TITLE_ROW, ST_SPINNER_COL, spin, OSD_COLOR_YELLOW);
+
+    if (!has_snapshot) {
+        return;
+    }
+
+    selftest_render_icon(ST_VIDEO_LABEL_ROW, 7, (toggled_bits & SELFTEST_BIT_CSYNC) != 0U);
+    selftest_render_icon(ST_VIDEO_LABEL_ROW, 15, (toggled_bits & SELFTEST_BIT_PCLK) != 0U);
+    selftest_render_icon(ST_VIDEO_LABEL_ROW, 26, (toggled_bits & SELFTEST_BIT_SHADOW) != 0U);
+
+    for (uint8_t i = 0; i < 5; i++) {
+        const uint8_t col = (uint8_t)(8U + (i * 2U));
+        selftest_render_icon(ST_RED_ROW, col, (toggled_bits & red_bits[i]) != 0U);
+        selftest_render_icon(ST_GREEN_ROW, col, (toggled_bits & green_bits[i]) != 0U);
+        selftest_render_icon(ST_BLUE_ROW, col, (toggled_bits & blue_bits[i]) != 0U);
+    }
+
+    selftest_render_icon(ST_AUDIO_LABEL_ROW, 5, (toggled_bits & SELFTEST_BIT_BCK) != 0U);
+    selftest_render_icon(ST_AUDIO_LABEL_ROW, 14, (toggled_bits & SELFTEST_BIT_WS) != 0U);
+
+    if ((toggled_bits & SELFTEST_BIT_DAT) != 0U) {
+        dat_hold = 5;
+    } else if (dat_hold > 0U) {
+        dat_hold--;
+    }
+    selftest_render_icon(ST_AUDIO_LABEL_ROW, 22, dat_hold > 0U);
 }
