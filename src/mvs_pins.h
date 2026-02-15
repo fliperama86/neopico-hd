@@ -65,7 +65,7 @@
 // OSD Control (Direct Buttons)
 // =============================================================================
 // Custom PCB (WeAct RP2350B): SW_MENU=GP25, SW_BACK=GP26. Change if different.
-#define PIN_OSD_BTN_MENU 3 // Menu / Select Button
-#define PIN_OSD_BTN_BACK 4 // Back / Cycle Button
+#define PIN_OSD_BTN_MENU 25 // Menu / Select Button
+#define PIN_OSD_BTN_BACK 26 // Back / Cycle Button
 
 #endif // MVS_PINS_H

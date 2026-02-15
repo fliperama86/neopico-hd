@@ -5,7 +5,7 @@ add_executable(neopico_hd
     main.c
     video/video_capture.c
     video/video_pipeline.c
-    osd/osd.c
+    osd/fast_osd.c
     audio/i2s_capture.c
     audio/audio_pipeline.c
     audio/audio_subsystem.c

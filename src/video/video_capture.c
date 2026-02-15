@@ -17,6 +17,7 @@
 #include "hardware/irq.h"
 #include "hardware/pio.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -24,7 +25,7 @@
 #include "hardware_config.h"
 #include "line_ring.h"
 #include "mvs_pins.h"
-#include "osd/osd.h"
+#include "osd/fast_osd.h"
 #include "pico.h"
 #include "tusb.h"
 #include "video_capture.pio.h"
@@ -375,10 +376,9 @@ void video_capture_init(uint mvs_height)
 void video_capture_run(void)
 {
     static bool btn_was_pressed = false;
-    static bool back_was_pressed = false;
     static bool audio_started = false;
     static bool genlock_enabled = false;
-    static bool led_state = false;
+    static int32_t time = 0;
 
     // One-time: wait for first vsync (IRQ-driven) then drain FIFO for clean phase
     if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
@@ -389,8 +389,8 @@ void video_capture_run(void)
         g_frame_count++;
 
         if (g_frame_count % 60 == 0) {
-            led_state = !led_state;
-            gpio_put(PICO_DEFAULT_LED_PIN, led_state);
+            time++;
+            fast_osd_putc(3, 1, (char)('0' + (time % 10)));
         }
 
         if (!sem_acquire_timeout_ms(&g_vsync_sem, MVS_NO_SIGNAL_TIMEOUT_MS)) {
@@ -398,6 +398,12 @@ void video_capture_run(void)
             tud_task();
             continue;
         }
+
+        bool btn_pressed = !gpio_get(PIN_OSD_BTN_MENU); // active low
+        if (btn_pressed && !btn_was_pressed) {
+            osd_toggle();
+        }
+        btn_was_pressed = btn_pressed;
 
         // Signal VSYNC to Core 1
         line_ring_vsync();

@@ -25,12 +25,6 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height);
 void __scratch_y("") video_pipeline_double_pixels_fast(uint32_t *dst, const uint16_t *src, int count);
 
 /**
- * Fast 2x pixel doubling with 50% darkening for scanlines.
- * Processes 32-bits (2 pixels) at a time for efficiency.
- */
-void video_pipeline_double_pixels_scanline(uint32_t *dst, const uint16_t *src, int count);
-
-/**
  * Fast 4x pixel quadrupling for 240p direct mode.
  * Each source pixel produces 4 output pixels (2 uint32_t words).
  */

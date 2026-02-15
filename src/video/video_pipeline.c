@@ -3,7 +3,7 @@
 #include "pico_hdmi/video_output.h"
 
 #include "line_ring.h"
-#include "osd/osd.h"
+#include "osd/fast_osd.h"
 #include "pico.h"
 #include "video_config.h"
 
@@ -25,45 +25,18 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
  * Fast 2x pixel doubling: reads 2 pixels, writes 2 doubled words.
  * Processes 32-bits at a time for efficiency.
  */
-void __scratch_y("") video_pipeline_double_pixels_fast(uint32_t *dst, const uint16_t *src, int count)
+void __scratch_y("") video_pipeline_double_pixels_fast(uint32_t *restrict dst, const uint16_t *restrict src, int count)
 {
     const uint32_t *src32 = (const uint32_t *)src;
-    int pairs = count / 2;
-
+    uint32_t *d = dst;
+    int pairs = count >> 1;
     for (int i = 0; i < pairs; i++) {
         uint32_t pair = src32[i];
         uint32_t p0 = pair & 0xFFFF;
         uint32_t p1 = pair >> 16;
-        dst[i * 2] = p0 | (p0 << 16);
-        dst[(i * 2) + 1] = p1 | (p1 << 16);
-    }
-}
-
-/**
- * Fast 2x pixel doubling with 50% darkening for scanlines.
- * Uses bit-masking to prevent color bleed across channels.
- * RGB565: RRRRR GGGGGG BBBBB
- * 50% Darken: (pixel & 0xF7DE) >> 1
- */
-void video_pipeline_double_pixels_scanline(uint32_t *dst, const uint16_t *src, int count)
-{
-    const uint32_t *src32 = (const uint32_t *)src;
-    int pairs = count / 2;
-
-    for (int i = 0; i < pairs; i++) {
-        uint32_t two = src32[i];
-
-        // Extract and darken first pixel
-        uint32_t p0 = (two & 0xFFFF);
-        p0 = (p0 & 0xF7DE) >> 1;
-
-        // Extract and darken second pixel
-        uint32_t p1 = (two >> 16);
-        p1 = (p1 & 0xF7DE) >> 1;
-
-        // Double each pixel and store
-        dst[i * 2] = p0 | (p0 << 16);
-        dst[(i * 2) + 1] = p1 | (p1 << 16);
+        d[0] = p0 | (p0 << 16);
+        d[1] = p1 | (p1 << 16);
+        d += 2;
     }
 }
 
@@ -132,17 +105,17 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
         } else {
             // No video: black + OSD
             for (uint32_t i = 0; i < (uint32_t)OSD_BOX_X; i++)
-                dst[i] = 0;
+                dst[i] = OSD_COLOR_GRAY;
             video_pipeline_double_pixels_fast(dst + OSD_BOX_X, osd_src, OSD_BOX_W);
             for (uint32_t i = OSD_BOX_X + OSD_BOX_W; i < h_words; i++)
-                dst[i] = 0;
+                dst[i] = OSD_COLOR_GRAY;
         }
     } else {
         if (src) {
             video_pipeline_double_pixels_fast(dst, src, LINE_WIDTH);
         } else {
             for (uint32_t i = 0; i < h_words; i++)
-                dst[i] = 0;
+                dst[i] = OSD_COLOR_GRAY;
         }
     }
 }
