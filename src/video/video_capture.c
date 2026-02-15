@@ -26,6 +26,7 @@
 #include "line_ring.h"
 #include "mvs_pins.h"
 #include "osd/fast_osd.h"
+#include "osd/selftest_layout.h"
 #include "pico.h"
 #include "tusb.h"
 #include "video_capture.pio.h"
@@ -378,19 +379,34 @@ void video_capture_run(void)
     static bool btn_was_pressed = false;
     static bool audio_started = false;
     static bool genlock_enabled = false;
-    static int32_t time = 0;
+    static uint32_t last_layout_update_ms = 0;
 
     // One-time: wait for first vsync (IRQ-driven) then drain FIFO for clean phase
     if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
         drain_sync_fifo(g_pio_mvs, g_sm_sync);
     }
+    if (osd_visible) {
+        selftest_layout_reset();
+    }
 
     while (1) {
         g_frame_count++;
 
-        if (g_frame_count % 60 == 0) {
-            time++;
-            fast_osd_putc(3, 1, (char)('0' + (time % 10)));
+        uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+
+        bool btn_pressed = !gpio_get(PIN_OSD_BTN_MENU); // active low
+        if (btn_pressed && !btn_was_pressed) {
+            osd_toggle();
+            if (osd_visible) {
+                selftest_layout_reset();
+                last_layout_update_ms = now_ms;
+            }
+        }
+        btn_was_pressed = btn_pressed;
+
+        if (osd_visible && (now_ms - last_layout_update_ms) >= 1000U) {
+            last_layout_update_ms = now_ms;
+            selftest_layout_update(g_frame_count);
         }
 
         if (!sem_acquire_timeout_ms(&g_vsync_sem, MVS_NO_SIGNAL_TIMEOUT_MS)) {
@@ -398,12 +414,6 @@ void video_capture_run(void)
             tud_task();
             continue;
         }
-
-        bool btn_pressed = !gpio_get(PIN_OSD_BTN_MENU); // active low
-        if (btn_pressed && !btn_was_pressed) {
-            osd_toggle();
-        }
-        btn_was_pressed = btn_pressed;
 
         // Signal VSYNC to Core 1
         line_ring_vsync();
