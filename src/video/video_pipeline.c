@@ -101,21 +101,23 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     const uint32_t osd_line_u32 = fb_line - OSD_BOX_Y;
     const bool osd_line_active = osd_visible_latched && (osd_line_u32 < OSD_BOX_H);
 
-    if (!osd_line_active && src) {
+    if (!src) {
+        memset(dst, 0, h_words * sizeof(uint32_t));
+        return;
+    }
+
+    if (!osd_line_active) {
         video_pipeline_double_pixels_fast(dst, src, LINE_WIDTH);
         return;
     }
 
     const uint16_t *osd_src = osd_framebuffer[osd_line_u32];
 
-    if (src) {
-        // Before OSD
-        video_pipeline_double_pixels_fast(dst, src, OSD_BOX_X);
-        // OSD region (blit from OSD framebuffer)
-        video_pipeline_double_pixels_fast(dst + OSD_BOX_X, osd_src, OSD_BOX_W);
-        // After OSD
-        video_pipeline_double_pixels_fast(dst + OSD_BOX_X + OSD_BOX_W, src + OSD_BOX_X + OSD_BOX_W,
-                                          LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
-        return;
-    }
+    // Before OSD
+    video_pipeline_double_pixels_fast(dst, src, OSD_BOX_X);
+    // OSD region (blit from OSD framebuffer)
+    video_pipeline_double_pixels_fast(dst + OSD_BOX_X, osd_src, OSD_BOX_W);
+    // After OSD
+    video_pipeline_double_pixels_fast(dst + OSD_BOX_X + OSD_BOX_W, src + OSD_BOX_X + OSD_BOX_W,
+                                      LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
 }

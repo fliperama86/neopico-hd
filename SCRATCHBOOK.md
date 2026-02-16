@@ -40,6 +40,13 @@ Working notes for intermittent audio corruption, power-domain behavior, and fast
     - Removed diagnostics and OSD handling code from `video_capture.c` capture path entirely.
     - Rationale: even dormant/non-visible diagnostics code presence perturbs long-run sync stability.
     - Operational preference: keep capture loop strictly focused on VSYNC + DMA + pixel conversion.
+- Code review finding (video pipeline optimizations):
+    - Found high-risk logic hole in `video_pipeline_scanline_callback`: `osd_src` can be dereferenced when OSD line is not active and `src==NULL` (unsigned underflow index), and `src==NULL` path currently can leave `dst` unwritten.
+    - Action guidance: restore explicit `src==NULL` fill path and only access `osd_framebuffer[...]` when `osd_line_active` is true.
+    - Applied minimal safety patch in `video_pipeline.c`:
+        - Early return with deterministic `dst` fill when `src==NULL`.
+        - Guarded OSD framebuffer read behind `osd_line_active` check.
+        - Build/lint clean after patch.
 
 ## Context
 
