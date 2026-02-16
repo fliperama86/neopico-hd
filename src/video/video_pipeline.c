@@ -82,36 +82,48 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
 
     const uint32_t h_words = MODE_H_ACTIVE_PIXELS / 2;
     const uint32_t fb_line = active_line >> 1;
-    const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
-
-    // Single unsigned range check for active 224-line window.
-    if (mvs_line_u32 >= MVS_HEIGHT) {
-        memset(dst, 0, h_words * sizeof(uint32_t));
-        return;
-    }
-
-    const uint16_t mvs_line = (uint16_t)mvs_line_u32;
-
-    // Get source line (NULL if not ready)
-    const uint16_t *src = NULL;
-    if (line_ring_ready(mvs_line)) {
-        src = line_ring_read_ptr(mvs_line);
-    }
-
     const uint32_t osd_line_u32 = fb_line - OSD_BOX_Y;
     const bool osd_line_active = osd_visible_latched && (osd_line_u32 < OSD_BOX_H);
 
-    if (!src) {
-        memset(dst, 0, h_words * sizeof(uint32_t));
-        return;
-    }
-
     if (!osd_line_active) {
+        const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
+        // Single unsigned range check for active 224-line window.
+        if (mvs_line_u32 >= MVS_HEIGHT) {
+            memset(dst, 0, h_words * sizeof(uint32_t));
+            return;
+        }
+
+        const uint16_t mvs_line = (uint16_t)mvs_line_u32;
+        const uint16_t *src = NULL;
+        if (line_ring_ready(mvs_line)) {
+            src = line_ring_read_ptr(mvs_line);
+        }
+        if (!src) {
+            memset(dst, 0, h_words * sizeof(uint32_t));
+            return;
+        }
         video_pipeline_double_pixels_fast(dst, src, LINE_WIDTH);
         return;
     }
 
+    // OSD-active path: draw OSD even if capture source is unavailable.
+    const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
+    const uint16_t *src = NULL;
+    if (mvs_line_u32 < MVS_HEIGHT) {
+        const uint16_t mvs_line = (uint16_t)mvs_line_u32;
+        if (line_ring_ready(mvs_line)) {
+            src = line_ring_read_ptr(mvs_line);
+        }
+    }
+
     const uint16_t *osd_src = osd_framebuffer[osd_line_u32];
+    if (!src) {
+        // No capture source: render OSD over black without double-writing the OSD span.
+        memset(dst, 0, OSD_BOX_X * sizeof(uint32_t));
+        video_pipeline_double_pixels_fast(dst + OSD_BOX_X, osd_src, OSD_BOX_W);
+        memset(dst + OSD_BOX_X + OSD_BOX_W, 0, (LINE_WIDTH - OSD_BOX_X - OSD_BOX_W) * sizeof(uint32_t));
+        return;
+    }
 
     // Before OSD
     video_pipeline_double_pixels_fast(dst, src, OSD_BOX_X);
