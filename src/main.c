@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "audio_subsystem.h"
+#include "experiments/menu_diag_experiment.h"
 #include "mvs_pins.h"
 #include "osd/fast_osd.h"
 #include "video/line_ring.h"
@@ -26,6 +27,12 @@
 
 // Line ring buffer (shared between Core 0 and Core 1)
 line_ring_t g_line_ring __attribute__((aligned(64)));
+
+static void combined_background_task(void)
+{
+    audio_subsystem_background_task();
+    menu_diag_experiment_tick_background();
+}
 
 // ============================================================================
 // Main (Core 0)
@@ -56,11 +63,12 @@ int main(void)
 
     // Initialize OSD (before video pipeline so framebuffer is ready)
     fast_osd_init();
+    menu_diag_experiment_init();
 
     // Initialize HDMI output pipeline
     hstx_di_queue_init();
     video_pipeline_init(FRAME_WIDTH, FRAME_HEIGHT);
-    video_output_set_background_task(audio_subsystem_background_task);
+    video_output_set_background_task(combined_background_task);
 
     // Initialize video capture
     video_capture_init(MVS_HEIGHT);

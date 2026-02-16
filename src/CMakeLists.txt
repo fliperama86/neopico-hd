@@ -3,6 +3,7 @@
 # =============================================================================
 add_executable(neopico_hd
     main.c
+    experiments/menu_diag_experiment.c
     video/video_capture.c
     video/video_pipeline.c
     osd/fast_osd.c
@@ -18,6 +19,22 @@ add_executable(neopico_hd
 
 # 240p direct mode: uncomment to enable (requires pico_hdmi 240p support)
 # add_compile_definitions(VIDEO_MODE_320x240=1)
+
+# Compile-time feature flags (cache params for fast A/B testing)
+option(NEOPICO_EXP_MENU_DIAG "Enable menu diagnostics experiment module" ON)
+option(NEOPICO_ENABLE_DARK_SHADOW "Enable DARK/SHADOW LUT path in capture" OFF)
+
+if(NEOPICO_EXP_MENU_DIAG)
+    set(EXP_MENU_DIAG_VALUE 1)
+else()
+    set(EXP_MENU_DIAG_VALUE 0)
+endif()
+
+if(NEOPICO_ENABLE_DARK_SHADOW)
+    set(ENABLE_DARK_SHADOW_VALUE 1)
+else()
+    set(ENABLE_DARK_SHADOW_VALUE 0)
+endif()
 
 # Enable runtime video mode switching in pico_hdmi
 set(PICO_HDMI_RUNTIME_MODES ON CACHE BOOL "" FORCE)
@@ -49,6 +66,8 @@ target_link_libraries(neopico_hd
 
 target_compile_definitions(neopico_hd PRIVATE
     HSTX_LAB_BUILD=1
+    EXP_MENU_DIAG=${EXP_MENU_DIAG_VALUE}
+    ENABLE_DARK_SHADOW=${ENABLE_DARK_SHADOW_VALUE}
 )
 
 pico_enable_stdio_usb(neopico_hd 1)

@@ -36,7 +36,9 @@
 // SHADOW processing (no DARK pin in this hardware layout).
 // When enabled, uses 32KB LUT indexed by RGB555.
 // Disabled: was causing poor image quality (RF-like); re-enable if needed.
+#ifndef ENABLE_DARK_SHADOW
 #define ENABLE_DARK_SHADOW 0
+#endif
 
 #if ENABLE_DARK_SHADOW
 // 32KB LUT - indexed by (r | g<<5 | b<<10 | dark<<15); built from PIO R/G/B bits

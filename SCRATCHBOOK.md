@@ -47,6 +47,33 @@ Working notes for intermittent audio corruption, power-domain behavior, and fast
         - Early return with deterministic `dst` fill when `src==NULL`.
         - Guarded OSD framebuffer read behind `osd_line_active` check.
         - Build/lint clean after patch.
+- Next-step scaffold added (default OFF):
+  - Added feature-flagged experiment module `experiments/menu_diag_experiment.*`.
+  - `EXP_MENU_DIAG` defaults to `0` in header.
+  - Wired no-op `menu_diag_experiment_init()` and background tick hook from `main.c`.
+  - No capture-path modifications; behavior intended unchanged while flag is off.
+- EXP_MENU_DIAG micro-step enabled:
+  - Enabled `EXP_MENU_DIAG=1` in CMake for test build.
+  - Implemented menu button polling + debounce in Core1 background task (experiment module only).
+  - On menu open: draw static selftest layout; while visible update at ~1 Hz with spinner-only path.
+  - No capture-path changes and no live signal sampling in this step.
+- Reverted EXP_MENU_DIAG micro-step for A/B noise comparison:
+  - Removed `EXP_MENU_DIAG=1` from CMake definitions.
+  - Restored `menu_diag_experiment.c` to no-op scaffold placeholders.
+  - Goal: compare against last known stable baseline with experiment behavior disabled.
+- Hardware finding:
+  - Audio/sync issue during A/B was traced to unplugged GND, not software regression.
+- Re-introduced EXP_MENU_DIAG micro-step after wiring fix:
+  - Re-enabled `EXP_MENU_DIAG=1` in CMake.
+  - Restored Core1 background menu handling (button debounce + OSD toggle).
+  - Static selftest layout on open + ~1 Hz lightweight updates only (no capture-path changes).
+- Build-config improvement:
+  - Converted feature flags to CMake cache params for compile-time A/B:
+    - `NEOPICO_EXP_MENU_DIAG` -> `EXP_MENU_DIAG` (0/1)
+    - `NEOPICO_ENABLE_DARK_SHADOW` -> `ENABLE_DARK_SHADOW` (0/1)
+  - Added fallback guard in `video_capture.c` for `ENABLE_DARK_SHADOW` when not externally defined.
+- Verification:
+  - Reconfigured and built with `NEOPICO_EXP_MENU_DIAG=ON`; build passed.
 
 ## Context
 
