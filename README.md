@@ -42,7 +42,6 @@ To ensure clean audio and video capture, follow these best practices:
 5.  **Power-Path Isolation**: Prevent back-feed between external 5V and USB 5V (ideal diode/power mux approach recommended).
 6.  **Cable Separation**: Physically separate the I2S audio wires (GPIO 22-24 path) from the video wire bundle to avoid coupling.
 7.  **Shielding**: Use a **GND-Signal-GND** pattern when using ribbon cables.
-8.  **Series Termination**: Add **33Ω resistors** in series with PCLK and BCK to suppress ringing.
 
 ### Pin Configuration
 
