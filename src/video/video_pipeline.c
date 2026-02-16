@@ -12,6 +12,18 @@
 // Scanline effect toggle (off by default)
 bool fx_scanlines_enabled = false;
 static bool osd_visible_latched = false;
+// Overscan/background outside active 224-line image area (RGB565): black.
+#define OVERSCAN_COLOR_RGB565 0x0000
+// No-signal fallback color (RGB565): mid gray.
+#define NO_SIGNAL_COLOR_RGB565 0x7BEF
+
+static inline void __scratch_y("") video_pipeline_fill_rgb565(uint32_t *dst, uint32_t words, uint16_t color)
+{
+    const uint32_t packed = ((uint32_t)color << 16) | color;
+    for (uint32_t i = 0; i < words; i++) {
+        dst[i] = packed;
+    }
+}
 
 /**
  * Initialize the video pipeline.
@@ -89,7 +101,7 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
         const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
         // Single unsigned range check for active 224-line window.
         if (mvs_line_u32 >= MVS_HEIGHT) {
-            memset(dst, 0, h_words * sizeof(uint32_t));
+            video_pipeline_fill_rgb565(dst, h_words, OVERSCAN_COLOR_RGB565);
             return;
         }
 
@@ -99,7 +111,7 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
             src = line_ring_read_ptr(mvs_line);
         }
         if (!src) {
-            memset(dst, 0, h_words * sizeof(uint32_t));
+            video_pipeline_fill_rgb565(dst, h_words, NO_SIGNAL_COLOR_RGB565);
             return;
         }
         video_pipeline_double_pixels_fast(dst, src, LINE_WIDTH);
@@ -118,10 +130,11 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
 
     const uint16_t *osd_src = osd_framebuffer[osd_line_u32];
     if (!src) {
-        // No capture source: render OSD over black without double-writing the OSD span.
-        memset(dst, 0, OSD_BOX_X * sizeof(uint32_t));
+        // No capture source: render OSD over fallback color without double-writing the OSD span.
+        video_pipeline_fill_rgb565(dst, OSD_BOX_X, NO_SIGNAL_COLOR_RGB565);
         video_pipeline_double_pixels_fast(dst + OSD_BOX_X, osd_src, OSD_BOX_W);
-        memset(dst + OSD_BOX_X + OSD_BOX_W, 0, (LINE_WIDTH - OSD_BOX_X - OSD_BOX_W) * sizeof(uint32_t));
+        video_pipeline_fill_rgb565(dst + OSD_BOX_X + OSD_BOX_W, LINE_WIDTH - OSD_BOX_X - OSD_BOX_W,
+                                   NO_SIGNAL_COLOR_RGB565);
         return;
     }
 

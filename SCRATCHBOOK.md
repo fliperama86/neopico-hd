@@ -309,3 +309,14 @@ Working implication for this board:
 - 2026-02-16 01:13:10 -03: User confirmed latest no-source OSD timing tweak is stable ("works as before now").
 - Stable kept state: no-source OSD uses split black clears (left/right) + OSD middle blit in `video_pipeline_scanline_callback()`.
 - Reinforced constraint: prioritize ISR-cycle reductions over architectural OSD buffer synchronization in Core1 timing path.
+
+### 2026-02-16
+
+- 2026-02-16 10:31:02 -03: User requested no-signal fallback color change from black to dark gray.
+- Applied minimal video-path-only change in `src/video/video_pipeline.c`:
+  - Added `NO_SIGNAL_COLOR_RGB565` = `0x2104` (dark gray).
+  - Added `video_pipeline_fill_rgb565(...)` helper to fill packed RGB565 words.
+  - Replaced no-signal black `memset` fills with dark-gray fills in both OSD-inactive and OSD-active/no-source paths.
+- Scope intentionally small: no capture-path logic changes, no audio-path changes, no flag behavior changes.
+- 2026-02-16 10:32:31 -03: User requested brighter no-signal fallback; changed `NO_SIGNAL_COLOR_RGB565` from `0x2104` (dark gray) to `0x7BEF` (mid gray) in `src/video/video_pipeline.c`.
+- 2026-02-16 10:34:40 -03: User requested overscan remain black while no-signal area stays gray; added `OVERSCAN_COLOR_RGB565=0x0000` and used it for lines outside active MVS window (`mvs_line_u32 >= MVS_HEIGHT`) in `src/video/video_pipeline.c`.
