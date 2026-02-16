@@ -48,32 +48,52 @@ Working notes for intermittent audio corruption, power-domain behavior, and fast
         - Guarded OSD framebuffer read behind `osd_line_active` check.
         - Build/lint clean after patch.
 - Next-step scaffold added (default OFF):
-  - Added feature-flagged experiment module `experiments/menu_diag_experiment.*`.
-  - `EXP_MENU_DIAG` defaults to `0` in header.
-  - Wired no-op `menu_diag_experiment_init()` and background tick hook from `main.c`.
-  - No capture-path modifications; behavior intended unchanged while flag is off.
+    - Added feature-flagged experiment module `experiments/menu_diag_experiment.*`.
+    - `EXP_MENU_DIAG` defaults to `0` in header.
+    - Wired no-op `menu_diag_experiment_init()` and background tick hook from `main.c`.
+    - No capture-path modifications; behavior intended unchanged while flag is off.
 - EXP_MENU_DIAG micro-step enabled:
-  - Enabled `EXP_MENU_DIAG=1` in CMake for test build.
-  - Implemented menu button polling + debounce in Core1 background task (experiment module only).
-  - On menu open: draw static selftest layout; while visible update at ~1 Hz with spinner-only path.
-  - No capture-path changes and no live signal sampling in this step.
+    - Enabled `EXP_MENU_DIAG=1` in CMake for test build.
+    - Implemented menu button polling + debounce in Core1 background task (experiment module only).
+    - On menu open: draw static selftest layout; while visible update at ~1 Hz with spinner-only path.
+    - No capture-path changes and no live signal sampling in this step.
 - Reverted EXP_MENU_DIAG micro-step for A/B noise comparison:
-  - Removed `EXP_MENU_DIAG=1` from CMake definitions.
-  - Restored `menu_diag_experiment.c` to no-op scaffold placeholders.
-  - Goal: compare against last known stable baseline with experiment behavior disabled.
+    - Removed `EXP_MENU_DIAG=1` from CMake definitions.
+    - Restored `menu_diag_experiment.c` to no-op scaffold placeholders.
+    - Goal: compare against last known stable baseline with experiment behavior disabled.
 - Hardware finding:
-  - Audio/sync issue during A/B was traced to unplugged GND, not software regression.
+    - Audio/sync issue during A/B was traced to unplugged GND, not software regression.
 - Re-introduced EXP_MENU_DIAG micro-step after wiring fix:
-  - Re-enabled `EXP_MENU_DIAG=1` in CMake.
-  - Restored Core1 background menu handling (button debounce + OSD toggle).
-  - Static selftest layout on open + ~1 Hz lightweight updates only (no capture-path changes).
+    - Re-enabled `EXP_MENU_DIAG=1` in CMake.
+    - Restored Core1 background menu handling (button debounce + OSD toggle).
+    - Static selftest layout on open + ~1 Hz lightweight updates only (no capture-path changes).
 - Build-config improvement:
-  - Converted feature flags to CMake cache params for compile-time A/B:
-    - `NEOPICO_EXP_MENU_DIAG` -> `EXP_MENU_DIAG` (0/1)
-    - `NEOPICO_ENABLE_DARK_SHADOW` -> `ENABLE_DARK_SHADOW` (0/1)
-  - Added fallback guard in `video_capture.c` for `ENABLE_DARK_SHADOW` when not externally defined.
+    - Converted feature flags to CMake cache params for compile-time A/B:
+        - `NEOPICO_EXP_MENU_DIAG` -> `EXP_MENU_DIAG` (0/1)
+        - `NEOPICO_ENABLE_DARK_SHADOW` -> `ENABLE_DARK_SHADOW` (0/1)
+    - Added fallback guard in `video_capture.c` for `ENABLE_DARK_SHADOW` when not externally defined.
 - Verification:
-  - Reconfigured and built with `NEOPICO_EXP_MENU_DIAG=ON`; build passed.
+    - Reconfigured and built with `NEOPICO_EXP_MENU_DIAG=ON`; build passed.
+- Next incremental experiment (flag ON, capture path untouched):
+    - Implemented CSYNC-only live status in `menu_diag_experiment.c`.
+    - Core1 background accumulates CSYNC high/low while OSD is visible and emits 1 Hz snapshot.
+    - `selftest_layout_update()` now receives only `SELFTEST_BIT_CSYNC` in this phase.
+- Next incremental experiment extension:
+  - Added PCLK live status alongside CSYNC in `menu_diag_experiment.c`.
+  - Same 1 Hz snapshot cadence and same Core1 background-only path.
+  - Capture path remains untouched.
+- Next incremental experiment extension (more ambitious):
+  - Added all remaining video signals at once in `menu_diag_experiment.c`:
+    - `SHADOW`, `R0..R4`, `G0..G4`, `B0..B4` (plus existing CSYNC/PCLK)
+  - Still Core1 background only and 1 Hz snapshot cadence.
+  - No capture-path modifications.
+- Audio micro-step started:
+  - Added `BCK` only to experiment sampler (Core1 background, 1 Hz snapshot).
+  - Current snapshot now includes: full video signals + `BCK`.
+  - `WS`/`DAT` intentionally deferred to subsequent steps.
+- Audio expansion:
+  - Added `WS` and `DAT` to experiment sampler.
+  - Current snapshot now includes full video + full audio (`BCK`, `WS`, `DAT`).
 
 ## Context
 
@@ -231,3 +251,23 @@ Working implication for this board:
     - Roll back immediately when signal integrity regresses, even if optimization looks valid in theory.
 - Current caution:
     - Keep OSD framebuffer row indexing guarded by OSD-active range checks; out-of-range accesses can manifest as video instability/corruption.
+- 2026-02-16 00:37:45 -03: Re-read required docs (`README.md`, HSTX/OSD/MV1C video/audio docs) to refresh hard constraints before further edits.
+- Confirmed non-negotiables to preserve:
+    - Core split: Core 0 capture/conversion only; Core 1 HSTX + audio + OSD injection.
+    - HDMI timing: exact 800 cycles/line at 25.2 MHz; RAW_N_SHIFTS must remain 1.
+    - OSD: overlay during Core 1 scanline doubling ISR; avoid per-pixel branching in inner loop.
+    - Video capture: PIO1 Bank 1 contiguous window GPIO 27-44; SHADOW applied before expansion and forces DARK=1.
+    - Audio: right-justified, WS high=left, BCK rising-edge sample, SRC ~55.5kHz->48kHz with closed-loop drift control; HDMI audio validity bit must be 0.
+- 2026-02-16 00:39:18 -03: Updated self-test default icons in `src/osd/selftest_layout.c` from red cross to neutral gray `-` during reset state.
+- Result: untested/selftest-initial state no longer appears as failure; active updates still render green check for pass and red cross for fail.
+- Verification: `cmake --build build -j4` succeeded.
+- 2026-02-16 00:44:34 -03: Verified self-test behavior for user question (real vs mock).
+- Findings:
+    - `EXP_MENU_DIAG` is ON by default in `src/CMakeLists.txt`, so diagnostics code is active unless explicitly disabled.
+    - Self-test samples live GPIO states (`gpio_get`) for MVS video pins and I2S pins in `menu_diag_experiment_tick_background()`.
+    - Pass condition is activity/toggle-based over a ~60-frame window (`hi & lo`), not protocol/frame correctness validation.
+- Implication:
+    - Not mocked, but it is a lightweight liveness detector and can show false negatives on lines that remain static during the sample window.
+
+- 2026-02-16 00:45:20 -03: Clarified EXP_MENU_DIAG wiring: set via CMake option `NEOPICO_EXP_MENU_DIAG` and propagated to compiler define `-DEXP_MENU_DIAG=<0|1>` in target compile definitions.
+- Current workspace state verified: `build/CMakeCache.txt` has `NEOPICO_EXP_MENU_DIAG:BOOL=ON`; compile commands include `-DEXP_MENU_DIAG=1`.

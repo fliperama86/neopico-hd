@@ -24,6 +24,11 @@ static inline void selftest_render_icon(uint8_t row, uint8_t col, bool ok)
                         ok ? OSD_COLOR_GREEN : OSD_COLOR_RED);
 }
 
+static inline void selftest_render_icon_neutral(uint8_t row, uint8_t col)
+{
+    fast_osd_putc_color(row, col, '-', OSD_COLOR_GRAY);
+}
+
 void selftest_layout_reset(void)
 {
     fast_osd_clear();
@@ -50,19 +55,19 @@ void selftest_layout_reset(void)
     fast_osd_puts_color(ST_AUDIO_LABEL_ROW, 10, "WS", OSD_COLOR_GRAY);
     fast_osd_puts_color(ST_AUDIO_LABEL_ROW, 18, "DAT", OSD_COLOR_GRAY);
 
-    selftest_render_icon(ST_VIDEO_LABEL_ROW, 7, false);
-    selftest_render_icon(ST_VIDEO_LABEL_ROW, 15, false);
-    selftest_render_icon(ST_VIDEO_LABEL_ROW, 26, false);
+    selftest_render_icon_neutral(ST_VIDEO_LABEL_ROW, 7);
+    selftest_render_icon_neutral(ST_VIDEO_LABEL_ROW, 15);
+    selftest_render_icon_neutral(ST_VIDEO_LABEL_ROW, 26);
 
     for (uint8_t col = 8; col <= 16; col += 2) {
-        selftest_render_icon(ST_RED_ROW, col, false);
-        selftest_render_icon(ST_GREEN_ROW, col, false);
-        selftest_render_icon(ST_BLUE_ROW, col, false);
+        selftest_render_icon_neutral(ST_RED_ROW, col);
+        selftest_render_icon_neutral(ST_GREEN_ROW, col);
+        selftest_render_icon_neutral(ST_BLUE_ROW, col);
     }
 
-    selftest_render_icon(ST_AUDIO_LABEL_ROW, 5, false);
-    selftest_render_icon(ST_AUDIO_LABEL_ROW, 14, false);
-    selftest_render_icon(ST_AUDIO_LABEL_ROW, 22, false);
+    selftest_render_icon_neutral(ST_AUDIO_LABEL_ROW, 5);
+    selftest_render_icon_neutral(ST_AUDIO_LABEL_ROW, 14);
+    selftest_render_icon_neutral(ST_AUDIO_LABEL_ROW, 22);
 }
 
 void selftest_layout_update(uint32_t frame_count, bool has_snapshot, uint32_t toggled_bits)

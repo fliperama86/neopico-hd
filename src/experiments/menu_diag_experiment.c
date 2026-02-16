@@ -15,6 +15,12 @@ extern volatile uint32_t video_frame_count;
 static bool s_btn_was_pressed = false;
 static uint32_t s_last_press_ms = 0;
 static uint32_t s_last_update_frame = 0;
+static uint32_t s_video_hi = 0;
+static uint32_t s_video_lo = 0;
+static uint32_t s_video_samples = 0;
+static uint32_t s_audio_hi = 0;
+static uint32_t s_audio_lo = 0;
+static uint32_t s_audio_samples = 0;
 #endif
 
 void menu_diag_experiment_init(void)
@@ -23,6 +29,12 @@ void menu_diag_experiment_init(void)
     s_btn_was_pressed = false;
     s_last_press_ms = 0;
     s_last_update_frame = video_frame_count;
+    s_video_hi = 0;
+    s_video_lo = 0;
+    s_video_samples = 0;
+    s_audio_hi = 0;
+    s_audio_lo = 0;
+    s_audio_samples = 0;
 #endif
 }
 
@@ -31,6 +43,12 @@ void menu_diag_experiment_on_menu_open(void)
 #if EXP_MENU_DIAG
     selftest_layout_reset();
     s_last_update_frame = video_frame_count;
+    s_video_hi = 0;
+    s_video_lo = 0;
+    s_video_samples = 0;
+    s_audio_hi = 0;
+    s_audio_lo = 0;
+    s_audio_samples = 0;
 #endif
 }
 
@@ -59,10 +77,102 @@ void menu_diag_experiment_tick_background(void)
     }
     s_btn_was_pressed = btn_pressed;
 
+    if (osd_visible) {
+        uint32_t video_sample = 0;
+        if (gpio_get(PIN_MVS_CSYNC)) {
+            video_sample |= SELFTEST_BIT_CSYNC;
+        }
+        if (gpio_get(PIN_MVS_PCLK)) {
+            video_sample |= SELFTEST_BIT_PCLK;
+        }
+        if (gpio_get(PIN_MVS_SHADOW)) {
+            video_sample |= SELFTEST_BIT_SHADOW;
+        }
+        if (gpio_get(PIN_MVS_R0)) {
+            video_sample |= SELFTEST_BIT_R0;
+        }
+        if (gpio_get(PIN_MVS_R1)) {
+            video_sample |= SELFTEST_BIT_R1;
+        }
+        if (gpio_get(PIN_MVS_R2)) {
+            video_sample |= SELFTEST_BIT_R2;
+        }
+        if (gpio_get(PIN_MVS_R3)) {
+            video_sample |= SELFTEST_BIT_R3;
+        }
+        if (gpio_get(PIN_MVS_R4)) {
+            video_sample |= SELFTEST_BIT_R4;
+        }
+        if (gpio_get(PIN_MVS_G0)) {
+            video_sample |= SELFTEST_BIT_G0;
+        }
+        if (gpio_get(PIN_MVS_G1)) {
+            video_sample |= SELFTEST_BIT_G1;
+        }
+        if (gpio_get(PIN_MVS_G2)) {
+            video_sample |= SELFTEST_BIT_G2;
+        }
+        if (gpio_get(PIN_MVS_G3)) {
+            video_sample |= SELFTEST_BIT_G3;
+        }
+        if (gpio_get(PIN_MVS_G4)) {
+            video_sample |= SELFTEST_BIT_G4;
+        }
+        if (gpio_get(PIN_MVS_B0)) {
+            video_sample |= SELFTEST_BIT_B0;
+        }
+        if (gpio_get(PIN_MVS_B1)) {
+            video_sample |= SELFTEST_BIT_B1;
+        }
+        if (gpio_get(PIN_MVS_B2)) {
+            video_sample |= SELFTEST_BIT_B2;
+        }
+        if (gpio_get(PIN_MVS_B3)) {
+            video_sample |= SELFTEST_BIT_B3;
+        }
+        if (gpio_get(PIN_MVS_B4)) {
+            video_sample |= SELFTEST_BIT_B4;
+        }
+        s_video_hi |= video_sample;
+        s_video_lo |= ~video_sample;
+        s_video_samples++;
+
+        uint32_t audio_sample = 0;
+        if (gpio_get(PIN_I2S_BCK)) {
+            audio_sample |= SELFTEST_BIT_BCK;
+        }
+        if (gpio_get(PIN_I2S_WS)) {
+            audio_sample |= SELFTEST_BIT_WS;
+        }
+        if (gpio_get(PIN_I2S_DAT)) {
+            audio_sample |= SELFTEST_BIT_DAT;
+        }
+        s_audio_hi |= audio_sample;
+        s_audio_lo |= ~audio_sample;
+        s_audio_samples++;
+    }
+
     if (osd_visible && (video_frame_count - s_last_update_frame) >= 60U) {
         s_last_update_frame = video_frame_count;
-        // Static diagnostics experiment: no live signal sampling yet.
-        selftest_layout_update(video_frame_count, false, 0);
+        uint32_t toggled_bits = 0;
+        bool has_snapshot = false;
+        if (s_video_samples > 0U) {
+            const uint32_t video_mask = SELFTEST_VIDEO_BITS_MASK;
+            toggled_bits = s_video_hi & s_video_lo & video_mask;
+            has_snapshot = true;
+            s_video_hi = 0;
+            s_video_lo = 0;
+            s_video_samples = 0;
+        }
+        if (s_audio_samples > 0U) {
+            toggled_bits |= s_audio_hi & s_audio_lo & (SELFTEST_BIT_BCK | SELFTEST_BIT_WS | SELFTEST_BIT_DAT);
+            has_snapshot = true;
+            s_audio_hi = 0;
+            s_audio_lo = 0;
+            s_audio_samples = 0;
+        }
+        // Full video + full audio diagnostics phase; no capture-path interaction.
+        selftest_layout_update(video_frame_count, has_snapshot, toggled_bits);
     }
 #endif
 }
