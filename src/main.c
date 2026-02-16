@@ -40,7 +40,7 @@ static void combined_background_task(void)
 
 int main(void)
 {
-    sleep_ms(2000);
+    sleep_ms(1000);
     // Set system clock to 126 MHz for HSTX timing
     set_sys_clock_khz(126000, true);
 
@@ -55,7 +55,7 @@ int main(void)
     gpio_set_dir(PIN_OSD_BTN_BACK, GPIO_IN);
     gpio_pull_up(PIN_OSD_BTN_BACK);
 
-    sleep_ms(1000);
+    sleep_ms(500);
     stdio_flush();
 
     // Initialize line ring buffer
