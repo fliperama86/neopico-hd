@@ -2,6 +2,8 @@
 
 #include "pico_hdmi/video_output.h"
 
+#include <string.h>
+
 #include "line_ring.h"
 #include "osd/fast_osd.h"
 #include "pico.h"
@@ -9,6 +11,7 @@
 
 // Scanline effect toggle (off by default)
 bool fx_scanlines_enabled = false;
+static bool osd_visible_latched = false;
 
 /**
  * Initialize the video pipeline.
@@ -19,6 +22,8 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
     video_output_init(frame_width, frame_height);
     video_output_set_scanline_callback(video_pipeline_scanline_callback);
     video_output_set_vsync_callback(video_pipeline_vsync_callback);
+
+    osd_visible_latched = osd_visible;
 }
 
 /**
@@ -68,54 +73,49 @@ void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const u
 void __scratch_x("") video_pipeline_vsync_callback(void)
 {
     line_ring_output_vsync();
+    osd_visible_latched = osd_visible;
 }
 
 void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
 {
     (void)v_scanline;
 
-    uint32_t h_words = MODE_H_ACTIVE_PIXELS / 2;
-    uint32_t fb_line = active_line / 2;
+    const uint32_t h_words = MODE_H_ACTIVE_PIXELS / 2;
+    const uint32_t fb_line = active_line >> 1;
+    const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
 
-    // Bounds check + vertical centering
-    if (fb_line >= FRAME_HEIGHT || fb_line < V_OFFSET || fb_line >= V_OFFSET + MVS_HEIGHT) {
-        for (uint32_t i = 0; i < h_words; i++)
-            dst[i] = 0;
+    // Single unsigned range check for active 224-line window.
+    if (mvs_line_u32 >= MVS_HEIGHT) {
+        memset(dst, 0, h_words * sizeof(uint32_t));
         return;
     }
 
-    uint16_t mvs_line = fb_line - V_OFFSET;
+    const uint16_t mvs_line = (uint16_t)mvs_line_u32;
 
     // Get source line (NULL if not ready)
-    const uint16_t *src = line_ring_ready(mvs_line) ? line_ring_read_ptr(mvs_line) : NULL;
+    const uint16_t *src = NULL;
+    if (line_ring_ready(mvs_line)) {
+        src = line_ring_read_ptr(mvs_line);
+    }
 
-    // OSD overlay: Before/Inside/After split (no per-pixel branching)
-    if (osd_visible && fb_line >= OSD_BOX_Y && fb_line < OSD_BOX_Y + OSD_BOX_H) {
-        uint32_t osd_line = fb_line - OSD_BOX_Y;
-        const uint16_t *osd_src = osd_framebuffer[osd_line];
+    const uint32_t osd_line_u32 = fb_line - OSD_BOX_Y;
+    const bool osd_line_active = osd_visible_latched && (osd_line_u32 < OSD_BOX_H);
 
-        if (src) {
-            // Before OSD
-            video_pipeline_double_pixels_fast(dst, src, OSD_BOX_X);
-            // OSD region (blit from OSD framebuffer)
-            video_pipeline_double_pixels_fast(dst + OSD_BOX_X, osd_src, OSD_BOX_W);
-            // After OSD
-            video_pipeline_double_pixels_fast(dst + OSD_BOX_X + OSD_BOX_W, src + OSD_BOX_X + OSD_BOX_W,
-                                              LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
-        } else {
-            // No video: black + OSD
-            for (uint32_t i = 0; i < (uint32_t)OSD_BOX_X; i++)
-                dst[i] = OSD_COLOR_GRAY;
-            video_pipeline_double_pixels_fast(dst + OSD_BOX_X, osd_src, OSD_BOX_W);
-            for (uint32_t i = OSD_BOX_X + OSD_BOX_W; i < h_words; i++)
-                dst[i] = OSD_COLOR_GRAY;
-        }
-    } else {
-        if (src) {
-            video_pipeline_double_pixels_fast(dst, src, LINE_WIDTH);
-        } else {
-            for (uint32_t i = 0; i < h_words; i++)
-                dst[i] = OSD_COLOR_GRAY;
-        }
+    if (!osd_line_active && src) {
+        video_pipeline_double_pixels_fast(dst, src, LINE_WIDTH);
+        return;
+    }
+
+    const uint16_t *osd_src = osd_framebuffer[osd_line_u32];
+
+    if (src) {
+        // Before OSD
+        video_pipeline_double_pixels_fast(dst, src, OSD_BOX_X);
+        // OSD region (blit from OSD framebuffer)
+        video_pipeline_double_pixels_fast(dst + OSD_BOX_X, osd_src, OSD_BOX_W);
+        // After OSD
+        video_pipeline_double_pixels_fast(dst + OSD_BOX_X + OSD_BOX_W, src + OSD_BOX_X + OSD_BOX_W,
+                                          LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
+        return;
     }
 }
