@@ -7,9 +7,9 @@ Working notes for intermittent audio corruption, power-domain behavior, and fast
 - This file is the persistent memory log across sessions.
 - Update on nearly every interaction with concise, factual notes.
 - Track:
-  - User preferences (process/style constraints).
-  - What worked, what failed, and regressions observed.
-  - Active hypotheses and safest next steps.
+    - User preferences (process/style constraints).
+    - What worked, what failed, and regressions observed.
+    - Active hypotheses and safest next steps.
 - Keep append-only, timestamped entries.
 
 ## User Preferences (Persistent)
@@ -29,17 +29,17 @@ Working notes for intermittent audio corruption, power-domain behavior, and fast
 - Implemented: `fast_osd` geometry/color/special glyph support and selftest-style layout module.
 - Confirmed working: static layout + basic updates through `fast_osd`.
 - Regressions observed:
-  - Multiple attempts at diagnostics sampling (PIO/DMA sampler and capture-pause strategies) caused eventual sync drops or no-signal behavior.
-  - Disabling `g_sm_pixel` in runtime control flow (`pio_sm_set_enabled(..., false)`) was identified by user as destabilizing.
-  - Even presence of extra timing-sensitive code in capture path can perturb long-run stability.
+    - Multiple attempts at diagnostics sampling (PIO/DMA sampler and capture-pause strategies) caused eventual sync drops or no-signal behavior.
+    - Disabling `g_sm_pixel` in runtime control flow (`pio_sm_set_enabled(..., false)`) was identified by user as destabilizing.
+    - Even presence of extra timing-sensitive code in capture path can perturb long-run stability.
 - Current safe stance:
-  - Keep capture hot path minimal.
-  - Avoid runtime stop/start of pixel SM outside explicit hardware reset paths.
-  - Prefer incremental, easily reversible experiments with strict A/B validation.
+    - Keep capture hot path minimal.
+    - Avoid runtime stop/start of pixel SM outside explicit hardware reset paths.
+    - Prefer incremental, easily reversible experiments with strict A/B validation.
 - User-directed stabilization change:
-  - Removed diagnostics and OSD handling code from `video_capture.c` capture path entirely.
-  - Rationale: even dormant/non-visible diagnostics code presence perturbs long-run sync stability.
-  - Operational preference: keep capture loop strictly focused on VSYNC + DMA + pixel conversion.
+    - Removed diagnostics and OSD handling code from `video_capture.c` capture path entirely.
+    - Rationale: even dormant/non-visible diagnostics code presence perturbs long-run sync stability.
+    - Operational preference: keep capture loop strictly focused on VSYNC + DMA + pixel conversion.
 
 ## Context
 
@@ -58,9 +58,9 @@ Working notes for intermittent audio corruption, power-domain behavior, and fast
 
 - Added one-shot post-warmup capture relock in `src/audio/audio_subsystem.c`.
 - Behavior:
-  - Keep muted at startup.
-  - After warmup, stop/start audio capture once (hardware-style rearm).
-  - Keep muted briefly, then unmute with flushed state.
+    - Keep muted at startup.
+    - After warmup, stop/start audio capture once (hardware-style rearm).
+    - Keep muted briefly, then unmute with flushed state.
 - Build status: passes (`./scripts/build.sh`).
 
 ## Hardware Facts Reported in This Session
@@ -123,15 +123,16 @@ Success criteria:
 ### A. Rail Decay / Backfeed
 
 1. Measure `3V3` and `VSYS` with:
-   - USB disconnected
-   - MVS off/disconnected
-   - HDMI connected
+    - USB disconnected
+    - MVS off/disconnected
+    - HDMI connected
 2. Repeat while holding Pico reset low.
 3. Add `3V3 -> GND` bleed:
-   - Try 1k, then 470R if needed.
+    - Try 1k, then 470R if needed.
 4. Compare with HDMI physically disconnected.
 
 Pass target:
+
 - In "off" state, both rails collapse close to 0V (ideally <0.3V).
 
 ### B. Audio Startup Reliability
@@ -139,8 +140,8 @@ Pass target:
 1. Cold boot loop with current firmware relock enabled.
 2. Record fail rate across N boots (e.g., 30).
 3. Compare with:
-   - HDMI connected before power
-   - HDMI connected after power
+    - HDMI connected before power
+    - HDMI connected after power
 
 ## Near-Term Practical Mitigations
 
@@ -174,9 +175,25 @@ Working implication for this board:
 - Strong hypothesis formed: startup I2S phase lock issue exacerbated by power-domain behavior.
 - Firmware one-shot relock added and built successfully.
 - Docs updated:
-  - `README.md` hardware integrity guidance
-  - `docs/KNOWN_ISSUES.md` power-domain/backfeed and cold-boot audio section
+    - `README.md` hardware integrity guidance
+    - `docs/KNOWN_ISSUES.md` power-domain/backfeed and cold-boot audio section
 - Ongoing hardware debug focused on HDMI-associated ghost powering.
 - External reference cross-check completed:
-  - Series TMDS resistors on MCU-output designs are common (220R frequently used in PicoDVI-derived boards).
-  - HPD/DDC handling guidance aligns with not forcing HPD high and not leaving DDC floating.
+    - Series TMDS resistors on MCU-output designs are common (220R frequently used in PicoDVI-derived boards).
+    - HPD/DDC handling guidance aligns with not forcing HPD high and not leaving DDC floating.
+
+### 2026-02-16
+
+- Focus shifted to `src/video/video_pipeline.c` hot-path optimization.
+- Stable/kept changes:
+    - Replaced manual fill loops with `memset` for black line clears.
+    - Simplified active-window check to unsigned range check (`mvs_line_u32 >= MVS_HEIGHT`).
+    - Latched OSD visibility once per VSYNC (`osd_visible_latched`) to avoid volatile reads each scanline.
+- Tried and reverted:
+    - Added vertical duplicate line cache (render once per `fb_line`, copy on odd line).
+    - User observed this "broke the signal"; cache path fully removed and build revalidated.
+- User preference reinforced in practice:
+    - Favor conservative, low-risk timing changes in scanline ISR paths.
+    - Roll back immediately when signal integrity regresses, even if optimization looks valid in theory.
+- Current caution:
+    - Keep OSD framebuffer row indexing guarded by OSD-active range checks; out-of-range accesses can manifest as video instability/corruption.
