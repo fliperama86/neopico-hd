@@ -1,8 +1,13 @@
 #include "selftest_layout.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 
 #include "fast_osd.h"
+
+#ifndef NEOPICO_EXP_BASELINE_TELEMETRY
+#define NEOPICO_EXP_BASELINE_TELEMETRY 0
+#endif
 
 #define ST_TITLE_ROW 2
 #define ST_TITLE_COL 2
@@ -17,6 +22,12 @@
 
 #define ST_AUDIO_ROW 11
 #define ST_AUDIO_LABEL_ROW 12
+#if NEOPICO_EXP_BASELINE_TELEMETRY
+#define ST_BASELINE_ROW 14
+#define ST_BASELINE_ROW2 15
+
+static const char ST_CLEAR_ROW[] = "                            ";
+#endif
 
 static inline void selftest_render_icon(uint8_t row, uint8_t col, bool ok)
 {
@@ -68,6 +79,34 @@ void selftest_layout_reset(void)
     selftest_render_icon_neutral(ST_AUDIO_LABEL_ROW, 5);
     selftest_render_icon_neutral(ST_AUDIO_LABEL_ROW, 14);
     selftest_render_icon_neutral(ST_AUDIO_LABEL_ROW, 22);
+
+#if NEOPICO_EXP_BASELINE_TELEMETRY
+    fast_osd_puts_color(ST_BASELINE_ROW, 1, "IN --.-- OUT --.--", OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_BASELINE_ROW2, 1, "PH --- SLIP ---/m", OSD_COLOR_GRAY);
+#endif
+}
+
+void selftest_layout_set_baseline(uint32_t in_fps_x100, uint32_t out_fps_x100, int32_t phase, int32_t slip_fpm)
+{
+#if NEOPICO_EXP_BASELINE_TELEMETRY
+    char line1[FAST_OSD_COLS + 1];
+    char line2[FAST_OSD_COLS + 1];
+
+    snprintf(line1, sizeof(line1), "IN %2lu.%02lu OUT %2lu.%02lu", (unsigned long)(in_fps_x100 / 100U),
+             (unsigned long)(in_fps_x100 % 100U), (unsigned long)(out_fps_x100 / 100U),
+             (unsigned long)(out_fps_x100 % 100U));
+    snprintf(line2, sizeof(line2), "PH %+4ld SLIP %+4ld/m", (long)phase, (long)slip_fpm);
+
+    fast_osd_puts_color(ST_BASELINE_ROW, 0, ST_CLEAR_ROW, OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_BASELINE_ROW2, 0, ST_CLEAR_ROW, OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_BASELINE_ROW, 1, line1, OSD_COLOR_YELLOW);
+    fast_osd_puts_color(ST_BASELINE_ROW2, 1, line2, OSD_COLOR_YELLOW);
+#else
+    (void)in_fps_x100;
+    (void)out_fps_x100;
+    (void)phase;
+    (void)slip_fpm;
+#endif
 }
 
 void selftest_layout_update(uint32_t frame_count, bool has_snapshot, uint32_t toggled_bits)

@@ -7,8 +7,6 @@
 
 #include "video_capture.h"
 
-#include "pico_hdmi/video_output_rt.h"
-
 #include "pico/stdlib.h"
 #include "pico/sync.h"
 
@@ -18,7 +16,6 @@
 #include "hardware/pio.h"
 
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 #include "audio_subsystem.h"

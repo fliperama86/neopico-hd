@@ -23,6 +23,11 @@ add_executable(neopico_hd
 # Compile-time feature flags (cache params for fast A/B testing)
 option(NEOPICO_EXP_MENU_DIAG "Enable menu diagnostics experiment module" ON)
 option(NEOPICO_ENABLE_DARK_SHADOW "Enable DARK/SHADOW LUT path in capture" OFF)
+option(NEOPICO_EXP_BASELINE_TELEMETRY "Enable baseline input/output frame telemetry (no timing changes)" OFF)
+option(NEOPICO_EXP_GENLOCK_STATIC "Enable static boot-time genlock sysclk target" OFF)
+set(NEOPICO_GENLOCK_TARGET_FPS_X100 "5920" CACHE STRING "Static genlock target FPS x100 (e.g. 5920 = 59.20)")
+option(NEOPICO_EXP_VTOTAL_MATCH "Enable fixed-pixel-clock output with custom V total for near-source frame rate" OFF)
+set(NEOPICO_EXP_VTOTAL_LINES "532" CACHE STRING "Custom V total lines when NEOPICO_EXP_VTOTAL_MATCH is ON")
 
 if(NEOPICO_EXP_MENU_DIAG)
     set(EXP_MENU_DIAG_VALUE 1)
@@ -34,6 +39,24 @@ if(NEOPICO_ENABLE_DARK_SHADOW)
     set(ENABLE_DARK_SHADOW_VALUE 1)
 else()
     set(ENABLE_DARK_SHADOW_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_BASELINE_TELEMETRY)
+    set(BASELINE_TELEMETRY_VALUE 1)
+else()
+    set(BASELINE_TELEMETRY_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_GENLOCK_STATIC)
+    set(GENLOCK_STATIC_VALUE 1)
+else()
+    set(GENLOCK_STATIC_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_VTOTAL_MATCH)
+    set(VTOTAL_MATCH_VALUE 1)
+else()
+    set(VTOTAL_MATCH_VALUE 0)
 endif()
 
 # Enable runtime video mode switching in pico_hdmi
@@ -68,6 +91,11 @@ target_compile_definitions(neopico_hd PRIVATE
     HSTX_LAB_BUILD=1
     EXP_MENU_DIAG=${EXP_MENU_DIAG_VALUE}
     ENABLE_DARK_SHADOW=${ENABLE_DARK_SHADOW_VALUE}
+    NEOPICO_EXP_BASELINE_TELEMETRY=${BASELINE_TELEMETRY_VALUE}
+    NEOPICO_EXP_GENLOCK_STATIC=${GENLOCK_STATIC_VALUE}
+    NEOPICO_GENLOCK_TARGET_FPS_X100=${NEOPICO_GENLOCK_TARGET_FPS_X100}
+    NEOPICO_EXP_VTOTAL_MATCH=${VTOTAL_MATCH_VALUE}
+    NEOPICO_EXP_VTOTAL_LINES=${NEOPICO_EXP_VTOTAL_LINES}
 )
 
 pico_enable_stdio_usb(neopico_hd 1)
