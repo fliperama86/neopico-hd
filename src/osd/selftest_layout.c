@@ -31,8 +31,7 @@ static const char ST_CLEAR_ROW[] = "                            ";
 
 static inline void selftest_render_icon(uint8_t row, uint8_t col, bool ok)
 {
-    fast_osd_putc_color(row, col, ok ? FAST_OSD_GLYPH_CHECK : FAST_OSD_GLYPH_CROSS,
-                        ok ? OSD_COLOR_GREEN : OSD_COLOR_RED);
+    fast_osd_putc_color(row, col, ok ? FAST_OSD_GLYPH_CHECK : '-', ok ? OSD_COLOR_GREEN : OSD_COLOR_GRAY);
 }
 
 static inline void selftest_render_icon_neutral(uint8_t row, uint8_t col)
