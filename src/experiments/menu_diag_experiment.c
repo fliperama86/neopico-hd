@@ -150,6 +150,11 @@ void menu_diag_experiment_tick_background(void)
         if (gpio_get(PIN_MVS_SHADOW)) {
             video_sample |= SELFTEST_BIT_SHADOW;
         }
+#ifdef PIN_MVS_DARK
+        if (gpio_get(PIN_MVS_DARK)) {
+            video_sample |= SELFTEST_BIT_DARK;
+        }
+#endif
         if (gpio_get(PIN_MVS_R0)) {
             video_sample |= SELFTEST_BIT_R0;
         }

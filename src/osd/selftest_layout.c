@@ -15,13 +15,22 @@
 
 #define ST_VIDEO_ROW 4
 #define ST_VIDEO_LABEL_ROW 5
-#define ST_BITS_HEADER_ROW 6
-#define ST_RED_ROW 7
-#define ST_GREEN_ROW 8
-#define ST_BLUE_ROW 9
+#define ST_BITS_HEADER_ROW 7
+#define ST_RED_ROW 8
+#define ST_GREEN_ROW 9
+#define ST_BLUE_ROW 10
 
-#define ST_AUDIO_ROW 11
-#define ST_AUDIO_LABEL_ROW 12
+#define ST_CSYNC_COL 1
+#define ST_CSYNC_ICON_COL 5
+#define ST_PCLK_COL 8
+#define ST_PCLK_ICON_COL 12
+#define ST_SHDW_COL 15
+#define ST_SHDW_ICON_COL 19
+#define ST_DARK_COL 22
+#define ST_DARK_ICON_COL 26
+
+#define ST_AUDIO_ROW 12
+#define ST_AUDIO_LABEL_ROW 13
 #if NEOPICO_EXP_BASELINE_TELEMETRY
 #define ST_BASELINE_ROW 14
 #define ST_BASELINE_ROW2 15
@@ -46,9 +55,10 @@ void selftest_layout_reset(void)
     fast_osd_puts(ST_TITLE_ROW, ST_TITLE_COL, "NeoPico-HD Self Test");
 
     fast_osd_puts(ST_VIDEO_ROW, 1, "Video");
-    fast_osd_puts_color(ST_VIDEO_LABEL_ROW, 1, "CSYNC", OSD_COLOR_GRAY);
-    fast_osd_puts_color(ST_VIDEO_LABEL_ROW, 10, "PCLK", OSD_COLOR_GRAY);
-    fast_osd_puts_color(ST_VIDEO_LABEL_ROW, 19, "Shadow", OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_VIDEO_LABEL_ROW, ST_CSYNC_COL, "CSYN", OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_VIDEO_LABEL_ROW, ST_PCLK_COL, "PCLK", OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_VIDEO_LABEL_ROW, ST_SHDW_COL, "SHDW", OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_VIDEO_LABEL_ROW, ST_DARK_COL, "DARK", OSD_COLOR_GRAY);
 
     fast_osd_puts_color(ST_BITS_HEADER_ROW, 8, "0", OSD_COLOR_GRAY);
     fast_osd_puts_color(ST_BITS_HEADER_ROW, 10, "1", OSD_COLOR_GRAY);
@@ -65,9 +75,10 @@ void selftest_layout_reset(void)
     fast_osd_puts_color(ST_AUDIO_LABEL_ROW, 10, "WS", OSD_COLOR_GRAY);
     fast_osd_puts_color(ST_AUDIO_LABEL_ROW, 18, "DAT", OSD_COLOR_GRAY);
 
-    selftest_render_icon_neutral(ST_VIDEO_LABEL_ROW, 7);
-    selftest_render_icon_neutral(ST_VIDEO_LABEL_ROW, 15);
-    selftest_render_icon_neutral(ST_VIDEO_LABEL_ROW, 26);
+    selftest_render_icon_neutral(ST_VIDEO_LABEL_ROW, ST_CSYNC_ICON_COL);
+    selftest_render_icon_neutral(ST_VIDEO_LABEL_ROW, ST_PCLK_ICON_COL);
+    selftest_render_icon_neutral(ST_VIDEO_LABEL_ROW, ST_SHDW_ICON_COL);
+    selftest_render_icon_neutral(ST_VIDEO_LABEL_ROW, ST_DARK_ICON_COL);
 
     for (uint8_t col = 8; col <= 16; col += 2) {
         selftest_render_icon_neutral(ST_RED_ROW, col);
@@ -125,9 +136,10 @@ void selftest_layout_update(uint32_t frame_count, bool has_snapshot, uint32_t to
         return;
     }
 
-    selftest_render_icon(ST_VIDEO_LABEL_ROW, 7, (toggled_bits & SELFTEST_BIT_CSYNC) != 0U);
-    selftest_render_icon(ST_VIDEO_LABEL_ROW, 15, (toggled_bits & SELFTEST_BIT_PCLK) != 0U);
-    selftest_render_icon(ST_VIDEO_LABEL_ROW, 26, (toggled_bits & SELFTEST_BIT_SHADOW) != 0U);
+    selftest_render_icon(ST_VIDEO_LABEL_ROW, ST_CSYNC_ICON_COL, (toggled_bits & SELFTEST_BIT_CSYNC) != 0U);
+    selftest_render_icon(ST_VIDEO_LABEL_ROW, ST_PCLK_ICON_COL, (toggled_bits & SELFTEST_BIT_PCLK) != 0U);
+    selftest_render_icon(ST_VIDEO_LABEL_ROW, ST_SHDW_ICON_COL, (toggled_bits & SELFTEST_BIT_SHADOW) != 0U);
+    selftest_render_icon(ST_VIDEO_LABEL_ROW, ST_DARK_ICON_COL, (toggled_bits & SELFTEST_BIT_DARK) != 0U);
 
     for (uint8_t i = 0; i < 5; i++) {
         const uint8_t col = (uint8_t)(8U + (i * 2U));

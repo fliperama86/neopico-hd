@@ -27,10 +27,12 @@
 #define SELFTEST_BIT_R1 (1U << 20)
 #define SELFTEST_BIT_R0 (1U << 21)
 #define SELFTEST_BIT_SHADOW (1U << 22)
+#define SELFTEST_BIT_DARK (1U << 23)
 #define SELFTEST_VIDEO_BITS_MASK                                                                                       \
     (SELFTEST_BIT_CSYNC | SELFTEST_BIT_PCLK | SELFTEST_BIT_B4 | SELFTEST_BIT_B3 | SELFTEST_BIT_B2 | SELFTEST_BIT_B1 |  \
      SELFTEST_BIT_B0 | SELFTEST_BIT_G4 | SELFTEST_BIT_G3 | SELFTEST_BIT_G2 | SELFTEST_BIT_G1 | SELFTEST_BIT_G0 |       \
-     SELFTEST_BIT_R4 | SELFTEST_BIT_R3 | SELFTEST_BIT_R2 | SELFTEST_BIT_R1 | SELFTEST_BIT_R0 | SELFTEST_BIT_SHADOW)
+     SELFTEST_BIT_R4 | SELFTEST_BIT_R3 | SELFTEST_BIT_R2 | SELFTEST_BIT_R1 | SELFTEST_BIT_R0 | SELFTEST_BIT_SHADOW |   \
+     SELFTEST_BIT_DARK)
 
 // Draws the static self-test screen layout and initializes icon states.
 void selftest_layout_reset(void);
