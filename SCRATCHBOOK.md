@@ -421,3 +421,12 @@ Working implication for this board:
 - 2026-02-19 20:38:33 -0300: Follow-up OSD layout tweak: moved bit headers and audio section down one row to match earlier color-row shift.
 - Updated constants in selftest_layout.c: ST_BITS_HEADER_ROW 6->7, ST_AUDIO_ROW 11->12, ST_AUDIO_LABEL_ROW 12->13.
 - Verification: cmake --build build -j4 succeeded.
+- 2026-02-19 20:45:19 -0300: OSD label fit tweak: changed CSYN->CSYNC and DARK->DRK in selftest layout; moved CSYNC icon one column right to avoid overlap.
+- Verification: cmake --build build -j4 succeeded.
+- 2026-02-19 20:47:18 -0300: Adjusted video-status label/icon spacing: shifted PCLK, SHDW, and DRK label+icon columns +1 to tighten DRK/icon gap.
+- Updated constants in selftest_layout.c: PCLK 8/12->9/13, SHDW 15/19->16/20, DRK 22/26->23/27.
+- Verification: cmake --build build -j4 succeeded.
+- 2026-02-19 20:48:43 -0300: Fixed persistent DRK/icon gap by shifting only DRK label one additional column right (ST_DARK_COL 23->24) while keeping icon at 27.
+- Verification: cmake --build build -j4 succeeded.
+- 2026-02-19 20:49:35 -0300: User requested direct icon shift only: moved DRK icon left one column (ST_DARK_ICON_COL 27->26), no other layout changes.
+- Verification: cmake --build build -j4 succeeded.

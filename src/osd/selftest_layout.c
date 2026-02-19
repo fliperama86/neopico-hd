@@ -21,12 +21,12 @@
 #define ST_BLUE_ROW 10
 
 #define ST_CSYNC_COL 1
-#define ST_CSYNC_ICON_COL 5
-#define ST_PCLK_COL 8
-#define ST_PCLK_ICON_COL 12
-#define ST_SHDW_COL 15
-#define ST_SHDW_ICON_COL 19
-#define ST_DARK_COL 22
+#define ST_CSYNC_ICON_COL 6
+#define ST_PCLK_COL 9
+#define ST_PCLK_ICON_COL 13
+#define ST_SHDW_COL 16
+#define ST_SHDW_ICON_COL 20
+#define ST_DARK_COL 23
 #define ST_DARK_ICON_COL 26
 
 #define ST_AUDIO_ROW 12
@@ -55,10 +55,10 @@ void selftest_layout_reset(void)
     fast_osd_puts(ST_TITLE_ROW, ST_TITLE_COL, "NeoPico-HD Self Test");
 
     fast_osd_puts(ST_VIDEO_ROW, 1, "Video");
-    fast_osd_puts_color(ST_VIDEO_LABEL_ROW, ST_CSYNC_COL, "CSYN", OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_VIDEO_LABEL_ROW, ST_CSYNC_COL, "CSYNC", OSD_COLOR_GRAY);
     fast_osd_puts_color(ST_VIDEO_LABEL_ROW, ST_PCLK_COL, "PCLK", OSD_COLOR_GRAY);
     fast_osd_puts_color(ST_VIDEO_LABEL_ROW, ST_SHDW_COL, "SHDW", OSD_COLOR_GRAY);
-    fast_osd_puts_color(ST_VIDEO_LABEL_ROW, ST_DARK_COL, "DARK", OSD_COLOR_GRAY);
+    fast_osd_puts_color(ST_VIDEO_LABEL_ROW, ST_DARK_COL, "DRK", OSD_COLOR_GRAY);
 
     fast_osd_puts_color(ST_BITS_HEADER_ROW, 8, "0", OSD_COLOR_GRAY);
     fast_osd_puts_color(ST_BITS_HEADER_ROW, 10, "1", OSD_COLOR_GRAY);
