@@ -430,3 +430,20 @@ Working implication for this board:
 - Verification: cmake --build build -j4 succeeded.
 - 2026-02-19 20:49:35 -0300: User requested direct icon shift only: moved DRK icon left one column (ST_DARK_ICON_COL 27->26), no other layout changes.
 - Verification: cmake --build build -j4 succeeded.
+- 2026-02-19 21:55:30 -0300: User reported DARK/SHADOW path CPU cost causing vertical jitter and requested maximum optimization.
+- `src/video/video_capture.c`: replaced per-pixel SHADOW branch + channel correction in `convert_pixel()` with a precomputed branchless 64K capture LUT (`g_capture_lut`) indexed by raw bits `[17:2]`.
+- LUT generation now bakes: raw mask/reverse handling, per-channel correction, non-shadow black-level clamp, and SHADOW->(halve + DARK) behavior to preserve prior output math while removing hot-loop work.
+- Non-DARK/SHADOW build path remains separate with existing 32K LUT (`g_color_correct_lut`) to avoid unnecessary default-memory growth.
+- Verification: built successfully in isolated dirs for both configs:
+  - `cmake -S . -B /tmp/neopico_dscheck -DNEOPICO_ENABLE_DARK_SHADOW=ON && cmake --build /tmp/neopico_dscheck -j4`
+  - `cmake -S . -B /tmp/neopico_defaultcheck -DNEOPICO_ENABLE_DARK_SHADOW=OFF && cmake --build /tmp/neopico_defaultcheck -j4`
+- 2026-02-19 21:56:16 -0300: Additional hot-loop optimization for capture conversion.
+- `src/video/video_capture.c`: added `convert_active_pixels(...)` and switched both active-line loops to call it.
+- DARK/SHADOW path now uses 4-pixel unrolled LUT reads per iteration (plus tail loop), minimizing loop overhead in Core0 capture path.
+- Re-verified both build variants after this loop change:
+  - `cmake --build /tmp/neopico_dscheck -j4`
+  - `cmake --build /tmp/neopico_defaultcheck -j4`
+- 2026-02-19 22:08:03 -0300: User requested DARK/SHADOW enabled by default; updated CMake default in `src/CMakeLists.txt`.
+- Changed `option(NEOPICO_ENABLE_DARK_SHADOW ... OFF)` to `... ON` so fresh configure defaults to enabled while still allowing explicit override with `-DNEOPICO_ENABLE_DARK_SHADOW=OFF`.
+- 2026-02-19 22:10:42 -0300: User requested rebuild; ran `cmake --build build -j4` in repo root.
+- Reconfigure + build succeeded; artifacts updated: `build/src/neopico_hd.uf2` and `build/src/neopico_hd.elf`.

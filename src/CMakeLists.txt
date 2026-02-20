@@ -22,7 +22,7 @@ add_executable(neopico_hd
 
 # Compile-time feature flags (cache params for fast A/B testing)
 option(NEOPICO_EXP_MENU_DIAG "Enable menu diagnostics experiment module" ON)
-option(NEOPICO_ENABLE_DARK_SHADOW "Enable DARK/SHADOW LUT path in capture" OFF)
+option(NEOPICO_ENABLE_DARK_SHADOW "Enable DARK/SHADOW LUT path in capture" ON)
 option(NEOPICO_EXP_BASELINE_TELEMETRY "Enable baseline input/output frame telemetry (no timing changes)" OFF)
 option(NEOPICO_EXP_GENLOCK_STATIC "Enable static boot-time genlock sysclk target" OFF)
 set(NEOPICO_GENLOCK_TARGET_FPS_X100 "5920" CACHE STRING "Static genlock target FPS x100 (e.g. 5920 = 59.20)")

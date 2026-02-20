@@ -37,37 +37,6 @@
 #define ENABLE_DARK_SHADOW 0
 #endif
 
-#if ENABLE_DARK_SHADOW
-// 32KB LUT - indexed by (r | g<<5 | b<<10 | dark<<15); built from PIO R/G/B bits
-static uint16_t g_pixel_lut[65536] __attribute__((aligned(4)));
-
-static void generate_pixel_lut(void)
-{
-    // LUT indexed by: [15:DARK][14-10:B][9-5:G][4-0:R]
-    for (uint32_t idx = 0; idx < 65536; idx++) {
-        uint32_t r5 = idx & 0x1F;
-        uint32_t g5 = (idx >> 5) & 0x1F;
-        uint32_t b5 = (idx >> 10) & 0x1F;
-        uint32_t dark = (idx >> 15) & 1;
-
-        // Expand 5->8 bit
-        uint32_t r8 = (r5 << 3) | (r5 >> 2);
-        uint32_t g8 = (g5 << 3) | (g5 >> 2);
-        uint32_t b8 = (b5 << 3) | (b5 >> 2);
-
-        // Apply DARK (-4 with saturation)
-        if (dark) {
-            r8 = (r8 > 4) ? r8 - 4 : 0;
-            g8 = (g8 > 4) ? g8 - 4 : 0;
-            b8 = (b8 > 4) ? b8 - 4 : 0;
-        }
-
-        // Pack as RGB565
-        g_pixel_lut[idx] = ((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3);
-    }
-}
-#endif
-
 // =============================================================================
 // MVS Timing Constants
 // =============================================================================
@@ -154,7 +123,62 @@ static inline uint32_t mvs_correct_5bit(uint32_t x, int invert, int reverse)
     return x & 0x1F;
 }
 
-// 32K LUT: raw 15-bit capture -> RGB565 (corrections baked in at init; one lookup per pixel)
+static inline uint16_t mvs_pack_rgb565(uint32_t r5, uint32_t g5, uint32_t b5)
+{
+    return (uint16_t)((r5 << 11) | (g5 << 6) | (g5 >> 4) | b5);
+}
+
+#if ENABLE_DARK_SHADOW
+static inline uint16_t mvs_pack_shadow_dark_rgb565(uint32_t r5, uint32_t g5, uint32_t b5)
+{
+    // SHADOW path matches previous behavior: halve channels first, then apply DARK in 8-bit space.
+    r5 >>= 1U;
+    g5 >>= 1U;
+    b5 >>= 1U;
+
+    uint32_t r8 = (r5 << 3) | (r5 >> 2);
+    uint32_t g8 = (g5 << 3) | (g5 >> 2);
+    uint32_t b8 = (b5 << 3) | (b5 >> 2);
+
+    r8 = (r8 > 4U) ? (r8 - 4U) : 0U;
+    g8 = (g8 > 4U) ? (g8 - 4U) : 0U;
+    b8 = (b8 > 4U) ? (b8 - 4U) : 0U;
+
+    return (uint16_t)(((r8 >> 3U) << 11) | ((g8 >> 2U) << 5) | (b8 >> 3U));
+}
+
+// 64K capture LUT: index is raw capture bits [17:2] => [15:SHADOW][14:0:RGB555]
+// This removes all per-pixel branching/correction from the hot capture loop.
+static uint16_t g_capture_lut[65536] __attribute__((aligned(4)));
+
+static void generate_capture_lut(void)
+{
+    const uint32_t raw_mask = (MVS_RAW_COLOR_MASK & 0x7FFFU);
+
+    for (uint32_t idx = 0; idx < 65536U; idx++) {
+        const uint32_t shadow = (idx >> 15U) & 1U;
+        uint32_t color15 = (idx & 0x7FFFU) ^ raw_mask;
+#if MVS_REVERSE_15BIT
+        color15 = mvs_reverse_15(color15);
+#endif
+
+        uint32_t r5 = mvs_correct_5bit((color15 >> 10) & 0x1F, MVS_INVERT_R, MVS_REVERSE_R);
+        uint32_t g5 = mvs_correct_5bit((color15 >> 5) & 0x1F, MVS_INVERT_G, MVS_REVERSE_G);
+        uint32_t b5 = mvs_correct_5bit(color15 & 0x1F, MVS_INVERT_B, MVS_REVERSE_B);
+
+        if (shadow) {
+            g_capture_lut[idx] = mvs_pack_shadow_dark_rgb565(r5, g5, b5);
+        } else if (MVS_BLACK_LEVEL_CLAMP > 0 && r5 <= MVS_BLACK_LEVEL_CLAMP && g5 <= MVS_BLACK_LEVEL_CLAMP &&
+                   b5 <= MVS_BLACK_LEVEL_CLAMP) {
+            // Black-level clamp: MVS often has a slight pedestal so "black" is a few LSB above 0.
+            g_capture_lut[idx] = 0;
+        } else {
+            g_capture_lut[idx] = mvs_pack_rgb565(r5, g5, b5);
+        }
+    }
+}
+#else
+// 32K LUT: corrected RGB555 -> RGB565 (DARK/SHADOW disabled build)
 static uint16_t g_color_correct_lut[32768] __attribute__((aligned(4)));
 
 static void generate_color_correct_lut(void)
@@ -163,37 +187,54 @@ static void generate_color_correct_lut(void)
         uint32_t r5 = mvs_correct_5bit((idx >> 10) & 0x1F, MVS_INVERT_R, MVS_REVERSE_R);
         uint32_t g5 = mvs_correct_5bit((idx >> 5) & 0x1F, MVS_INVERT_G, MVS_REVERSE_G);
         uint32_t b5 = mvs_correct_5bit(idx & 0x1F, MVS_INVERT_B, MVS_REVERSE_B);
-        // Black-level clamp: MVS often has a slight pedestal so "black" is a few LSB above 0
         if (MVS_BLACK_LEVEL_CLAMP > 0 && r5 <= MVS_BLACK_LEVEL_CLAMP && g5 <= MVS_BLACK_LEVEL_CLAMP &&
             b5 <= MVS_BLACK_LEVEL_CLAMP) {
             g_color_correct_lut[idx] = 0;
         } else {
-            g_color_correct_lut[idx] = (uint16_t)((r5 << 11) | (g5 << 6) | (g5 >> 4) | b5);
+            g_color_correct_lut[idx] = mvs_pack_rgb565(r5, g5, b5);
         }
     }
 }
+#endif
 
 // Direct conversion: RGB555 (from PIO) -> RGB565 (for HDMI)
 // PIO captures 18 bits: [17:SHADOW][16-12:R][11-7:G][6-2:B][1:PCLK][0:CSYNC]
-// Hot path: one LUT lookup (no per-pixel reverse/pack).
+// Hot path in DARK/SHADOW mode is now a single LUT lookup.
 static inline uint16_t convert_pixel(uint32_t raw)
 {
+#if ENABLE_DARK_SHADOW
+    return g_capture_lut[(raw >> 2) & 0xFFFFU];
+#else
     uint32_t color15 = ((raw >> 2) & 0x7FFF) ^ (MVS_RAW_COLOR_MASK & 0x7FFF);
 #if MVS_REVERSE_15BIT
     color15 = mvs_reverse_15(color15);
 #endif
+    return g_color_correct_lut[color15];
+#endif
+}
+
+static inline void convert_active_pixels(uint16_t *dst, const uint32_t *src, int count)
+{
 #if ENABLE_DARK_SHADOW
-    if (__builtin_expect((raw >> 17) & 1, 0)) {
-        uint32_t r5 = mvs_correct_5bit((color15 >> 10) & 0x1F, MVS_INVERT_R, MVS_REVERSE_R);
-        uint32_t g5 = mvs_correct_5bit((color15 >> 5) & 0x1F, MVS_INVERT_G, MVS_REVERSE_G);
-        uint32_t b5 = mvs_correct_5bit(color15 & 0x1F, MVS_INVERT_B, MVS_REVERSE_B);
-        r5 >>= 1;
-        g5 >>= 1;
-        b5 >>= 1;
-        return g_pixel_lut[(1 << 15) | (b5 << 10) | (g5 << 5) | r5];
+    const uint16_t *lut = g_capture_lut;
+    int remaining = count;
+    while (remaining >= 4) {
+        dst[0] = lut[(src[0] >> 2) & 0xFFFFU];
+        dst[1] = lut[(src[1] >> 2) & 0xFFFFU];
+        dst[2] = lut[(src[2] >> 2) & 0xFFFFU];
+        dst[3] = lut[(src[3] >> 2) & 0xFFFFU];
+        dst += 4;
+        src += 4;
+        remaining -= 4;
+    }
+    while (remaining-- > 0) {
+        *dst++ = lut[(*src++ >> 2) & 0xFFFFU];
+    }
+#else
+    for (int i = 0; i < count; i++) {
+        dst[i] = convert_pixel(src[i]);
     }
 #endif
-    return g_color_correct_lut[color15];
 }
 
 // =============================================================================
@@ -285,9 +326,10 @@ void video_capture_init(uint mvs_height)
     g_mvs_height = mvs_height;
 
 #if ENABLE_DARK_SHADOW
-    generate_pixel_lut();
-#endif
+    generate_capture_lut();
+#else
     generate_color_correct_lut();
+#endif
 
     // 18-bit capture: 1 pixel per word
     g_skip_start_words = H_SKIP_START;
@@ -428,9 +470,7 @@ void video_capture_run(void)
 
             // Convert pixels directly to ring buffer
             uint32_t *src = buf + g_skip_start_words;
-            for (int i = 0; i < g_active_words; i++) {
-                dst[i] = convert_pixel(*src++);
-            }
+            convert_active_pixels(dst, src, g_active_words);
 
             // Signal line ready
             line_ring_commit(line + 1);
@@ -444,9 +484,7 @@ void video_capture_run(void)
             dma_channel_wait_for_finish_blocking(g_dma_chan);
 
             uint32_t *src = g_line_buffers[buf_idx] + g_skip_start_words;
-            for (int i = 0; i < g_active_words; i++) {
-                dst[i] = convert_pixel(*src++);
-            }
+            convert_active_pixels(dst, src, g_active_words);
 
             line_ring_commit(g_mvs_height);
         }
