@@ -6,32 +6,32 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 
 ## Features
 
--   **Native 240p HDMI output** at 60fps (via 480p line doubling for audio compatibility)
--   **15-bit RGB + SHADOW/DARK capture** - 19-bit capture path includes SHADOW and DARK control lines
--   **Pixel Conversion Modes** - Default 32K RGB LUT, optional 64K SHADOW LUT path via `NEOPICO_ENABLE_DARK_SHADOW=ON`
--   **Digital audio capture** from I2S bus (before DAC) with 48kHz HDMI output
--   **Zero-overhead DMA video capture** - uses PIO + DMA with ping-pong buffering for perfect stability
--   **PicoHDMI Output** - Powered by the [PicoHDMI](https://github.com/fliperama86/pico_hdmi) library for efficient, hardware-native TMDS encoding via RP2350 HSTX.
+- **Native 240p HDMI output** at 60fps (via 480p line doubling for audio compatibility)
+- **15-bit RGB + SHADOW/DARK capture** - 19-bit capture path includes SHADOW and DARK control lines
+- **Pixel Conversion Modes** - Default 32K RGB LUT, optional 64K SHADOW LUT path via `NEOPICO_ENABLE_DARK_SHADOW=ON`
+- **Digital audio capture** from I2S bus (before DAC) with 48kHz HDMI output
+- **Zero-overhead DMA video capture** - uses PIO + DMA with ping-pong buffering for perfect stability
+- **PicoHDMI Output** - Powered by the [PicoHDMI](https://github.com/fliperama86/pico_hdmi) library for efficient, hardware-native TMDS encoding via RP2350 HSTX.
 
 ## Status
 
-| Feature                 | Status  |
-| ----------------------- | ------- |
-| 480p HDMI video         | Working |
-| 60fps capture           | Working |
-| RGB555 video path       | Working |
-| SHADOW/DARK capture     | Working |
+| Feature                 | Status                                     |
+| ----------------------- | ------------------------------------------ |
+| 480p HDMI video         | Working                                    |
+| 60fps capture           | Working                                    |
+| RGB555 video path       | Working                                    |
+| SHADOW/DARK capture     | Working                                    |
 | SHADOW conversion mode  | Optional (`NEOPICO_ENABLE_DARK_SHADOW=ON`) |
-| HDMI audio (48kHz)      | Working |
-| OSD Diagnostics         | Working |
-| Morhph4K, RetroTink 4K  | Tested  |
-| Samsung Q80, Acer Pred. | Tested  |
+| HDMI audio (48kHz)      | Working                                    |
+| OSD Diagnostics         | Working                                    |
+| Morhph4K, RetroTink 4K  | Tested                                     |
+| Samsung Q80, Acer Pred. | Tested                                     |
 
 ## Hardware Requirements
 
--   **Raspberry Pi Pico 2** - Must be RP2350**B** variant (48 GPIOs) for digital audio capture
--   **Neo Geo MVS board** - Tested on MV1C
--   **HDMI connector** wired to Pico GPIO
+- **Raspberry Pi Pico 2** - Must be RP2350**B** variant (48 GPIOs) for digital audio capture
+- **Neo Geo MVS board** - Tested on MV1C
+- **HDMI connector** wired to Pico GPIO
 
 ### Hardware Setup & Signal Integrity
 
@@ -49,14 +49,14 @@ To ensure clean audio and video capture, follow these best practices:
 
 #### Video Capture (Bank 1)
 
-| Function   | GPIO       | Notes                        |
-| ---------- | ---------- | ---------------------------- |
-| MVS CSYNC  | GPIO 27    | Composite sync               |
-| MVS PCLK   | GPIO 28    | 6 MHz pixel clock            |
-| MVS Blue   | GPIO 29-33 | B4-B0 (contiguous)           |
-| MVS Green  | GPIO 34-38 | G4-G0 (contiguous)           |
-| MVS Red    | GPIO 39-43 | R4-R0 (contiguous)           |
-| MVS SHADOW | GPIO 44    | Shadow dimming |
+| Function   | GPIO       | Notes                |
+| ---------- | ---------- | -------------------- |
+| MVS CSYNC  | GPIO 27    | Composite sync       |
+| MVS PCLK   | GPIO 28    | 6 MHz pixel clock    |
+| MVS Blue   | GPIO 29-33 | B4-B0 (contiguous)   |
+| MVS Green  | GPIO 34-38 | G4-G0 (contiguous)   |
+| MVS Red    | GPIO 39-43 | R4-R0 (contiguous)   |
+| MVS SHADOW | GPIO 44    | Shadow dimming       |
 | MVS DARK   | GPIO 45    | Dark dimming control |
 
 #### HSTX Output (Bank 0/1)
@@ -91,7 +91,7 @@ Requires [Pico SDK](https://github.com/raspberrypi/pico-sdk) with `PICO_SDK_PATH
 Core 0: Video Capture               Core 1: Audio Pipeline + HSTX
 +--------------------------+       +--------------------------+
 | Video: PIO1 -> DMA (PP)  |       | Audio: PIO2 -> processing|
-| Conv: 32K LUT (64K opt) |       | [ PicoHDMI Library ]     |
+| Conv: 32K LUT (64K opt)  |       | [ PicoHDMI Library ]     |
 | Main loop: Control       |       | - 640x480 @ 60Hz         |
 | Heartbeat LED            |       | - HDMI Data Islands      |
 +--------------------------+       +--------------------------+
@@ -105,25 +105,25 @@ Core 0: Video Capture               Core 1: Audio Pipeline + HSTX
 
 The project leverages the [PicoHDMI](https://github.com/fliperama86/pico_hdmi) library (found in `lib/pico_hdmi`) to interface with the RP2350's HSTX peripheral. This library provides the high-performance TMDS encoding and Data Island management required for stable HDMI output.
 
--   **Dedicated Output Core**: To ensure rock-solid HDMI timing (exactly 800 cycles per line), the library runs its main loop on **Core 1**. This isolates the high-priority TMDS serialization from the video capture logic on Core 0.
--   **Zero-Latency Scaling**: We use the library's `video_output_set_scanline_callback()` to implement a scanline doubler. This performs 2x vertical upscaling (240p to 480p) on-the-fly as pixels are streamed to the HSTX, avoiding the need for a full 480p framebuffer.
--   **HDMI Audio Injection**: Audio data is integrated via the library's Data Island queue (`hstx_di_queue`). The audio subsystem pushes TERC4-encoded packets into this queue, which the library then automatically injects during the horizontal blanking intervals.
--   **Frame Synchronization**: A VSYNC callback is used to keep the video capture ring buffer and the HDMI output in perfect sync, minimizing latency and preventing screen tearing.
+- **Dedicated Output Core**: To ensure rock-solid HDMI timing (exactly 800 cycles per line), the library runs its main loop on **Core 1**. This isolates the high-priority TMDS serialization from the video capture logic on Core 0.
+- **Zero-Latency Scaling**: We use the library's `video_output_set_scanline_callback()` to implement a scanline doubler. This performs 2x vertical upscaling (240p to 480p) on-the-fly as pixels are streamed to the HSTX, avoiding the need for a full 480p framebuffer.
+- **HDMI Audio Injection**: Audio data is integrated via the library's Data Island queue (`hstx_di_queue`). The audio subsystem pushes TERC4-encoded packets into this queue, which the library then automatically injects during the horizontal blanking intervals.
+- **Frame Synchronization**: A VSYNC callback is used to keep the video capture ring buffer and the HDMI output in perfect sync, minimizing latency and preventing screen tearing.
 
 ## Documentation
 
--   **[System Architecture](docs/ARCHITECTURE.md)**: High-level design, core partitioning, and the closed-loop audio sync.
--   **[Video Implementation](docs/MVS_MV1C_DIGITAL_VIDEO.md)**: Tap points, signal logic, and PIO capture.
--   **[Audio Implementation](docs/MVS_MV1C_DIGITAL_AUDIO.md)**: I2S format, ASRC strategy, and drift control.
--   **[HSTX & HDMI](docs/HSTX_IMPLEMENTATION.md)**: Output timing, TMDS, and Data Islands.
--   **[OSD](docs/OSD_IMPLEMENTATION.md)**: On-Screen Display rendering.
--   **[Best Practices](docs/BEST_PRACTICES.md)**: Critical Do's and Don'ts for developers.
+- **[System Architecture](docs/ARCHITECTURE.md)**: High-level design, core partitioning, and the closed-loop audio sync.
+- **[Video Implementation](docs/MVS_MV1C_DIGITAL_VIDEO.md)**: Tap points, signal logic, and PIO capture.
+- **[Audio Implementation](docs/MVS_MV1C_DIGITAL_AUDIO.md)**: I2S format, ASRC strategy, and drift control.
+- **[HSTX & HDMI](docs/HSTX_IMPLEMENTATION.md)**: Output timing, TMDS, and Data Islands.
+- **[OSD](docs/OSD_IMPLEMENTATION.md)**: On-Screen Display rendering.
+- **[Best Practices](docs/BEST_PRACTICES.md)**: Critical Do's and Don'ts for developers.
 
 ## Architecture Highlights
 
--   **Dual-Core Design**: Dedicated cores for Video Capture (Core 0) and HDMI Output (Core 1).
--   **Closed-Loop Audio Sync**: Software-defined feedback loop effectively "genlocks" the MVS audio to the HDMI clock, preventing drift and glitches without an FPGA.
--   **Zero-Lag**: Scanline-doubling architecture with no framebuffer delay.
+- **Dual-Core Design**: Dedicated cores for Video Capture (Core 0) and HDMI Output (Core 1).
+- **Closed-Loop Audio Sync**: Software-defined feedback loop effectively "genlocks" the MVS audio to the HDMI clock, preventing drift and glitches without an FPGA.
+- **Zero-Lag**: Scanline-doubling architecture with no framebuffer delay.
 
 ## Installation
 
