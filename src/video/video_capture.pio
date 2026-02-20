@@ -22,21 +22,22 @@ check_pin:
     jmp entry_point
 
 
-; MVS Pixel Capture - 18-bit contiguous (GP27-44)
+; MVS Pixel Capture - 19-bit contiguous (GP27-45, DARK on bit 18)
 ;
 ; IN_BASE = GP27 (pin index 11 with GPIOBASE=16).
-; Captures 18 consecutive pins: GP27 (LSB) .. GP44 (MSB).
+; Captures 19 consecutive pins: GP27 (LSB) .. GP45 (MSB).
 ;
-;   Bit 0:     GP27 (CSYNC)
-;   Bit 1:     GP28 (PCLK)
-;   Bits 2-6:  GP29-33 (Blue B4-B0)
-;   Bits 7-11: GP34-38 (Green G4-G0)
+;   Bit 0:      GP27 (CSYNC)
+;   Bit 1:      GP28 (PCLK)
+;   Bits 2-6:   GP29-33 (Blue B4-B0)
+;   Bits 7-11:  GP34-38 (Green G4-G0)
 ;   Bits 12-16: GP39-43 (Red R4-R0)
-;   Bit 17:    GP44 (SHADOW)
+;   Bit 17:     GP44 (SHADOW)
+;   Bit 18:     GP45 (DARK)
 ;
-; Autopush at 18 bits = 1 pixel per FIFO word.
+; Autopush at 19 bits = 1 pixel per FIFO word.
 
-.program mvs_pixel_capture
+.program mvs_pixel_capture_dark19
 
     ; One-time initialization: C code will push (NEO_H_TOTAL - 1)
     pull block
@@ -52,11 +53,11 @@ check_pin:
 
     ; 2. Sample NEO_H_TOTAL pixels
     mov x, y                    ; Reset pixel counter
-pixel_loop:
+pixel_loop_dark19:
     wait 0 pin 1                ; Wait for PCLK LOW (pin 1 = GP28)
     wait 1 pin 1                ; Wait for PCLK HIGH (rising edge = data valid)
     nop                         ; Data setup: allow MVS outputs to settle
     nop                         ; Extra cycle for hold margin (reduces wobble)
-    in pins, 18                  ; Sample GP27-44 (CSYNC, PCLK, B, G, R, SHADOW)
-    jmp x-- pixel_loop          ; Loop until line complete
+    in pins, 19                 ; Sample GP27-45 (CSYNC, PCLK, B, G, R, SHADOW, DARK)
+    jmp x-- pixel_loop_dark19   ; Loop until line complete
 .wrap

@@ -30,9 +30,9 @@
 // Feature Flags
 // =============================================================================
 
-// SHADOW processing (no DARK pin in this hardware layout).
-// When enabled, uses 32KB LUT indexed by RGB555.
-// Disabled: was causing poor image quality (RF-like); re-enable if needed.
+// DARK/SHADOW processing.
+// When enabled, uses a 64KB capture-domain LUT indexed by RGB555 + SHADOW.
+// DARK pin capture remains mapped in hardware, but algorithm follows main-branch behavior.
 #ifndef ENABLE_DARK_SHADOW
 #define ENABLE_DARK_SHADOW 0
 #endif
@@ -131,7 +131,7 @@ static inline uint16_t mvs_pack_rgb565(uint32_t r5, uint32_t g5, uint32_t b5)
 #if ENABLE_DARK_SHADOW
 static inline uint16_t mvs_pack_shadow_dark_rgb565(uint32_t r5, uint32_t g5, uint32_t b5)
 {
-    // SHADOW path matches previous behavior: halve channels first, then apply DARK in 8-bit space.
+    // SHADOW path matches main branch behavior: halve channels first, then apply DARK in 8-bit space.
     r5 >>= 1U;
     g5 >>= 1U;
     b5 >>= 1U;
@@ -147,7 +147,7 @@ static inline uint16_t mvs_pack_shadow_dark_rgb565(uint32_t r5, uint32_t g5, uin
     return (uint16_t)(((r8 >> 3U) << 11) | ((g8 >> 2U) << 5) | (b8 >> 3U));
 }
 
-// 64K capture LUT: index is raw capture bits [17:2] => [15:SHADOW][14:0:RGB555]
+// 64K capture LUT: index is raw capture bits [17:2] => [15:SHADOW][14:0:RGB555].
 // This removes all per-pixel branching/correction from the hot capture loop.
 static uint16_t g_capture_lut[65536] __attribute__((aligned(4)));
 
@@ -198,8 +198,8 @@ static void generate_color_correct_lut(void)
 #endif
 
 // Direct conversion: RGB555 (from PIO) -> RGB565 (for HDMI)
-// PIO captures 18 bits: [17:SHADOW][16-12:R][11-7:G][6-2:B][1:PCLK][0:CSYNC]
-// Hot path in DARK/SHADOW mode is now a single LUT lookup.
+// PIO capture layout: [18:DARK][17:SHADOW][16-12:R][11-7:G][6-2:B][1:PCLK][0:CSYNC]
+// Hot path in DARK/SHADOW mode is a single LUT lookup.
 static inline uint16_t convert_pixel(uint32_t raw)
 {
 #if ENABLE_DARK_SHADOW
@@ -331,7 +331,7 @@ void video_capture_init(uint mvs_height)
     generate_color_correct_lut();
 #endif
 
-    // 18-bit capture: 1 pixel per word
+    // 19-bit capture: 1 pixel per word
     g_skip_start_words = H_SKIP_START;
     g_active_words = NEO_H_ACTIVE;
     g_line_words = NEO_H_TOTAL;
@@ -350,14 +350,14 @@ void video_capture_init(uint mvs_height)
     // 2. Add programs
     pio_clear_instruction_memory(g_pio_mvs);
     g_offset_sync = pio_add_program(g_pio_mvs, &mvs_sync_4a_program);
-    g_offset_pixel = pio_add_program(g_pio_mvs, &mvs_pixel_capture_program);
+    g_offset_pixel = pio_add_program(g_pio_mvs, &mvs_pixel_capture_dark19_program);
 
     // 3. Claim SMs
     g_sm_sync = (uint)pio_claim_unused_sm(g_pio_mvs, true);
     g_sm_pixel = (uint)pio_claim_unused_sm(g_pio_mvs, true);
 
-    // 4. Setup GPIOs GP27-44 (CSYNC, PCLK, B, G, R, SHADOW)
-    for (uint i = PIN_MVS_BASE; i <= PIN_MVS_SHADOW; i++) {
+    // 4. Setup capture GPIOs GP27-45 (CSYNC, PCLK, B, G, R, SHADOW, DARK)
+    for (uint i = PIN_MVS_BASE; i <= MVS_CAPTURE_PIN_LAST; i++) {
         pio_gpio_init(g_pio_mvs, i);
         gpio_disable_pulls(i);
         gpio_set_input_enabled(i, true);
@@ -375,13 +375,13 @@ void video_capture_init(uint mvs_height)
     g_pio_mvs->sm[g_sm_sync].pinctrl = (g_pio_mvs->sm[g_sm_sync].pinctrl & ~0x000f8000) | (pin_idx_sync << 15);
     g_pio_mvs->sm[g_sm_sync].execctrl = (g_pio_mvs->sm[g_sm_sync].execctrl & ~0x1f000000) | (pin_idx_sync << 24);
 
-    // 6. Configure Pixel SM: IN_BASE = GP27 (pin index 11), capture GP27-44
-    pio_sm_config pc = mvs_pixel_capture_program_get_default_config(g_offset_pixel);
+    // 6. Configure Pixel SM: IN_BASE = GP27 (pin index 11), capture GP27-45
+    pio_sm_config pc = mvs_pixel_capture_dark19_program_get_default_config(g_offset_pixel);
     sm_config_set_clkdiv(&pc, 1.0F);
-    sm_config_set_in_shift(&pc, false, true, 18);
+    sm_config_set_in_shift(&pc, false, true, MVS_CAPTURE_BITS);
     pio_sm_init(g_pio_mvs, g_sm_pixel, g_offset_pixel, &pc);
 
-    uint pin_idx_pixel = PIN_MVS_BASE - 16; // 11: first pin of 18-pin capture
+    uint pin_idx_pixel = PIN_MVS_BASE - 16; // 11: first pin of capture window
     g_pio_mvs->sm[g_sm_pixel].pinctrl = (g_pio_mvs->sm[g_sm_pixel].pinctrl & ~0x000f8000) | (pin_idx_pixel << 15);
 
     // 7. Start

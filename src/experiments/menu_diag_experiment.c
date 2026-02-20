@@ -7,13 +7,9 @@
 #include "mvs_pins.h"
 #include "osd/fast_osd.h"
 #include "osd/selftest_layout.h"
-#include "video_capture.h"
 
-#ifndef NEOPICO_EXP_BASELINE_TELEMETRY
-#define NEOPICO_EXP_BASELINE_TELEMETRY 0
-#endif
+#define SELFTEST_SHADOW_HOLD_UPDATES 30U
 
-#if EXP_MENU_DIAG
 // Global frame counter from video output runtime.
 extern volatile uint32_t video_frame_count;
 
@@ -26,20 +22,10 @@ static uint32_t s_video_samples = 0;
 static uint32_t s_audio_hi = 0;
 static uint32_t s_audio_lo = 0;
 static uint32_t s_audio_samples = 0;
-#if NEOPICO_EXP_BASELINE_TELEMETRY
-// Use a long window for stable integer metrics and minimal update overhead.
-#define BASELINE_REPORT_INTERVAL_US 10000000ULL
-static bool s_baseline_initialized = false;
-static uint64_t s_last_baseline_report_us = 0;
-static uint32_t s_last_in_frames = 0;
-static uint32_t s_last_out_frames = 0;
-static int32_t s_last_phase = 0;
-#endif
-#endif
+static uint32_t s_shadow_hold_updates = 0;
 
 void menu_diag_experiment_init(void)
 {
-#if EXP_MENU_DIAG
     s_btn_was_pressed = false;
     s_last_press_ms = 0;
     s_last_update_frame = video_frame_count;
@@ -49,19 +35,11 @@ void menu_diag_experiment_init(void)
     s_audio_hi = 0;
     s_audio_lo = 0;
     s_audio_samples = 0;
-#if NEOPICO_EXP_BASELINE_TELEMETRY
-    s_baseline_initialized = false;
-    s_last_baseline_report_us = 0;
-    s_last_in_frames = 0;
-    s_last_out_frames = 0;
-    s_last_phase = 0;
-#endif
-#endif
+    s_shadow_hold_updates = 0;
 }
 
 void menu_diag_experiment_on_menu_open(void)
 {
-#if EXP_MENU_DIAG
     selftest_layout_reset();
     s_last_update_frame = video_frame_count;
     s_video_hi = 0;
@@ -70,22 +48,16 @@ void menu_diag_experiment_on_menu_open(void)
     s_audio_hi = 0;
     s_audio_lo = 0;
     s_audio_samples = 0;
-#if NEOPICO_EXP_BASELINE_TELEMETRY
-    s_baseline_initialized = false;
-#endif
-#endif
+    s_shadow_hold_updates = 0;
 }
 
 void menu_diag_experiment_on_menu_close(void)
 {
-#if EXP_MENU_DIAG
     // Keep existing OSD buffer contents; visibility controls display.
-#endif
 }
 
 void menu_diag_experiment_tick_background(void)
 {
-#if EXP_MENU_DIAG
     const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
     const bool btn_pressed = !gpio_get(PIN_OSD_BTN_MENU); // active low
 
@@ -101,44 +73,6 @@ void menu_diag_experiment_tick_background(void)
     }
     s_btn_was_pressed = btn_pressed;
 
-#if NEOPICO_EXP_BASELINE_TELEMETRY
-    if (osd_visible) {
-        const uint64_t now_us = time_us_64();
-        if (!s_baseline_initialized) {
-            s_baseline_initialized = true;
-            s_last_baseline_report_us = now_us;
-            s_last_in_frames = video_capture_get_frame_count();
-            s_last_out_frames = video_frame_count;
-            s_last_phase = (int32_t)s_last_out_frames - (int32_t)s_last_in_frames;
-        } else if ((now_us - s_last_baseline_report_us) >= BASELINE_REPORT_INTERVAL_US) {
-            const uint32_t in_total = video_capture_get_frame_count();
-            const uint32_t out_total = video_frame_count;
-            const uint32_t delta_in = in_total - s_last_in_frames;
-            const uint32_t delta_out = out_total - s_last_out_frames;
-            const int32_t phase = (int32_t)out_total - (int32_t)in_total;
-            const int32_t interval_slip = phase - s_last_phase;
-            const uint32_t elapsed_ms = (uint32_t)((now_us - s_last_baseline_report_us) / 1000ULL);
-
-            int32_t slip_fpm = 0;
-            uint32_t in_fps_x100 = 0;
-            uint32_t out_fps_x100 = 0;
-            if (elapsed_ms > 0U) {
-                slip_fpm = (interval_slip * 60000) / (int32_t)elapsed_ms;
-                in_fps_x100 = (delta_in * 100000U) / elapsed_ms;
-                out_fps_x100 = (delta_out * 100000U) / elapsed_ms;
-            }
-            selftest_layout_set_baseline(in_fps_x100, out_fps_x100, phase, slip_fpm);
-
-            s_last_baseline_report_us = now_us;
-            s_last_in_frames = in_total;
-            s_last_out_frames = out_total;
-            s_last_phase = phase;
-        }
-    } else {
-        s_baseline_initialized = false;
-    }
-#endif
-
     if (osd_visible) {
         uint32_t video_sample = 0;
         if (gpio_get(PIN_MVS_CSYNC)) {
@@ -150,11 +84,12 @@ void menu_diag_experiment_tick_background(void)
         if (gpio_get(PIN_MVS_SHADOW)) {
             video_sample |= SELFTEST_BIT_SHADOW;
         }
-#ifdef PIN_MVS_DARK
+        if ((video_sample & SELFTEST_BIT_SHADOW) != 0U) {
+            s_shadow_hold_updates = SELFTEST_SHADOW_HOLD_UPDATES;
+        }
         if (gpio_get(PIN_MVS_DARK)) {
             video_sample |= SELFTEST_BIT_DARK;
         }
-#endif
         if (gpio_get(PIN_MVS_R0)) {
             video_sample |= SELFTEST_BIT_R0;
         }
@@ -238,8 +173,11 @@ void menu_diag_experiment_tick_background(void)
             s_audio_lo = 0;
             s_audio_samples = 0;
         }
+        if (s_shadow_hold_updates > 0U) {
+            toggled_bits |= SELFTEST_BIT_SHADOW;
+            s_shadow_hold_updates--;
+        }
         // Full video + full audio diagnostics phase; no capture-path interaction.
         selftest_layout_update(video_frame_count, has_snapshot, toggled_bits);
     }
-#endif
 }

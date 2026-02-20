@@ -4,7 +4,7 @@ Comprehensive record of the RP2350 HSTX implementation and HDMI audio findings.
 
 ## 1. System Architecture
 
-- **Core 0**: Handles pixel-perfect video capture (PIO1+DMA). Performs hardware-accelerated RGB565 conversion using Interpolators + LUT.
+- **Core 0**: Handles pixel-perfect video capture (PIO1+DMA). Performs RGB565 conversion through a LUT path (32K default, 64K optional with `NEOPICO_ENABLE_DARK_SHADOW=ON`).
 - **Core 1**: Dedicated to HSTX HDMI output and the audio pipeline (polling PIO2, SRC, and TERC4 encoding).
 - **Inter-core**: Single 320x240 RGB565 framebuffer + Audio Ring Buffer.
 
@@ -53,7 +53,7 @@ Comprehensive record of the RP2350 HSTX implementation and HDMI audio findings.
 | Peripheral | Purpose       | GPIO Range     |
 | ---------- | ------------- | -------------- |
 | **HSTX**   | HDMI Output   | 12-19          |
-| **PIO1**   | Video Capture | 25-43 (Bank 1) |
+| **PIO1**   | Video Capture | 27-45 (Bank 1) |
 | **PIO2**   | I2S Audio     | 0-2 (Bank 0)   |
 
 ### External Connection Requirements

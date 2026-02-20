@@ -16,10 +16,9 @@ The MVS MV1C generates 15-bit RGB video digitally, clocked at 6 MHz with composi
 | G[4:0] | 5 bits | Green MSB -> LSB           | R2R Input        | GPIO 34-38  |
 | R[4:0] | 5 bits | Red MSB -> LSB             | R2R Input        | GPIO 39-43  |
 | SHADOW | 1 bit  | Intensity control          | Pre-DAC          | GPIO 44     |
+| DARK   | 1 bit  | Intensity control          | Pre-DAC          | GPIO 45     |
 
-(No DARK pin in this hardware layout.)
-
-**Capture Logic**: PIO1 samples GPIO 27-44 (18 pins) as a contiguous block. IN_BASE = GP27; CSYNC is at bit 0, PCLK at bit 1, then B/G/R and SHADOW at bit 17. Sync and pixel SMs use the same window; sync waits on CSYNC (GP27), pixel SM samples on PCLK (GP28).
+**Capture Logic**: PIO1 samples GPIO 27-45 (19 pins) as a contiguous block. IN_BASE = GP27; CSYNC is at bit 0, PCLK at bit 1, then B/G/R, SHADOW at bit 17, and DARK at bit 18. Sync and pixel SMs use the same window; sync waits on CSYNC (GP27), pixel SM samples on PCLK (GP28).
 
 ## 2. Capture Strategy
 
@@ -35,19 +34,21 @@ The MVS MV1C generates 15-bit RGB video digitally, clocked at 6 MHz with composi
 
 ### Hardware-Accelerated Pixel Conversion
 
-The Neo Geo uses two special signals, **DARK** and **SHADOW**, to modify pixel brightness per-pixel. To handle this with minimum CPU overhead, NeoPico-HD uses the RP2350's **Hardware Interpolator** and a **Runtime-generated Lookup Table (LUT)**.
+The Neo Geo uses two special signals, **DARK** and **SHADOW**, to modify pixel brightness. To handle this with minimum CPU overhead, NeoPico-HD uses a runtime-generated LUT in Core 0 capture.
 
-1.  **Intensity LUT**: A 256KB LUT (131,072 entries) is generated at boot. It maps the 17-bit raw capture (RGB555 + DARK + SHADOW) to the final RGB565 value.
-2.  **Order of Operations**:
-    -   SHADOW (50% dimming) is applied first.
-    -   SHADOW forces DARK to 1.
-    -   5-to-8 bit color expansion.
-    -   DARK (-4 intensity) is applied last.
-3.  **Interpolator Logic**: `interp0` is configured with a mask of bits 1-17. This skips the PCLK bit and automatically multiplies the index by 2 (byte offset for `uint16_t`), allowing a single-cycle address generation for the LUT.
+1.  **Default Build** (`NEOPICO_ENABLE_DARK_SHADOW=OFF`):
+    -   A 32K-entry LUT (64KB) converts corrected RGB555 -> RGB565.
+    -   SHADOW/DARK bits are captured but ignored in pixel conversion.
+2.  **Optional Build** (`NEOPICO_ENABLE_DARK_SHADOW=ON`):
+    -   A 64K-entry LUT (128KB) is indexed by RGB555+SHADOW.
+    -   SHADOW path applies legacy main-branch dimming math (halve channels, then fixed dark offset).
+    -   DARK is still captured for diagnostics, but is not part of LUT indexing in this path.
+3.  **Capture Width**:
+    -   Capture uses 19 bits (RGB555 + SHADOW + DARK).
 
 ## 3. RP2350 Hardware Platform Notes (Bank 1)
 
-Capturing from GPIO 27-44 requires using the RP2350's **Bank 1** features and managing specific hardware/SDK quirks.
+Capturing from GPIO 27-45 requires using the RP2350's **Bank 1** features and managing specific hardware/SDK quirks.
 
 ### GPIOBASE Register
 

@@ -19,7 +19,9 @@ The workload is strictly partitioned between the two cores to ensure determinist
 *   **Synchronization**: Re-synchronizes the PIO state machine on every single CSYNC falling edge to prevent horizontal drift.
 *   **Pixel Processing**:
     *   Detects `SHADOW` and `DARK` bits.
-    *   Uses **HW Interpolator 0** to perform single-cycle lookup in a pre-computed 256KB LUT.
+    *   Default build uses a pre-computed 32K LUT for corrected RGB555 -> RGB565 conversion.
+    *   Optional mode (`NEOPICO_ENABLE_DARK_SHADOW=ON`) uses a 64K LUT indexed by RGB555+SHADOW.
+    *   In optional mode, SHADOW uses legacy main-branch dimming math (halve channels, then apply fixed dark offset); DARK is still captured for diagnostics but is not part of LUT indexing.
     *   Converts raw MVS data into standard RGB565.
 *   **Frame Management**: Writes to a ping-pong buffer in RAM.
 
@@ -51,7 +53,7 @@ We implemented a **Proportional Control Loop**:
 
 | Region | Size | Usage |
 | :--- | :--- | :--- |
-| **SRAM_STRIPED** | 256 KB | **Video LUT** (RGB555+Ctrl -> RGB565) |
+| **SRAM_STRIPED** | 64-128 KB | **Video LUT** (64 KB default RGB LUT, 128 KB with DARK/SHADOW mode) |
 | **SRAM** | 150 KB | **Framebuffer** (320x240 RGB565) |
 | **SRAM** | 16 KB | **Audio DMA Buffer** (Raw I2S capture) |
 | **SCRATCH_X** | 4 KB | **Core 1 ISRs** (HSTX/Audio critical code) |

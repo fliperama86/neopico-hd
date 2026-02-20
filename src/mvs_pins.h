@@ -9,12 +9,11 @@
 #define MVS_PINS_H
 
 // =============================================================================
-// MVS Video Input Pins - GP27-44 CONTIGUOUS LAYOUT
+// MVS Video Input Pins - GP27-45 CONTIGUOUS LAYOUT
 // =============================================================================
-// Captures RGB555 + SHADOW from Neo Geo MVS (this layout has no DARK pin).
+// Captures RGB555 + SHADOW + DARK from Neo Geo MVS.
 //
-// 18-pin capture window: GP27 (LSB) through GP44 (MSB).
-// PIO captures with 'in pins, 18' from IN_BASE = GP27.
+// 19-pin capture window: GP27 (LSB) through GP45 (MSB).
 //
 // Pin mapping (LSB to MSB in captured word):
 //   Bit 0:      GP27 (CSYNC)
@@ -23,12 +22,13 @@
 //   Bits 7-11:  GP34-38 (Green G4-G0, contiguous)
 //   Bits 12-16: GP39-43 (Red R4-R0, contiguous)
 //   Bit 17:     GP44 (SHADOW)
+//   Bit 18:     GP45 (DARK)
 //
 // With PIO GPIOBASE=16, pin index N = GP(N+16). So IN_BASE=11 → GP27.
 
 #define PIN_MVS_CSYNC 27 // Composite sync (position 0 in capture word)
 #define PIN_MVS_PCLK 28  // Pixel clock (6 MHz, position 1)
-#define PIN_MVS_BASE 27  // Base pin - capture GP27-44 (18 pins), CSYNC first
+#define PIN_MVS_BASE 27  // Base pin - capture GP27-45 (19 pins), CSYNC first
 
 // Blue channel (B4-B0) - CONTIGUOUS at bits 2-6
 #define PIN_MVS_B4 29
@@ -52,7 +52,11 @@
 #define PIN_MVS_R0 43
 
 // Special effects
-#define PIN_MVS_SHADOW 44 // Bit 17 (no DARK pin in this hardware layout)
+#define PIN_MVS_SHADOW 44 // Bit 17
+#define PIN_MVS_DARK 45   // Bit 18
+
+#define MVS_CAPTURE_PIN_LAST PIN_MVS_DARK
+#define MVS_CAPTURE_BITS 19
 
 // =============================================================================
 // I2S Audio Input Pins (DAT=GP22, WS=GP23, BCK=GP24)

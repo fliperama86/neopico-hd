@@ -12,7 +12,7 @@
 
 ```
 ORIGINAL (Frame-buffered + LUT):
-  Core 0: Capture full frame → interp0 + 256KB LUT → framebuf[320x240]
+  Core 0: Capture full frame → large LUT conversion → framebuf[320x240]
   Core 1: ISR reads framebuf → HDMI output
   Memory: ~417 KB
 
@@ -117,11 +117,11 @@ The RP2350 has 520 KB SRAM, leaving ~279 KB free for future features (OSD, setti
 
 ---
 
-## Future: DARK/SHADOW Support
+## DARK/SHADOW Status
 
-The PIO capture preserves all 18 bits including DARK/SHADOW flags. To restore intensity effects:
+Current implementation:
 
-1. Set `#define ENABLE_DARK_SHADOW 1` in video_capture.c
-2. Add back `g_pixel_lut` (256 KB) and `generate_intensity_lut()`
-3. Restore `interp0` configuration
-4. Memory will increase by ~256 KB
+1. PIO capture preserves 19 bits including SHADOW and DARK.
+2. Default build (`NEOPICO_ENABLE_DARK_SHADOW=OFF`) uses a 32K RGB LUT path (SHADOW/DARK not applied in conversion).
+3. Optional build (`NEOPICO_ENABLE_DARK_SHADOW=ON`) uses a 64K LUT indexed by RGB555+SHADOW and applies legacy SHADOW dimming math.
+4. DARK is captured and surfaced in diagnostics, but is not currently used as a conversion input.

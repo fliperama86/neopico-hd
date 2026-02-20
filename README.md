@@ -7,8 +7,8 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 ## Features
 
 -   **Native 240p HDMI output** at 60fps (via 480p line doubling for audio compatibility)
--   **15-bit RGB + SHADOW/DARK support** - Accurately reproduces Neo Geo's unique brightness modifiers
--   **Hardware-Accelerated Pixel Conversion** - Uses RP2350 Interpolators + 256KB LUT for zero-overhead RGB565 conversion
+-   **15-bit RGB + SHADOW/DARK capture** - 19-bit capture path includes SHADOW and DARK control lines
+-   **Pixel Conversion Modes** - Default 32K RGB LUT, optional 64K SHADOW LUT path via `NEOPICO_ENABLE_DARK_SHADOW=ON`
 -   **Digital audio capture** from I2S bus (before DAC) with 48kHz HDMI output
 -   **Zero-overhead DMA video capture** - uses PIO + DMA with ping-pong buffering for perfect stability
 -   **PicoHDMI Output** - Powered by the [PicoHDMI](https://github.com/fliperama86/pico_hdmi) library for efficient, hardware-native TMDS encoding via RP2350 HSTX.
@@ -19,7 +19,9 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 | ----------------------- | ------- |
 | 480p HDMI video         | Working |
 | 60fps capture           | Working |
-| RGB555 + DARK/SHADOW    | Working |
+| RGB555 video path       | Working |
+| SHADOW/DARK capture     | Working |
+| SHADOW conversion mode  | Optional (`NEOPICO_ENABLE_DARK_SHADOW=ON`) |
 | HDMI audio (48kHz)      | Working |
 | OSD Diagnostics         | Working |
 | Morhph4K, RetroTink 4K  | Tested  |
@@ -54,7 +56,8 @@ To ensure clean audio and video capture, follow these best practices:
 | MVS Blue   | GPIO 29-33 | B4-B0 (contiguous)           |
 | MVS Green  | GPIO 34-38 | G4-G0 (contiguous)           |
 | MVS Red    | GPIO 39-43 | R4-R0 (contiguous)           |
-| MVS SHADOW | GPIO 44    | Shadow dimming (no DARK pin) |
+| MVS SHADOW | GPIO 44    | Shadow dimming |
+| MVS DARK   | GPIO 45    | Dark dimming control |
 
 #### HSTX Output (Bank 0/1)
 
@@ -88,7 +91,7 @@ Requires [Pico SDK](https://github.com/raspberrypi/pico-sdk) with `PICO_SDK_PATH
 Core 0: Video Capture               Core 1: Audio Pipeline + HSTX
 +--------------------------+       +--------------------------+
 | Video: PIO1 -> DMA (PP)  |       | Audio: PIO2 -> processing|
-| Conv: Interp + 256KB LUT |       | [ PicoHDMI Library ]     |
+| Conv: 32K LUT (64K opt) |       | [ PicoHDMI Library ]     |
 | Main loop: Control       |       | - 640x480 @ 60Hz         |
 | Heartbeat LED            |       | - HDMI Data Islands      |
 +--------------------------+       +--------------------------+

@@ -447,3 +447,132 @@ Working implication for this board:
 - Changed `option(NEOPICO_ENABLE_DARK_SHADOW ... OFF)` to `... ON` so fresh configure defaults to enabled while still allowing explicit override with `-DNEOPICO_ENABLE_DARK_SHADOW=OFF`.
 - 2026-02-19 22:10:42 -0300: User requested rebuild; ran `cmake --build build -j4` in repo root.
 - Reconfigure + build succeeded; artifacts updated: `build/src/neopico_hd.uf2` and `build/src/neopico_hd.elf`.
+- 2026-02-19 22:20:06 -0300: Investigated SHDW self-test false negatives; likely cause was Core1 GPIO polling missing sparse/short SHADOW pulses.
+- Added Core0-captured SHADOW activity latch in `src/video/video_capture.c`:
+  - New `g_shadow_activity_epoch` increments once per input frame if any raw pixel had bit17=1.
+  - `convert_active_pixels(...)` now returns per-line shadow-seen flag using OR of raw capture words.
+  - New API `video_capture_get_shadow_activity_epoch()` exposed in `src/video/video_capture.h`.
+- Updated self-test sampler in `src/experiments/menu_diag_experiment.c` to set `SELFTEST_BIT_SHADOW` when `video_capture_get_shadow_activity_epoch()` changes, replacing direct `gpio_get(PIN_MVS_SHADOW)` polling.
+- Verification: `cmake --build build -j4` succeeded.
+- 2026-02-19 22:39:12 -0300: User reported prior SHADOW latch test caused sync drop and reverted it; requested safer mapping test.
+- Added flag-gated test path `NEOPICO_EXP_SHADOW_BITSCAN` (default OFF) in `src/CMakeLists.txt` and enabled it for current build (`build/CMakeCache.txt: NEOPICO_EXP_SHADOW_BITSCAN=ON`).
+- `src/video/video_capture.c`: added ultra-light sparse sampler for raw bits 15..17 (`SHADOW_BITSCAN_STRIDE=20`) and sticky seen-mask getter `video_capture_get_shadow_bits_seen_mask()`.
+- `src/experiments/menu_diag_experiment.c`: added OSD probe line `S15/S16/S17` on row 0 and wired SHDW icon from sampled raw bit17; with no DARK pin, DRK icon temporarily mirrors sampled raw bit16 for mapping diagnostics.
+- Build verification: `cmake -S . -B build -DNEOPICO_EXP_SHADOW_BITSCAN=ON && cmake --build build -j4` succeeded; artifacts updated.
+- 2026-02-19 23:04:27 -0300: User test result with bitscan OSD: `S15=1, S16=1, S17=0` (sticky highs).
+- Interpretation: raw capture bit17 never observed high in current test scenes; bits15/16 being high is expected from red data activity.
+- Hardware-file cross-check:
+  - `hardware/neopico-hd/neopico-hd.kicad_pcb` shows `GPIO44` on net `SHD` (pad 50), and `GPIO45` explicitly unconnected (`unconnected-(A1-GPIO45-Pad51)`).
+  - `MVS_SHD` enters level shifter U4 on `A8` and exits as `SHD` on `B8`, indicating intended non-inverting path to `GPIO44`.
+- Current hypothesis: SHD line at Pico side is stuck low / never asserted in captured data (not an off-by-one GPIO mapping issue between 44/45).
+- 2026-02-19 23:19:24 -0300: User requested disabling bitscan experiment and rebuilding.
+- Ran: `cmake -S . -B build -DNEOPICO_EXP_SHADOW_BITSCAN=OFF && cmake --build build -j4`.
+- Verification:
+  - `build/CMakeCache.txt` => `NEOPICO_EXP_SHADOW_BITSCAN:BOOL=OFF`
+  - Updated artifacts: `build/src/neopico_hd.uf2`, `build/src/neopico_hd.elf`
+- 2026-02-19 23:24:41 -0300: User requested cross-check against MiSTer/MAME shadow-dark behavior.
+- Reference repos under `~/Projects/references`:
+  - `NeoGeo_MiSTer` at `2325e6c`
+  - `mame` at `e47c0f3` (sparse checkout of Neo Geo files)
+- MiSTer core (`neogeo.sv` + `rtl/io/syslatch.v`):
+  - `SHADOW` is `syslatch` bit0 (`SLATCH[0]`) and is wired as a global control signal.
+  - DARK effect comes from palette bit15 subtraction in RGB expansion (`PAL_RAM_REG[15]`).
+  - SHADOW halves output RGB after DARK expansion (`~SHADOW ? R8 : {1'b0, R8[7:1]}` etc).
+- MAME Neo Geo (`src/mame/neogeo/neogeo_v.cpp` + `neogeo.cpp`):
+  - Uses resistor-model lookups for 4 cases: normal, dark, shadow, dark+shadow.
+  - Dark is palette bit15; shadow is system latch q0 (`set_screen_shadow`).
+  - Rendering selects shadow pen bank (`+0x2000`) when screen shadow is active; not modeled as per-pixel SHADOW pin sampling.
+- 2026-02-19 23:34:44 -0300: Improved selftest SHDW/DRK behavior to reduce false negatives on low-frequency SHADOW.
+- `src/experiments/menu_diag_experiment.c`:
+  - Added SHADOW activity hold (`SELFTEST_SHADOW_HOLD_UPDATES=30`) so SHDW stays green for ~30 update windows after any observed SHADOW assertion.
+  - Removed temporary DRK mapping to raw bit16 under `NEOPICO_EXP_SHADOW_BITSCAN` for boards without DARK pin.
+- `src/osd/selftest_layout.c`:
+  - DRK icon now renders neutral (`-`) when `PIN_MVS_DARK` is not defined (current board), instead of appearing as failed/inactive.
+- Build verification: `cmake --build build -j4` succeeded; updated `build/src/neopico_hd.elf` (and normal extra outputs).
+- 2026-02-19 23:49:07 -0300: User requested MiSTer-reference DARK/SHADOW behavior under existing flag only, plus cleanup of obsolete flags.
+- Removed obsolete diagnostic flag path `NEOPICO_EXP_SHADOW_BITSCAN` from:
+  - `src/CMakeLists.txt` (option + compile define removed)
+  - `src/video/video_capture.c/.h` (bitscan state/API removed)
+  - `src/experiments/menu_diag_experiment.c` (probe overlays and capture-mask dependency removed)
+- `ENABLE_DARK_SHADOW` path migrated to MiSTer-style composition:
+  - DARK and SHADOW are independent (no "SHADOW forces DARK").
+  - SHADOW is 50% output halving.
+  - DARK uses MiSTer-compatible per-channel dark step model.
+- Added optional DARK wiring support with no new feature flag:
+  - `src/mvs_pins.h`: optional `PIN_MVS_DARK 45` + `MVS_CAPTURE_BITS`/`MVS_CAPTURE_PIN_LAST`.
+  - `src/video/video_capture.pio`: added `mvs_pixel_capture_dark19` program (`in pins, 19`) for GP27-45 capture.
+  - `src/video/video_capture.c`: selects 18-bit vs 19-bit PIO program/config from `PIN_MVS_DARK`.
+- Memory/safety adjustment:
+  - Attempted 131072-entry LUT caused RAM overflow at link time.
+  - Final implementation uses 65536-entry LUT (RGB+SHADOW, DARK=0 fast path) plus MiSTer-compatible runtime conversion only when DARK bit is asserted.
+  - This keeps current build stable while enabling future DARK-wire validation.
+- Reconfigure/build verification:
+  - `cmake -S . -B build && cmake --build build -j4` (initially exposed RAM overflow before LUT downsizing)
+  - `cmake --build build -j4` after downsizing succeeded.
+  - Cleared stale cache entry for removed option: `cmake -U NEOPICO_EXP_SHADOW_BITSCAN -S . -B build`.
+- 2026-02-19 23:53:18 -0300: User requested treating DARK+SHADOW as one feature and removing "bodge/optional DARK" framing.
+- Updated mapping/docs to standard 19-bit capture (GP27-45) with DARK as normal input:
+  - `src/mvs_pins.h`: `PIN_MVS_DARK` now defined directly; `MVS_CAPTURE_BITS=19` fixed.
+  - `src/video/video_capture.c`: removed `#ifdef PIN_MVS_DARK` branching; always uses 19-bit capture program/config.
+  - `src/video/video_capture.pio`: removed obsolete 18-bit capture program; retained single 19-bit capture program.
+  - `src/experiments/menu_diag_experiment.c`: always samples DARK for selftest.
+  - `src/osd/selftest_layout.c`: DRK icon always rendered from toggled DARK bit.
+- Removed wording about "no DARK pin", "optional DARK", and "bodge wire" from:
+  - `README.md`
+  - `docs/MVS_MV1C_DIGITAL_VIDEO.md`
+  - `src/video/hardware_config.h`
+- Build verification: `cmake --build build -j4` succeeded.
+- 2026-02-19 23:56:09 -0300: User reported signal drops after DARK integration changes.
+- Stabilization pass in `src/video/video_capture.c`:
+  - Replaced expensive per-dark-pixel full raw->RGB reconstruction path with LUT-first conversion plus lightweight RGB565 dark-step adjustment (`rgb565_apply_dark_step`).
+  - Kept single DARK+SHADOW feature path and 19-bit capture mapping.
+  - Goal: recover Core0 headroom and avoid capture/sync drops.
+- Build verification: `cmake --build build -j4` succeeded.
+- 2026-02-19 23:59:13 -0300: User reported overhead still too high after first stabilization.
+- Additional hot-loop optimization in `src/video/video_capture.c`:
+  - Added tiny precomputed DARK step tables (`g_dark5_lut`, `g_dark6_lut`) to avoid per-channel branch/arithmetic in dark adjust.
+  - Reworked `convert_active_pixels(...)` to a 4-pixel fast path:
+    - Always does branchless LUT fetches first.
+    - Applies DARK adjustment only when any of the 4 raw pixels has DARK bit set.
+  - Tail loop likewise uses LUT-first + conditional DARK adjust (no full convert path call).
+- Build verification: `cmake --build build -j4` succeeded.
+- 2026-02-20 00:01:57 -0300: User requested reverting performance-costly DARK runtime approach to previous less-accurate fast path.
+- `src/video/video_capture.c` reverted to pure LUT hot-loop conversion:
+  - Removed per-pixel DARK runtime adjustment in `convert_pixel()` and `convert_active_pixels()`.
+  - Removed DARK step helper tables and generation.
+  - Conversion now always indexes LUT with raw bits [17:2], effectively ignoring DARK in conversion for maximum stability/headroom.
+- Kept 19-bit capture/pin mapping and single DARK+SHADOW feature framing as requested.
+- Build verification: `cmake --build build -j4` succeeded.
+- 2026-02-20 00:05:15 -0300: User requested docs update to reflect current stable implementation.
+- Updated documentation to match current behavior (performance-first conversion):
+  - `README.md`: adjusted feature/status wording; removed claims of full DARK output accuracy and old 256KB/interp wording.
+  - `docs/MVS_MV1C_DIGITAL_VIDEO.md`: kept 19-bit capture map, documented SHADOW conversion path and that DARK is captured but not currently applied in output conversion.
+  - `docs/ARCHITECTURE.md`: replaced old Interpolator/256KB statements with 64K LUT hot-path notes.
+  - `docs/STREAMING_PIPELINE_PLAN.md`: replaced stale "future DARK/SHADOW" section with current status.
+  - `docs/HSTX_IMPLEMENTATION.md`: updated Core0 conversion summary wording.
+  - `docs/How SHADOW and DARK Work on Neo Geo.MD`: added explicit firmware note to avoid mismatch vs reference behavior.
+- 2026-02-20 00:05:46 -0300: Follow-up doc consistency fix in `docs/How SHADOW and DARK Work on Neo Geo.MD`.
+- Replaced outdated statement "SHADOW forces DARK on" with wording that SHADOW and DARK are independent controls (matching current/reference behavior notes).
+- 2026-02-20 00:15:46 -0300: User requested CMake flag cleanup and DARK/SHADOW default change.
+- `src/CMakeLists.txt` updates:
+  - Removed `NEOPICO_EXP_MENU_DIAG` option and hardcoded `EXP_MENU_DIAG=1` compile define.
+  - Removed `NEOPICO_EXP_BASELINE_TELEMETRY` option and hardcoded `NEOPICO_EXP_BASELINE_TELEMETRY=0`.
+  - Removed `HSTX_LAB_BUILD` compile define.
+  - Removed `hardware_interp` from target link libraries (no remaining usage).
+  - Changed `NEOPICO_ENABLE_DARK_SHADOW` option default from `ON` to `OFF`.
+- Reconfigured build cache to drop stale removed options and align current build with new default:
+  - `cmake -U NEOPICO_EXP_MENU_DIAG -U NEOPICO_EXP_BASELINE_TELEMETRY -S . -B build -DNEOPICO_ENABLE_DARK_SHADOW=OFF`
+  - `build/CMakeCache.txt` now shows `NEOPICO_ENABLE_DARK_SHADOW:BOOL=OFF`.
+- Build verification: `cmake --build build -j4` succeeded.
+- 2026-02-20 00:19:43 -0300: User asked if dead code was removed; performed full dead-branch cleanup for removed flags.
+- Removed compile-time dead branches/code tied to `EXP_MENU_DIAG` and `NEOPICO_EXP_BASELINE_TELEMETRY`:
+  - `src/experiments/menu_diag_experiment.c`: removed all `#if EXP_MENU_DIAG` and baseline telemetry conditional blocks; file now always compiles active path.
+  - `src/experiments/menu_diag_experiment.h`: removed fallback `#ifndef EXP_MENU_DIAG`.
+  - `src/osd/selftest_layout.c/.h`: removed baseline telemetry macros, rows, `selftest_layout_set_baseline(...)` implementation, and declaration.
+  - `src/CMakeLists.txt`: removed now-unneeded compile defines `EXP_MENU_DIAG=1` and `NEOPICO_EXP_BASELINE_TELEMETRY=0`.
+- Verification:
+  - `rg` confirms no remaining references to `EXP_MENU_DIAG`, `NEOPICO_EXP_BASELINE_TELEMETRY`, `HSTX_LAB_BUILD`, or `hardware_interp` in touched source/build config.
+  - Reconfigure/build succeeded with DARK/SHADOW default OFF:
+    - `cmake -S . -B build -DNEOPICO_ENABLE_DARK_SHADOW=OFF && cmake --build build -j4`.
+- 2026-02-20 00:27:39 -03: User requested main-branch DARK/SHADOW algorithm while keeping DARK pin mapping on GPIO45. Updated src/video/video_capture.c to main-style shadow-dark LUT math; retained 19-bit capture path/pin map. Rebuild passed (cmake --build build -j4).
+- 2026-02-20 00:32:29 -03: Reviewed and corrected staged docs for DARK/SHADOW accuracy. Synced docs to current implementation: 19-bit capture incl. GPIO45 DARK, default NEOPICO_ENABLE_DARK_SHADOW=OFF (32K RGB LUT), optional ON path uses 64K RGB+SHADOW LUT with legacy shadow math; DARK shown in diagnostics but not used as conversion input.

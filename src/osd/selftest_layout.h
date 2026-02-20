@@ -40,8 +40,4 @@ void selftest_layout_reset(void);
 // Bounded dynamic updates for layout-only mode (call at low rate).
 void selftest_layout_update(uint32_t frame_count, bool has_snapshot, uint32_t toggled_bits);
 
-// Update baseline sync telemetry lines in the self-test OSD.
-// in_fps_x100/out_fps_x100 are fixed-point FPS with 2 decimals.
-void selftest_layout_set_baseline(uint32_t in_fps_x100, uint32_t out_fps_x100, int32_t phase, int32_t slip_fpm);
-
 #endif // SELFTEST_LAYOUT_H

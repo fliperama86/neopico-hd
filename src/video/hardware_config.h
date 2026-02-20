@@ -10,13 +10,14 @@
 // =============================================================================
 // PIO reads GP27-44 (18 pins) with IN_BASE = GP27. LSB first in capture word.
 //
-// 18-bit capture layout:
+// 19-bit capture layout:
 //   Bit 0:      GP27 (CSYNC)
 //   Bit 1:      GP28 (PCLK)
 //   Bits 2-6:   GP29-33 (Blue B4-B0, contiguous)
 //   Bits 7-11:  GP34-38 (Green G4-G0, contiguous)
 //   Bits 12-16: GP39-43 (Red R4-R0, contiguous)
 //   Bit 17:     GP44 (SHADOW)
+//   Bit 18:     GP45 (DARK)
 //
 // RGB555 format: RRRRR GGGGG BBBBB (bits 12-16: R, 7-11: G, 2-6: B)
 

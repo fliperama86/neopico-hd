@@ -1,5 +1,16 @@
 # How SHADOW and DARK Work on Neo Geo
 
+## Firmware Note (Current Build)
+
+NeoPico-HD currently runs a performance-first conversion path:
+
+- Default build (`NEOPICO_ENABLE_DARK_SHADOW=OFF`) uses RGB-only conversion.
+- Optional build (`NEOPICO_ENABLE_DARK_SHADOW=ON`) uses a 64K LUT indexed by RGB555+SHADOW.
+- In that optional mode, SHADOW applies legacy dimming math (halve channels, then fixed dark offset).
+- DARK is captured and visible in diagnostics/self-test, but DARK is not currently used as a conversion input.
+
+The sections below describe the reference behavior of Neo Geo effects.
+
 ## The Basic Idea
 
 The Neo Geo outputs **15-bit color** (5 bits each for Red, Green, Blue), giving 32 levels per channel (0-31).
@@ -48,9 +59,9 @@ After:   R:196, G:146, B:96   (subtract 4 from each)
 
 ---
 
-## When Both Are Active
+## When Both Are Active (Reference)
 
-SHADOW takes priority and **forces DARK on**:
+Reference behavior treats SHADOW and DARK as **independent controls**:
 
 ```
 Original pixel:        R:31, G:31, B:31  (white)
@@ -63,6 +74,8 @@ After DARK (-4):       R:11, G:11, B:11  (darker gray)
 ```
 
 **Result:** Roughly **60% darker** than the original.
+
+Current staged firmware note: output conversion is keyed by SHADOW in the optional LUT mode; DARK does not currently change output pixel values.
 
 ---
 
