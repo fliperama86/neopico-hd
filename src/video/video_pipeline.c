@@ -5,13 +5,17 @@
 #include <string.h>
 
 #include "line_ring.h"
+#if NEOPICO_ENABLE_OSD
 #include "osd/fast_osd.h"
+#endif
 #include "pico.h"
 #include "video_config.h"
 
 // Scanline effect toggle (off by default)
 bool fx_scanlines_enabled = false;
+#if NEOPICO_ENABLE_OSD
 static bool osd_visible_latched = false;
+#endif
 // Overscan/background outside active 224-line image area (RGB565): black.
 #define OVERSCAN_COLOR_RGB565 0x0000
 // No-signal fallback color (RGB565): mid gray.
@@ -35,7 +39,9 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
     video_output_set_scanline_callback(video_pipeline_scanline_callback);
     video_output_set_vsync_callback(video_pipeline_vsync_callback);
 
+#if NEOPICO_ENABLE_OSD
     osd_visible_latched = osd_visible;
+#endif
 }
 
 /**
@@ -85,7 +91,9 @@ void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const u
 void __scratch_x("") video_pipeline_vsync_callback(void)
 {
     line_ring_output_vsync();
+#if NEOPICO_ENABLE_OSD
     osd_visible_latched = osd_visible;
+#endif
 }
 
 void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
@@ -94,8 +102,13 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
 
     const uint32_t h_words = MODE_H_ACTIVE_PIXELS / 2;
     const uint32_t fb_line = active_line >> 1;
+
+#if NEOPICO_ENABLE_OSD
     const uint32_t osd_line_u32 = fb_line - OSD_BOX_Y;
     const bool osd_line_active = osd_visible_latched && (osd_line_u32 < OSD_BOX_H);
+#else
+    const bool osd_line_active = false;
+#endif
 
     if (!osd_line_active) {
         const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
@@ -118,6 +131,7 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
         return;
     }
 
+#if NEOPICO_ENABLE_OSD
     // OSD-active path: draw OSD even if capture source is unavailable.
     const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
     const uint16_t *src = NULL;
@@ -145,4 +159,5 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     // After OSD
     video_pipeline_double_pixels_fast(dst + OSD_BOX_X + OSD_BOX_W, src + OSD_BOX_X + OSD_BOX_W,
                                       LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
+#endif
 }

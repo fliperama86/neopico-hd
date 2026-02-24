@@ -18,9 +18,11 @@
 #include <string.h>
 
 #include "audio_subsystem.h"
-#include "experiments/menu_diag_experiment.h"
 #include "mvs_pins.h"
+#if NEOPICO_ENABLE_OSD
+#include "experiments/menu_diag_experiment.h"
 #include "osd/fast_osd.h"
+#endif
 #include "video/line_ring.h"
 #include "video/video_config.h"
 #include "video/video_pipeline.h"
@@ -83,7 +85,9 @@ static const video_mode_t *build_vtotal_match_mode(void)
 static void combined_background_task(void)
 {
     audio_subsystem_background_task();
+#if NEOPICO_ENABLE_OSD
     menu_diag_experiment_tick_background();
+#endif
 }
 
 // ============================================================================
@@ -102,6 +106,7 @@ int main(void)
 
     stdio_init_all();
 
+#if NEOPICO_ENABLE_OSD
     // Initialize OSD button (active low with internal pull-up)
     gpio_init(PIN_OSD_BTN_MENU);
     gpio_set_dir(PIN_OSD_BTN_MENU, GPIO_IN);
@@ -110,6 +115,7 @@ int main(void)
     gpio_init(PIN_OSD_BTN_BACK);
     gpio_set_dir(PIN_OSD_BTN_BACK, GPIO_IN);
     gpio_pull_up(PIN_OSD_BTN_BACK);
+#endif
 
     sleep_ms(500);
     stdio_flush();
@@ -117,9 +123,11 @@ int main(void)
     // Initialize line ring buffer
     memset(&g_line_ring, 0, sizeof(g_line_ring));
 
+#if NEOPICO_ENABLE_OSD
     // Initialize OSD (before video pipeline so framebuffer is ready)
     fast_osd_init();
     menu_diag_experiment_init();
+#endif
 
     // Initialize HDMI output pipeline
     hstx_di_queue_init();

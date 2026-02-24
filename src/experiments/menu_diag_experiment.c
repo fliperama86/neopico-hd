@@ -1,20 +1,25 @@
 #include "menu_diag_experiment.h"
 
+#if NEOPICO_ENABLE_OSD
+
 #include "pico/time.h"
 
 #include "hardware/gpio.h"
 
 #include "mvs_pins.h"
 #include "osd/fast_osd.h"
+#if NEOPICO_ENABLE_SELFTEST
 #include "osd/selftest_layout.h"
 
 #define SELFTEST_SHADOW_HOLD_UPDATES 30U
+#endif
 
 // Global frame counter from video output runtime.
 extern volatile uint32_t video_frame_count;
 
 static bool s_btn_was_pressed = false;
 static uint32_t s_last_press_ms = 0;
+#if NEOPICO_ENABLE_SELFTEST
 static uint32_t s_last_update_frame = 0;
 static uint32_t s_video_hi = 0;
 static uint32_t s_video_lo = 0;
@@ -23,11 +28,13 @@ static uint32_t s_audio_hi = 0;
 static uint32_t s_audio_lo = 0;
 static uint32_t s_audio_samples = 0;
 static uint32_t s_shadow_hold_updates = 0;
+#endif
 
 void menu_diag_experiment_init(void)
 {
     s_btn_was_pressed = false;
     s_last_press_ms = 0;
+#if NEOPICO_ENABLE_SELFTEST
     s_last_update_frame = video_frame_count;
     s_video_hi = 0;
     s_video_lo = 0;
@@ -36,10 +43,12 @@ void menu_diag_experiment_init(void)
     s_audio_lo = 0;
     s_audio_samples = 0;
     s_shadow_hold_updates = 0;
+#endif
 }
 
 void menu_diag_experiment_on_menu_open(void)
 {
+#if NEOPICO_ENABLE_SELFTEST
     selftest_layout_reset();
     s_last_update_frame = video_frame_count;
     s_video_hi = 0;
@@ -49,6 +58,7 @@ void menu_diag_experiment_on_menu_open(void)
     s_audio_lo = 0;
     s_audio_samples = 0;
     s_shadow_hold_updates = 0;
+#endif
 }
 
 void menu_diag_experiment_on_menu_close(void)
@@ -73,6 +83,7 @@ void menu_diag_experiment_tick_background(void)
     }
     s_btn_was_pressed = btn_pressed;
 
+#if NEOPICO_ENABLE_SELFTEST
     if (osd_visible) {
         uint32_t video_sample = 0;
         if (gpio_get(PIN_MVS_CSYNC)) {
@@ -180,4 +191,22 @@ void menu_diag_experiment_tick_background(void)
         // Full video + full audio diagnostics phase; no capture-path interaction.
         selftest_layout_update(video_frame_count, has_snapshot, toggled_bits);
     }
+#endif
 }
+
+#else // !NEOPICO_ENABLE_OSD
+
+void menu_diag_experiment_init(void)
+{
+}
+void menu_diag_experiment_on_menu_open(void)
+{
+}
+void menu_diag_experiment_on_menu_close(void)
+{
+}
+void menu_diag_experiment_tick_background(void)
+{
+}
+
+#endif // NEOPICO_ENABLE_OSD

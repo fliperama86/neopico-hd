@@ -21,11 +21,25 @@ add_executable(neopico_hd
 # add_compile_definitions(VIDEO_MODE_320x240=1)
 
 # Compile-time feature flags (cache params for fast A/B testing)
+option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" OFF)
+option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD)" OFF)
 option(NEOPICO_ENABLE_DARK_SHADOW "Enable DARK/SHADOW LUT path in capture" OFF)
 option(NEOPICO_EXP_GENLOCK_STATIC "Enable static boot-time genlock sysclk target" OFF)
 set(NEOPICO_GENLOCK_TARGET_FPS_X100 "5920" CACHE STRING "Static genlock target FPS x100 (e.g. 5920 = 59.20)")
 option(NEOPICO_EXP_VTOTAL_MATCH "Enable fixed-pixel-clock output with custom V total for near-source frame rate" OFF)
 set(NEOPICO_EXP_VTOTAL_LINES "532" CACHE STRING "Custom V total lines when NEOPICO_EXP_VTOTAL_MATCH is ON")
+
+if(NEOPICO_ENABLE_OSD)
+    set(ENABLE_OSD_VALUE 1)
+else()
+    set(ENABLE_OSD_VALUE 0)
+endif()
+
+if(NEOPICO_ENABLE_SELFTEST)
+    set(ENABLE_SELFTEST_VALUE 1)
+else()
+    set(ENABLE_SELFTEST_VALUE 0)
+endif()
 
 if(NEOPICO_ENABLE_DARK_SHADOW)
     set(ENABLE_DARK_SHADOW_VALUE 1)
@@ -73,6 +87,8 @@ target_link_libraries(neopico_hd
 )
 
 target_compile_definitions(neopico_hd PRIVATE
+    NEOPICO_ENABLE_OSD=${ENABLE_OSD_VALUE}
+    NEOPICO_ENABLE_SELFTEST=${ENABLE_SELFTEST_VALUE}
     ENABLE_DARK_SHADOW=${ENABLE_DARK_SHADOW_VALUE}
     NEOPICO_EXP_GENLOCK_STATIC=${GENLOCK_STATIC_VALUE}
     NEOPICO_GENLOCK_TARGET_FPS_X100=${NEOPICO_GENLOCK_TARGET_FPS_X100}
