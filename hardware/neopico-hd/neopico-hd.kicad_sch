@@ -1568,7 +1568,7 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Connector_Generic:Conn_01x03"
+		(symbol "Connector_Generic:Conn_01x04"
 			(pin_names
 				(offset 1.016)
 				(hide yes)
@@ -1584,8 +1584,8 @@
 					)
 				)
 			)
-			(property "Value" "Conn_01x03"
-				(at 0 -5.08 0)
+			(property "Value" "Conn_01x04"
+				(at 0 -7.62 0)
 				(effects
 					(font
 						(size 1.27 1.27)
@@ -1610,7 +1610,7 @@
 					(hide yes)
 				)
 			)
-			(property "Description" "Generic connector, single row, 01x03, script generated (kicad-library-utils/schlib/autogen/connector/)"
+			(property "Description" "Generic connector, single row, 01x04, script generated (kicad-library-utils/schlib/autogen/connector/)"
 				(at 0 0 0)
 				(effects
 					(font
@@ -1637,10 +1637,10 @@
 					(hide yes)
 				)
 			)
-			(symbol "Conn_01x03_1_1"
+			(symbol "Conn_01x04_1_1"
 				(rectangle
 					(start -1.27 3.81)
-					(end 1.27 -3.81)
+					(end 1.27 -6.35)
 					(stroke
 						(width 0.254)
 						(type default)
@@ -1674,6 +1674,17 @@
 				(rectangle
 					(start -1.27 -2.413)
 					(end 0 -2.667)
+					(stroke
+						(width 0.1524)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(rectangle
+					(start -1.27 -4.953)
+					(end 0 -5.207)
 					(stroke
 						(width 0.1524)
 						(type default)
@@ -1729,6 +1740,24 @@
 						)
 					)
 					(number "3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at -5.08 -5.08 0)
+					(length 3.81)
+					(name "Pin_4"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "4"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -2949,155 +2978,6 @@
 				)
 			)
 			(symbol "Fuse_1_1"
-				(pin passive line
-					(at 0 3.81 270)
-					(length 1.27)
-					(name "~"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin passive line
-					(at 0 -3.81 90)
-					(length 1.27)
-					(name "~"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
-		(symbol "Device:Polyfuse"
-			(pin_numbers
-				(hide yes)
-			)
-			(pin_names
-				(offset 0)
-			)
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(property "Reference" "F"
-				(at -2.54 0 90)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Value" "Polyfuse"
-				(at 2.54 0 90)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Footprint" ""
-				(at 1.27 -5.08 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(justify left)
-					(hide yes)
-				)
-			)
-			(property "Datasheet" "~"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Description" "Resettable fuse, polymeric positive temperature coefficient"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_keywords" "resettable fuse PTC PPTC polyfuse polyswitch"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_fp_filters" "*polyfuse* *PTC*"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(symbol "Polyfuse_0_1"
-				(polyline
-					(pts
-						(xy -1.524 2.54) (xy -1.524 1.524) (xy 1.524 -1.524) (xy 1.524 -2.54)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(rectangle
-					(start -0.762 2.54)
-					(end 0.762 -2.54)
-					(stroke
-						(width 0.254)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 0 2.54) (xy 0 -2.54)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-			)
-			(symbol "Polyfuse_1_1"
 				(pin passive line
 					(at 0 3.81 270)
 					(length 1.27)
@@ -6126,20 +6006,12 @@
 		(uuid "2bfc0899-63a1-46d7-9446-3aa1a034d103")
 	)
 	(no_connect
-		(at 26.67 48.26)
-		(uuid "36ad80dc-9204-4c5f-825a-53431fb034d9")
-	)
-	(no_connect
 		(at 102.87 110.49)
 		(uuid "3758f746-53d1-4223-ae1c-4de0832e6d4b")
 	)
 	(no_connect
 		(at 55.88 121.92)
 		(uuid "3dd12c79-09f3-4d51-9e88-88988a4ed2ce")
-	)
-	(no_connect
-		(at 219.71 46.99)
-		(uuid "3e39a984-0eda-488b-bb4b-0df2f9587360")
 	)
 	(no_connect
 		(at 55.88 109.22)
@@ -6172,10 +6044,6 @@
 	(no_connect
 		(at 173.99 24.13)
 		(uuid "6426fcd8-23c3-4461-b03b-c820e5b7ae63")
-	)
-	(no_connect
-		(at 39.37 50.8)
-		(uuid "66ca42c3-84c2-47ed-b302-16e151b80c6a")
 	)
 	(no_connect
 		(at 173.99 62.23)
@@ -6263,6 +6131,16 @@
 	)
 	(wire
 		(pts
+			(xy 36.83 67.31) (xy 39.37 67.31)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "21daadf4-725a-44e4-87d5-1e19a4a7e35e")
+	)
+	(wire
+		(pts
 			(xy 91.44 96.52) (xy 92.71 96.52)
 		)
 		(stroke
@@ -6330,6 +6208,16 @@
 			(type default)
 		)
 		(uuid "4a8b41db-f5f0-4748-9982-cf77a51d0e30")
+	)
+	(wire
+		(pts
+			(xy 36.83 69.85) (xy 36.83 67.31)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "4bc714f5-1f90-4fdc-b837-f7a6155a789a")
 	)
 	(wire
 		(pts
@@ -7127,28 +7015,6 @@
 			)
 		)
 	)
-	(global_label "MVS_WS"
-		(shape input)
-		(at 34.29 69.85 90)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "3e4c2afe-7d15-4aff-b175-896d360f3446")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 34.29 59.4868 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "G1"
 		(shape input)
 		(at 219.71 67.31 0)
@@ -7747,6 +7613,28 @@
 			)
 		)
 	)
+	(global_label "MVS_BCK"
+		(shape input)
+		(at 34.29 69.85 90)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "7606c5f8-23e3-4e35-8d25-e2ac37913901")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 34.29 58.3377 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "R2"
 		(shape input)
 		(at 219.71 57.15 0)
@@ -8139,28 +8027,6 @@
 			)
 		)
 	)
-	(global_label "MVS_BCK"
-		(shape input)
-		(at 36.83 69.85 90)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "9912daef-cfe5-463d-b659-90108c0990ab")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 36.83 58.3377 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "G2"
 		(shape output)
 		(at 100.33 52.07 0)
@@ -8201,6 +8067,38 @@
 					(size 1.27 1.27)
 				)
 				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "MVS_DARK"
+		(shape output)
+		(at 26.67 48.26 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "9fb2fbcd-167f-4394-a07d-6b64620ceb27")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 14.0691 48.26 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+		(property "Frequency" "55.5mHz"
+			(at 26.67 50.4508 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
 				(hide yes)
 			)
 		)
@@ -8306,6 +8204,28 @@
 		(uuid "a5996f83-809c-47ba-b570-e6e6ba2635ff")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 225.1747 72.39 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "MVS_WS"
+		(shape input)
+		(at 31.75 69.85 90)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "a799234f-b597-4b9d-bdac-e336af4adc6a")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 31.75 59.4868 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8741,7 +8661,7 @@
 	)
 	(global_label "MVS_DAT"
 		(shape input)
-		(at 31.75 69.85 90)
+		(at 29.21 69.85 90)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8749,9 +8669,9 @@
 			)
 			(justify left)
 		)
-		(uuid "d3046c61-f669-4d3b-89f6-bccfbdcc6342")
+		(uuid "d15878ec-14a9-41f8-a653-a641d0c94763")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 31.75 58.8215 90)
+			(at 29.21 58.8215 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8833,6 +8753,28 @@
 					(size 1.27 1.27)
 				)
 				(justify right)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "MVS_DARK"
+		(shape input)
+		(at 219.71 46.99 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "d9800a5a-b717-4cf9-aae5-8c4f7f26cf60")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 232.3109 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
 				(hide yes)
 			)
 		)
@@ -9763,7 +9705,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_THT:CP_Radial_D5.0mm_P2.00mm"
+		(property "Footprint" "Capacitor_SMD:CP_Elec_6.3x5.4_Nichicon"
 			(at 74.6252 182.88 0)
 			(effects
 				(font
@@ -9823,7 +9765,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "V_BUFF"
+		(property "Value" "SN74LVC2G14DBV"
 			(at 97.282 88.646 0)
 			(effects
 				(font
@@ -9859,6 +9801,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C12401"
+			(at 92.71 77.47 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "4"
 			(uuid "48ee5b2d-15ce-4b13-aa29-872d4d3739db")
 		)
@@ -9881,6 +9832,72 @@
 			(project "neopico-hd"
 				(path "/e43af130-6d9a-4b98-bcf6-f3f51cb37ae8"
 					(reference "U2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 39.37 50.8 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "2278de3b-be24-4a04-a258-e7417f349562")
+		(property "Reference" "#PWR035"
+			(at 39.37 57.15 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 39.37 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 39.37 50.8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 39.37 50.8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 39.37 50.8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "8ecf7287-67a6-43c7-a6e3-870d3a012601")
+		)
+		(instances
+			(project ""
+				(path "/e43af130-6d9a-4b98-bcf6-f3f51cb37ae8"
+					(reference "#PWR035")
 					(unit 1)
 				)
 			)
@@ -9998,6 +10015,15 @@
 		)
 		(property "Description" "Resistor"
 			(at 250.19 64.77 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C163474"
+			(at 250.19 64.77 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10219,7 +10245,7 @@
 		)
 	)
 	(symbol
-		(lib_id "Connector_Generic:Conn_01x03")
+		(lib_id "Connector_Generic:Conn_01x04")
 		(at 34.29 74.93 270)
 		(unit 1)
 		(exclude_from_sim no)
@@ -10237,7 +10263,7 @@
 			)
 		)
 		(property "Value" "Audio"
-			(at 28.194 71.628 0)
+			(at 26.162 71.882 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10245,7 +10271,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Connector_JST:JST_XA_B03B-XASK-1_1x03_P2.50mm_Vertical"
+		(property "Footprint" "Connector_JST:JST_XA_B04B-XASK-1_1x04_P2.50mm_Vertical"
 			(at 34.29 74.93 0)
 			(effects
 				(font
@@ -10263,7 +10289,7 @@
 				(hide yes)
 			)
 		)
-		(property "Description" "Generic connector, single row, 01x03, script generated (kicad-library-utils/schlib/autogen/connector/)"
+		(property "Description" "Generic connector, single row, 01x04, script generated (kicad-library-utils/schlib/autogen/connector/)"
 			(at 34.29 74.93 0)
 			(effects
 				(font
@@ -10281,6 +10307,9 @@
 		(pin "3"
 			(uuid "d41921e9-d3ea-46d0-b208-0310430ffc0e")
 		)
+		(pin "4"
+			(uuid "a078b9ee-08ba-492c-b04b-1f2b6b613d4e")
+		)
 		(instances
 			(project ""
 				(path "/e43af130-6d9a-4b98-bcf6-f3f51cb37ae8"
@@ -10291,14 +10320,13 @@
 		)
 	)
 	(symbol
-		(lib_id "Device:Polyfuse")
+		(lib_id "Device:Fuse")
 		(at 63.5 170.18 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "3e2c3ca6-ae5e-46b1-b5a4-5230751e2619")
 		(property "Reference" "F1"
 			(at 63.5 163.83 90)
@@ -10308,8 +10336,8 @@
 				)
 			)
 		)
-		(property "Value" "Polyfuse"
-			(at 63.5 166.37 90)
+		(property "Value" "MF-PSMF020X-2"
+			(at 66.04 166.37 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10317,12 +10345,11 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric"
-			(at 68.58 168.91 0)
+			(at 63.5 171.958 90)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
-				(justify left)
 				(hide yes)
 			)
 		)
@@ -10335,8 +10362,17 @@
 				(hide yes)
 			)
 		)
-		(property "Description" "Resettable fuse, polymeric positive temperature coefficient"
+		(property "Description" "Fuse"
 			(at 63.5 170.18 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C89657"
+			(at 63.5 170.18 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10404,6 +10440,15 @@
 		)
 		(property "Description" "Resistor"
 			(at 250.19 77.47 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C114662"
+			(at 250.19 77.47 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10607,6 +10652,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C163474"
+			(at 250.19 49.53 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "76141370-1c45-41ae-bdf6-877757a5027a")
 		)
@@ -10706,7 +10760,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "GB_LVS"
+		(property "Value" "SN74LVC245APW"
 			(at 139.446 58.928 0)
 			(effects
 				(font
@@ -10734,6 +10788,15 @@
 			)
 		)
 		(property "Description" "8-Bit Single-Supply Bus Transceiver With 5V tolerant input voltage and 3-State Outputs 24mA, TSSOP-20"
+			(at 135.89 39.37 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C7848"
 			(at 135.89 39.37 0)
 			(effects
 				(font
@@ -11434,6 +11497,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C83852"
+			(at 36.83 170.18 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "97f44f2b-65ba-4970-bacd-2034d45d3cf6")
 		)
@@ -11798,7 +11870,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "RG_LVS"
+		(property "Value" "SN74LVC245APW"
 			(at 90.424 59.182 0)
 			(effects
 				(font
@@ -11826,6 +11898,15 @@
 			)
 		)
 		(property "Description" "8-Bit Single-Supply Bus Transceiver With 5V tolerant input voltage and 3-State Outputs 24mA, TSSOP-20"
+			(at 87.63 39.37 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C7848"
 			(at 87.63 39.37 0)
 			(effects
 				(font
@@ -11921,7 +12002,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "AV_LVS"
+		(property "Value" "SN74LVC245APW"
 			(at 45.974 129.032 0)
 			(effects
 				(font
@@ -11949,6 +12030,15 @@
 			)
 		)
 		(property "Description" "8-Bit Single-Supply Bus Transceiver With 5V tolerant input voltage and 3-State Outputs 24mA, TSSOP-20"
+			(at 43.18 109.22 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C7848"
 			(at 43.18 109.22 0)
 			(effects
 				(font
@@ -12072,6 +12162,15 @@
 		)
 		(property "Description" "Resistor"
 			(at 250.19 57.15 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C163474"
+			(at 250.19 57.15 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12342,6 +12441,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C114662"
+			(at 242.57 80.01 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "c96f745e-084a-4a99-aef0-259e58dd0cda")
 		)
@@ -12402,6 +12510,15 @@
 		)
 		(property "Description" "Fuse"
 			(at 260.35 29.21 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C89657"
+			(at 260.35 29.21 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12477,6 +12594,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C163474"
+			(at 250.19 62.23 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "7295054f-874a-4804-a152-a1ef68c1071b")
 		)
@@ -12538,6 +12664,15 @@
 		)
 		(property "Description" "Ferrite bead"
 			(at 49.53 170.18 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C76815"
+			(at 49.53 170.18 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12613,6 +12748,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C163474"
+			(at 250.19 54.61 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "e1405990-b7dd-4bdf-8d99-c38ac6983815")
 		)
@@ -12623,6 +12767,70 @@
 			(project "neopico-hd"
 				(path "/e43af130-6d9a-4b98-bcf6-f3f51cb37ae8"
 					(reference "R4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 39.37 67.31 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "b0143b8a-bbc3-4771-bbe4-dc789a83b05c")
+		(property "Reference" "#PWR029"
+			(at 39.37 67.31 0)
+			(effects
+				(font
+					(size 0.762 0.762)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 39.37 65.532 0)
+			(effects
+				(font
+					(size 0.762 0.762)
+				)
+				(hide yes)
+			)
+		)
+		(property "Footprint" ""
+			(at 39.37 67.31 0)
+			(effects
+				(font
+					(size 1.524 1.524)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 39.37 67.31 0)
+			(effects
+				(font
+					(size 1.524 1.524)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 39.37 67.31 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "2e629b9b-d94b-4bcc-b84b-d3515738f743")
+		)
+		(instances
+			(project "neopico-hd"
+				(path "/e43af130-6d9a-4b98-bcf6-f3f51cb37ae8"
+					(reference "#PWR029")
 					(unit 1)
 				)
 			)
@@ -12871,6 +13079,15 @@
 		)
 		(property "Description" "Resistor"
 			(at 250.19 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C98220"
+			(at 250.19 87.63 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13141,6 +13358,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C163474"
+			(at 250.19 59.69 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "ee62c9be-54b9-4f9f-9512-de39752ce414")
 		)
@@ -13306,7 +13532,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "A_BUFF"
+		(property "Value" "SN74LVC2G14DBV"
 			(at 96.52 119.634 0)
 			(effects
 				(font
@@ -13334,6 +13560,15 @@
 			)
 		)
 		(property "Description" "Dual schmitt inverter, VCC from 1.65 to 5.5 V, SOT-23"
+			(at 92.71 107.95 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C12401"
 			(at 92.71 107.95 0)
 			(effects
 				(font
@@ -13771,6 +14006,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C86299"
+			(at 246.38 29.21 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "25954011-3b9f-43c6-9301-4883acb399f7")
 		)
@@ -13876,7 +14120,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_Samtec_HPM_THT:Samtec_HPM-02-01-x-S_Straight_1x02_Pitch5.08mm"
+		(property "Footprint" "Button_Switch_SMD:SW_SPST_CK_KXT3"
 			(at 187.96 128.27 0)
 			(effects
 				(font
@@ -14081,7 +14325,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_Samtec_HPM_THT:Samtec_HPM-02-01-x-S_Straight_1x02_Pitch5.08mm"
+		(property "Footprint" "Button_Switch_SMD:SW_SPST_CK_KXT3"
 			(at 187.96 114.3 0)
 			(effects
 				(font
@@ -14557,6 +14801,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C163474"
+			(at 250.19 67.31 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "b2fe4d75-e043-4cb7-9d5f-9cbd33d88236")
 		)
@@ -14618,6 +14871,15 @@
 		)
 		(property "Description" "Resistor"
 			(at 250.19 52.07 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C163474"
+			(at 250.19 52.07 90)
 			(effects
 				(font
 					(size 1.27 1.27)
