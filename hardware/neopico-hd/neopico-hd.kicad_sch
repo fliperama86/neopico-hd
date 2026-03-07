@@ -9147,6 +9147,15 @@
 				)
 			)
 		)
+		(property "LCSC" "C1711"
+			(at 100.33 66.04 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "b305f2c0-d8a5-40d7-b3d4-d47a5ccf01f4")
 		)
@@ -9231,7 +9240,7 @@
 		(at 31.75 38.1 0)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(fields_autoplaced yes)
@@ -9662,6 +9671,15 @@
 				)
 			)
 		)
+		(property "LCSC" "C1711"
+			(at 52.07 91.44 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "5d5eb4d9-be17-42de-bd00-7455ff40753c")
 		)
@@ -9724,6 +9742,15 @@
 			)
 		)
 		(property "Description" "Polarized capacitor"
+			(at 73.66 179.07 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C7094687"
 			(at 73.66 179.07 0)
 			(effects
 				(font
@@ -10249,7 +10276,7 @@
 		(at 34.29 74.93 270)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(uuid "3c0eaf07-d6bc-49ed-96de-08d1bd011a5f")
@@ -10879,7 +10906,7 @@
 		(at 196.85 62.23 0)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(uuid "553fe6c1-09c1-49b2-a73a-bbc814ae6a08")
@@ -11231,6 +11258,15 @@
 				)
 			)
 		)
+		(property "LCSC" "C1711"
+			(at 100.33 96.52 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "12e70db2-f4e4-4b75-9b56-1669be172032")
 		)
@@ -11360,6 +11396,15 @@
 				(font
 					(size 1.27 1.27)
 				)
+			)
+		)
+		(property "LCSC" "C1711"
+			(at 96.52 21.59 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
 			)
 		)
 		(pin "1"
@@ -11835,6 +11880,15 @@
 				(font
 					(size 1.27 1.27)
 				)
+			)
+		)
+		(property "LCSC" "C1711"
+			(at 144.78 21.59 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
 			)
 		)
 		(pin "1"
@@ -13807,7 +13861,7 @@
 		(mirror y)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(uuid "d4b5b33a-feeb-4c74-9b26-aa0a6edbe6b7")
@@ -14099,7 +14153,7 @@
 		(at 187.96 128.27 0)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(fields_autoplaced yes)
@@ -14234,7 +14288,7 @@
 		(at 118.11 173.99 180)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(fields_autoplaced yes)
@@ -14304,7 +14358,7 @@
 		(at 187.96 114.3 0)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(fields_autoplaced yes)
@@ -14630,7 +14684,7 @@
 		(at 264.16 69.85 0)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(fields_autoplaced yes)
@@ -14672,6 +14726,15 @@
 			)
 		)
 		(property "Description" "HDMI type A connector"
+			(at 264.16 69.85 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C111617"
 			(at 264.16 69.85 0)
 			(effects
 				(font

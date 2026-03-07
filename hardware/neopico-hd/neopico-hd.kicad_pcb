@@ -72,9 +72,9 @@
 			(subtractmaskfromsilk no)
 			(outputformat 1)
 			(mirror no)
-			(drillshape 1)
+			(drillshape 0)
 			(scaleselection 1)
-			(outputdirectory "")
+			(outputdirectory "gerbers/")
 		)
 	)
 	(net 0 "")
@@ -256,7 +256,7 @@
 		(path "/f2918377-641c-4313-8602-508ea954ef17")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(fp_line
 			(start -0.153641 -0.38)
 			(end 0.153641 -0.38)
@@ -669,7 +669,7 @@
 		(path "/e51721e4-d0d4-4d7c-b513-9ab007f59df0")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(fp_line
 			(start 1.62 1.02)
 			(end 1.62 1.12)
@@ -1028,7 +1028,7 @@
 		(path "/e0314822-f423-4443-a1f9-b06ab25409e4")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(fp_line
 			(start 1.62 1.02)
 			(end 1.62 1.12)
@@ -1399,7 +1399,7 @@
 		(path "/283e5fff-c01b-452b-ab4b-e7a6f9b86dca")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(fp_line
 			(start -0.153641 -0.38)
 			(end 0.153641 -0.38)
@@ -1612,7 +1612,7 @@
 		(path "/ac8917c2-224b-45a1-9a94-670ba9c284cd")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(fp_line
 			(start -0.153641 -0.38)
 			(end 0.153641 -0.38)
@@ -1812,7 +1812,7 @@
 		(path "/553fe6c1-09c1-49b2-a73a-bbc814ae6a08")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr through_hole)
+		(attr through_hole exclude_from_bom)
 		(fp_rect
 			(start -19.558 -19.558)
 			(end 21.844 19.558)
@@ -3113,6 +3113,19 @@
 				)
 			)
 		)
+		(property "LCSC" "C1711"
+			(at 0 0 180)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "d81927ec-dd38-41c5-8b49-a07018c6aba7")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+			)
+		)
 		(property ki_fp_filters "C_*")
 		(path "/00000000-0000-0000-0000-00005a44758b")
 		(sheetname "/")
@@ -3308,6 +3321,19 @@
 			(effects
 				(font
 					(size 1.27 1.27)
+					(thickness 0.15)
+				)
+			)
+		)
+		(property "LCSC" "C1711"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "f486e2f8-f569-45c0-917c-4cf1b43e389e")
+			(effects
+				(font
+					(size 1 1)
 					(thickness 0.15)
 				)
 			)
@@ -3515,7 +3541,7 @@
 		(path "/d4b5b33a-feeb-4c74-9b26-aa0a6edbe6b7")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr through_hole)
+		(attr through_hole exclude_from_bom)
 		(fp_line
 			(start -1.38 9)
 			(end 3.92 9)
@@ -3850,6 +3876,19 @@
 				)
 			)
 		)
+		(property "LCSC" "C1711"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "4cd26353-ce9f-4452-bafa-88b5674fd624")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+			)
+		)
 		(property ki_fp_filters "C_*")
 		(path "/919675a7-06f5-4073-9ecc-ef561fffa17d")
 		(sheetname "/")
@@ -4052,11 +4091,24 @@
 				)
 			)
 		)
+		(property "LCSC" "C111617"
+			(at 0 0 90)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "1254c90f-bd6c-401c-a804-67f003f863ea")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+			)
+		)
 		(property ki_fp_filters "HDMI*A*")
 		(path "/f0175378-f7b4-4237-87e6-cc8ce5e542a4")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(fp_line
 			(start 4.815 -7.61)
 			(end 6.915 -7.61)
@@ -4895,7 +4947,7 @@
 		(path "/0092438c-f0c7-4d47-9762-68d138cbc3f7")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr through_hole)
+		(attr through_hole exclude_from_bom)
 		(fp_line
 			(start -4.68 -0.5)
 			(end -4.68 0.5)
@@ -5489,6 +5541,19 @@
 			(effects
 				(font
 					(size 1.27 1.27)
+					(thickness 0.15)
+				)
+			)
+		)
+		(property "LCSC" "C1711"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "478d159e-ed26-4c9c-878b-28f1e7f974e6")
+			(effects
+				(font
+					(size 1 1)
 					(thickness 0.15)
 				)
 			)
@@ -6476,6 +6541,19 @@
 				)
 			)
 		)
+		(property "LCSC" "C1711"
+			(at 0 0 180)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "97bdf825-90b6-4e15-a837-8222d0133deb")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+			)
+		)
 		(property ki_fp_filters "C_*")
 		(path "/6b8f5f53-872b-43bf-a1c0-dac9d154b766")
 		(sheetname "/")
@@ -6693,7 +6771,7 @@
 		(path "/f612285c-b37d-46da-933b-5d368221160b")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(fp_line
 			(start -0.153641 -0.38)
 			(end 0.153641 -0.38)
@@ -7475,7 +7553,7 @@
 		(path "/46a03495-507c-4b01-b18a-07e0ebdde4bc")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(fp_line
 			(start -0.153641 -0.38)
 			(end 0.153641 -0.38)
@@ -7688,7 +7766,7 @@
 		(path "/c8c372fa-bf2b-4045-a813-caf88ca21d20")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(fp_line
 			(start -0.153641 -0.38)
 			(end 0.153641 -0.38)
@@ -7879,6 +7957,19 @@
 			(effects
 				(font
 					(size 1.27 1.27)
+					(thickness 0.15)
+				)
+			)
+		)
+		(property "LCSC" "C7094687"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "fca5c825-92e7-4e48-8a23-3e2827a68f01")
+			(effects
+				(font
+					(size 1 1)
 					(thickness 0.15)
 				)
 			)
@@ -9383,7 +9474,7 @@
 		(path "/3c0eaf07-d6bc-49ed-96de-08d1bd011a5f")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr through_hole)
+		(attr through_hole exclude_from_bom)
 		(fp_line
 			(start -1.66 -3.61)
 			(end -2.91 -3.61)
@@ -10132,7 +10223,7 @@
 		(path "/99b78cfe-9fb6-420d-b2b4-bdc0a28b86f5")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(fp_line
 			(start -0.153641 -0.38)
 			(end 0.153641 -0.38)
@@ -10803,7 +10894,7 @@
 		(path "/a83e8756-bdcc-4f2b-a790-74d49c957ba3")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(fp_line
 			(start -0.153641 -0.38)
 			(end 0.153641 -0.38)
@@ -11361,7 +11452,7 @@
 		(path "/e3aefe74-dd95-42d5-ad97-71b8fb99be0a")
 		(sheetname "/")
 		(sheetfile "neopico-hd.kicad_sch")
-		(attr through_hole)
+		(attr through_hole exclude_from_bom)
 		(fp_line
 			(start -1.38 3.92)
 			(end 1.38 3.92)
