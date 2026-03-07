@@ -10,6 +10,13 @@
 #endif
 #include "pico.h"
 #include "video_config.h"
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+#include "pico_hdmi/video_output_rt.h"
+
+#include "hardware/timer.h"
+
+#include "video_capture.h"
+#endif
 
 // Scanline effect toggle (off by default)
 bool fx_scanlines_enabled = false;
@@ -85,12 +92,62 @@ void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const u
     }
 }
 
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+// Nominals that approximate MVS ~59.18 Hz at 25.2 MHz pixel clock:
+//   480p: 25.2M / (800 * 532) = 59.21 Hz   (±1 → 59.10–59.32 Hz)
+//   240p: 25.2M / (1600 * 266) = 59.21 Hz  (±1 → 58.99–59.43 Hz)
+#define GENLOCK_NOMINAL_VTOTAL_480 532
+#define GENLOCK_NOMINAL_VTOTAL_240 266
+#define GENLOCK_PHASE_THRESHOLD_US 200
+#define GENLOCK_PHASE_MAX_US 5000
+
+static uint32_t genlock_last_phase = 0;
+static bool genlock_phase_valid = false;
+
+static void __scratch_x("") genlock_dynamic_update(void)
+{
+    uint32_t hdmi_ts = timer_hw->timerawl;
+    uint32_t mvs_ts = g_mvs_vsync_timestamp;
+    uint32_t phase = hdmi_ts - mvs_ts;
+
+    uint16_t nominal =
+        (video_output_active_mode->v_total_lines <= 266) ? GENLOCK_NOMINAL_VTOTAL_240 : GENLOCK_NOMINAL_VTOTAL_480;
+
+    if (!genlock_phase_valid) {
+        genlock_last_phase = phase;
+        genlock_phase_valid = true;
+        rt_v_total_lines = nominal;
+        return;
+    }
+
+    int32_t delta = (int32_t)(phase - genlock_last_phase);
+    genlock_last_phase = phase;
+
+    // Ignore outliers (missed VSYNC, signal loss, etc.)
+    if (delta > GENLOCK_PHASE_MAX_US || delta < -GENLOCK_PHASE_MAX_US) {
+        rt_v_total_lines = nominal;
+        return;
+    }
+
+    if (delta < -GENLOCK_PHASE_THRESHOLD_US) {
+        rt_v_total_lines = nominal + 1; // HDMI faster than MVS, slow down
+    } else if (delta > GENLOCK_PHASE_THRESHOLD_US) {
+        rt_v_total_lines = nominal - 1; // HDMI slower than MVS, speed up
+    } else {
+        rt_v_total_lines = nominal; // in lock
+    }
+}
+#endif
+
 /**
  * VSYNC callback - called once per frame to sync input/output buffers.
  */
 void __scratch_x("") video_pipeline_vsync_callback(void)
 {
     line_ring_output_vsync();
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+    genlock_dynamic_update();
+#endif
 #if NEOPICO_ENABLE_OSD
     osd_visible_latched = osd_visible;
 #endif

@@ -28,6 +28,7 @@ option(NEOPICO_EXP_GENLOCK_STATIC "Enable static boot-time genlock sysclk target
 set(NEOPICO_GENLOCK_TARGET_FPS_X100 "5920" CACHE STRING "Static genlock target FPS x100 (e.g. 5920 = 59.20)")
 option(NEOPICO_EXP_VTOTAL_MATCH "Enable fixed-pixel-clock output with custom V total for near-source frame rate" OFF)
 set(NEOPICO_EXP_VTOTAL_LINES "532" CACHE STRING "Custom V total lines when NEOPICO_EXP_VTOTAL_MATCH is ON")
+option(NEOPICO_EXP_GENLOCK_DYNAMIC "Enable dynamic VTOTAL genlock (runtime phase tracking)" OFF)
 
 if(NEOPICO_ENABLE_OSD)
     set(ENABLE_OSD_VALUE 1)
@@ -57,6 +58,12 @@ if(NEOPICO_EXP_VTOTAL_MATCH)
     set(VTOTAL_MATCH_VALUE 1)
 else()
     set(VTOTAL_MATCH_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_GENLOCK_DYNAMIC)
+    set(GENLOCK_DYNAMIC_VALUE 1)
+else()
+    set(GENLOCK_DYNAMIC_VALUE 0)
 endif()
 
 # Enable runtime video mode switching in pico_hdmi
@@ -94,6 +101,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_GENLOCK_TARGET_FPS_X100=${NEOPICO_GENLOCK_TARGET_FPS_X100}
     NEOPICO_EXP_VTOTAL_MATCH=${VTOTAL_MATCH_VALUE}
     NEOPICO_EXP_VTOTAL_LINES=${NEOPICO_EXP_VTOTAL_LINES}
+    NEOPICO_EXP_GENLOCK_DYNAMIC=${GENLOCK_DYNAMIC_VALUE}
 )
 
 pico_enable_stdio_usb(neopico_hd 1)

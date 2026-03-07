@@ -14,6 +14,9 @@
 #include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "hardware/pio.h"
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+#include "hardware/timer.h"
+#endif
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -70,6 +73,10 @@ static int g_dma_chan = -1;
 static uint32_t g_line_buffers[2][NEO_H_TOTAL]; // Ping-pong buffers for line capture
 
 static volatile uint32_t g_frame_count = 0;
+
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+volatile uint32_t g_mvs_vsync_timestamp = 0;
+#endif
 
 static int g_skip_start_words = 0;
 static int g_active_words = 0;
@@ -429,6 +436,9 @@ void video_capture_run(void)
             continue;
         }
 
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+        g_mvs_vsync_timestamp = timer_hw->timerawl;
+#endif
         // Signal VSYNC to Core 1
         line_ring_vsync();
 
