@@ -1,0 +1,5 @@
+(version 1)
+(rule "QSB edge pads"
+  (condition "A.Type == 'Pad'")
+  (constraint edge_clearance (min 0mm))
+)
