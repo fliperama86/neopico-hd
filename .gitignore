@@ -39,6 +39,9 @@ tmp/
 *-save.kicad_sch
 *.kicad_pcb-bak
 *.kicad_sch-bak
+\#auto_saved_files\#
+_autosave-*
+gerbers/
 
 # Cache and temporary files
 *-cache.lib
