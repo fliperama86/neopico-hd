@@ -1,0 +1,88 @@
+kibot:
+  version: 1
+
+outputs:
+  - name: jlcpcb_gerbers
+    type: gerber
+    dir: gerbers
+    options:
+      exclude_edge_layer: true
+      exclude_pads_from_silkscreen: true
+      subtract_mask_from_silk: true
+      use_protel_extensions: true
+      create_gerber_job_file: false
+      gerber_precision: 4.6
+    layers:
+      - copper
+      - F.Paste
+      - B.Paste
+      - F.SilkS
+      - B.SilkS
+      - F.Mask
+      - B.Mask
+      - Edge.Cuts
+
+  - name: jlcpcb_drill
+    type: excellon
+    dir: gerbers
+    options:
+      metric_units: true
+      minimal_header: true
+      pth_and_npth_single_file: false
+
+  - name: jlcpcb_gerbers_zip
+    type: compress
+    dir: .
+    options:
+      output: 'gerbers.zip'
+      files:
+        - from_output: jlcpcb_gerbers
+          dest: .
+        - from_output: jlcpcb_drill
+          dest: .
+
+  - name: jlcpcb_position
+    type: position
+    dir: .
+    options:
+      output: 'pos.csv'
+      format: CSV
+      units: millimeters
+      separate_files_for_front_and_back: false
+      columns:
+        - id: Ref
+          name: Designator
+        - id: Val
+          name: Val
+        - id: Package
+          name: Package
+        - id: PosX
+          name: Mid X
+        - id: PosY
+          name: Mid Y
+        - id: Rot
+          name: Rotation
+        - id: Side
+          name: Layer
+
+  - name: jlcpcb_bom
+    type: bom
+    dir: .
+    options:
+      output: 'bom.csv'
+      format: CSV
+      ref_separator: ','
+      csv:
+        quote_all: true
+        hide_pcb_info: true
+        hide_stats_info: true
+      columns:
+        - field: References
+          name: Reference
+        - field: Quantity Per PCB
+          name: Qty
+        - field: Value
+          name: Value
+        - field: LCSC
+          name: LCSC
+      group_fields: ['Value', 'Footprint', 'LCSC']

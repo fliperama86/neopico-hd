@@ -14,9 +14,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
@@ -51,13 +48,79 @@ jobs:
           build/src/*.uf2
           build/src/*.elf
 
+  fabrication:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        board:
+          - name: neopico-hd
+            pcb: hardware/neopico-hd/neopico-hd.kicad_pcb
+            sch: hardware/neopico-hd/neopico-hd.kicad_sch
+          - name: pico-retrodigital
+            pcb: hardware/pico-retrodigital/pico-retrodigital.kicad_pcb
+            sch: hardware/pico-retrodigital/pico-retrodigital.kicad_sch
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Run KiBot
+      uses: INTI-CMNB/KiBot@v2_k9
+      with:
+        config: hardware/kibot-jlcpcb.yml
+        board: ${{ matrix.board.pcb }}
+        schema: ${{ matrix.board.sch }}
+        dir: output
+
+    - name: Upload Fabrication Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.board.name }}-jlcpcb
+        path: |
+          output/gerbers.zip
+          output/bom.csv
+          output/pos.csv
+
+  release:
+    needs: [build, fabrication]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        fetch-tags: true
+
+    - name: Download Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: neopico-hd-build
+        path: build-artifacts
+
+    - name: Download Fabrication Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: '*-jlcpcb'
+        path: fab-artifacts
+
+    - name: Prepare Release Files
+      run: |
+        mkdir -p release
+        cp build-artifacts/*.uf2 build-artifacts/*.elf release/
+        for board in fab-artifacts/*/; do
+          name=$(basename "$board")
+          cd "$board"
+          zip -r "../../release/${name}.zip" .
+          cd -
+        done
+
     - name: Create Release (tag)
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v2
       with:
-        files: |
-          build/src/neopico_hd.uf2
-          build/src/neopico_hd.elf
+        files: release/*
         draft: false
         prerelease: false
       env:
@@ -65,7 +128,6 @@ jobs:
 
     - name: Generate changelog
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      id: changelog
       run: |
         LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
         if [ -n "$LATEST_TAG" ]; then
@@ -73,7 +135,6 @@ jobs:
         else
           CHANGELOG=$(git log --pretty=format:"- %s (%h)")
         fi
-        # Write to file for multiline support
         echo "$CHANGELOG" > /tmp/changelog.txt
 
     - name: Create Release (main merge)
@@ -83,9 +144,7 @@ jobs:
         tag_name: latest
         name: Latest Build (${{ github.sha }})
         body_path: /tmp/changelog.txt
-        files: |
-          build/src/neopico_hd.uf2
-          build/src/neopico_hd.elf
+        files: release/*
         draft: false
         prerelease: true
         make_latest: false
