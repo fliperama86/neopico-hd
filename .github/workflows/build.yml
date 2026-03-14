@@ -120,7 +120,7 @@ jobs:
     - name: Prepare Release Files
       run: |
         mkdir -p release-files
-        find build-artifacts -name '*.uf2' -o -name '*.elf' | xargs -I{} cp {} release-files/
+        find build-artifacts \( -name '*.uf2' -o -name '*.elf' \) | xargs -I{} cp {} release-files/
         for board in fab-artifacts/*/; do
           name=$(basename "$board")
           cd "$board"
@@ -128,37 +128,57 @@ jobs:
           cd -
         done
 
-    - name: Create Release (tag)
-      if: startsWith(github.ref, 'refs/tags/v')
-      uses: softprops/action-gh-release@v2
-      with:
-        files: release-files/*
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Determine release version
+      id: version
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          # Manual tag push — use that tag as-is
+          echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          echo "Using manual tag: ${{ github.ref_name }}"
+        else
+          # Main branch push — auto-bump patch version from latest tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag: $LATEST_TAG"
+          # Extract major.minor.patch
+          VERSION="${LATEST_TAG#v}"
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          PATCH=$(echo "$VERSION" | cut -d. -f3)
+          PATCH=$((PATCH + 1))
+          NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          echo "Auto-bumped: $LATEST_TAG -> $NEW_TAG"
+        fi
 
     - name: Generate changelog
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
-        LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-        if [ -n "$LATEST_TAG" ]; then
-          CHANGELOG=$(git log "${LATEST_TAG}"..HEAD --pretty=format:"- %s (%h)")
+        # Find the previous tag (second most recent, or empty if none)
+        PREV_TAG=$(git tag --sort=-v:refname | grep '^v' | head -2 | tail -1)
+        CURRENT_TAG=$(git tag --sort=-v:refname | grep '^v' | head -1)
+        if [ "$PREV_TAG" = "$CURRENT_TAG" ]; then
+          PREV_TAG=""
+        fi
+        if [ -n "$PREV_TAG" ]; then
+          CHANGELOG=$(git log "${PREV_TAG}"..HEAD --pretty=format:"- %s (%h)")
         else
           CHANGELOG=$(git log --pretty=format:"- %s (%h)")
         fi
         echo "$CHANGELOG" > /tmp/changelog.txt
 
-    - name: Create Release (main merge)
+    - name: Create tag (auto-bump)
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        git tag ${{ steps.version.outputs.tag }}
+        git push origin ${{ steps.version.outputs.tag }}
+
+    - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: latest
-        name: Latest Build (${{ github.sha }})
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: ${{ steps.version.outputs.tag }}
         body_path: /tmp/changelog.txt
         files: release-files/*
         draft: false
-        prerelease: true
-        make_latest: false
+        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
