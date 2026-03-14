@@ -33,12 +33,22 @@ jobs:
         cd $HOME/pico-sdk
         git submodule update --init
 
-    - name: Build NeoPico-HD
+    - name: Build NeoPico-HD (MV1C digital audio)
       run: |
         mkdir build
         cd build
         cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release
         make -j$(nproc)
+
+    - name: Build NeoPico-HD (PCM1802 analog audio)
+      run: |
+        mkdir build-pcm1802
+        cd build-pcm1802
+        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_AUDIO_PCM1802=ON
+        make -j$(nproc)
+        # Rename to distinguish from default build
+        cp src/neopico_hd.uf2 src/neopico_hd_pcm1802.uf2
+        cp src/neopico_hd.elf src/neopico_hd_pcm1802.elf
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
@@ -47,6 +57,8 @@ jobs:
         path: |
           build/src/*.uf2
           build/src/*.elf
+          build-pcm1802/src/neopico_hd_pcm1802.uf2
+          build-pcm1802/src/neopico_hd_pcm1802.elf
 
   fabrication:
     runs-on: ubuntu-latest
@@ -108,7 +120,7 @@ jobs:
     - name: Prepare Release Files
       run: |
         mkdir -p release-files
-        cp build-artifacts/*.uf2 build-artifacts/*.elf release-files/
+        find build-artifacts -name '*.uf2' -o -name '*.elf' | xargs -I{} cp {} release-files/
         for board in fab-artifacts/*/; do
           name=$(basename "$board")
           cd "$board"

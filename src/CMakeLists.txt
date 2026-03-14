@@ -29,6 +29,7 @@ set(NEOPICO_GENLOCK_TARGET_FPS_X100 "5920" CACHE STRING "Static genlock target F
 option(NEOPICO_EXP_VTOTAL_MATCH "Enable fixed-pixel-clock output with custom V total for near-source frame rate" OFF)
 set(NEOPICO_EXP_VTOTAL_LINES "532" CACHE STRING "Custom V total lines when NEOPICO_EXP_VTOTAL_MATCH is ON")
 option(NEOPICO_EXP_GENLOCK_DYNAMIC "Enable dynamic VTOTAL genlock (runtime phase tracking)" OFF)
+option(NEOPICO_AUDIO_PCM1802 "Use PCM1802 ADC for analog audio capture (AES/non-MV1C boards)" OFF)
 
 if(NEOPICO_ENABLE_OSD)
     set(ENABLE_OSD_VALUE 1)
@@ -64,6 +65,12 @@ if(NEOPICO_EXP_GENLOCK_DYNAMIC)
     set(GENLOCK_DYNAMIC_VALUE 1)
 else()
     set(GENLOCK_DYNAMIC_VALUE 0)
+endif()
+
+if(NEOPICO_AUDIO_PCM1802)
+    set(AUDIO_PCM1802_VALUE 1)
+else()
+    set(AUDIO_PCM1802_VALUE 0)
 endif()
 
 # Enable runtime video mode switching in pico_hdmi
@@ -102,6 +109,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_EXP_VTOTAL_MATCH=${VTOTAL_MATCH_VALUE}
     NEOPICO_EXP_VTOTAL_LINES=${NEOPICO_EXP_VTOTAL_LINES}
     NEOPICO_EXP_GENLOCK_DYNAMIC=${GENLOCK_DYNAMIC_VALUE}
+    NEOPICO_AUDIO_PCM1802=${AUDIO_PCM1802_VALUE}
 )
 
 pico_enable_stdio_usb(neopico_hd 1)

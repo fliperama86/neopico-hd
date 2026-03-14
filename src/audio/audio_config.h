@@ -15,8 +15,13 @@
 #define AUDIO_BUFFER_SIZE 1024
 
 // Sample rates
+#if NEOPICO_AUDIO_PCM1802
+// PCM1802 ADC with 12.288 MHz crystal: 12288000 / 256 = 48000 Hz exactly
+#define AUDIO_INPUT_RATE 48000
+#else
 // MVS I2S input: 8MHz / 144 = 55,555.555... Hz (55556 minimizes rounding error)
 #define AUDIO_INPUT_RATE 55556
+#endif
 #define AUDIO_OUTPUT_RATE 48000 // HSTX audio output rate
 
 // =============================================================================

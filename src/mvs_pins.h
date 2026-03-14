@@ -61,9 +61,12 @@
 // =============================================================================
 // I2S Audio Input Pins (DAT=GP22, WS=GP23, BCK=GP24)
 // =============================================================================
-#define PIN_I2S_DAT 22 // I2S data
-#define PIN_I2S_WS 23  // I2S word select
-#define PIN_I2S_BCK 24 // I2S bit clock
+// MV1C: NEO-YSA2 digital tap (right-justified, ~55.5kHz)
+// PCM1802: ADC I2S output (standard I2S, 48kHz with 12.288MHz SCKI)
+// Same GPIOs for both — pin order constrained by PIO `wait pin N`
+#define PIN_I2S_DAT 22 // I2S data (DOUT on PCM1802)
+#define PIN_I2S_WS 23  // I2S word select (LRCK on PCM1802)
+#define PIN_I2S_BCK 24 // I2S bit clock (BCK on PCM1802)
 
 // =============================================================================
 // OSD Control (Direct Buttons)

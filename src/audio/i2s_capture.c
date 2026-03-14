@@ -63,12 +63,16 @@ bool i2s_capture_init(i2s_capture_t *cap, const i2s_capture_config_t *config, ap
     // GP0-2 are in Bank 0, use GPIOBASE=0
     pio_set_gpio_base(config->pio, 0);
 
-    // Add PIO program
+    // Add PIO program (standard I2S for PCM1802, right-justified for NEO-YSA2)
+#if NEOPICO_AUDIO_PCM1802
+    uint offset = pio_add_program(config->pio, &i2s_capture_pcm1802_program);
+    cap->pio_offset = offset;
+    i2s_capture_pcm1802_program_init(config->pio, config->sm, offset, config->pin_dat, config->pin_ws, config->pin_bck);
+#else
     uint offset = pio_add_program(config->pio, &i2s_capture_program);
     cap->pio_offset = offset;
-
-    // Initialize PIO state machine
     i2s_capture_program_init(config->pio, config->sm, offset, config->pin_dat, config->pin_ws, config->pin_bck);
+#endif
 
     // Configure DMA
     dma_channel_config c = dma_channel_get_default_config(cap->dma_chan);
@@ -159,13 +163,20 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap)
             if (next_idx == write_idx)
                 break;
 
-            uint32_t raw_r = cap->dma_buffer[cap->dma_buffer_idx];
-            uint32_t raw_l = cap->dma_buffer[next_idx];
+            uint32_t raw_first = cap->dma_buffer[cap->dma_buffer_idx];
+            uint32_t raw_second = cap->dma_buffer[next_idx];
             cap->dma_buffer_idx = (next_idx + 1) & I2S_DMA_BUFFER_MASK;
 
             audio_sample_t sample;
-            sample.left = (int16_t)(raw_l & 0xFFFF);
-            sample.right = (int16_t)(raw_r & 0xFFFF);
+#if NEOPICO_AUDIO_PCM1802
+            // PCM1802: LEFT first, RIGHT second. 24-bit data in bits 23:0, take top 16.
+            sample.left = (int16_t)((raw_first >> 8) & 0xFFFF);
+            sample.right = (int16_t)((raw_second >> 8) & 0xFFFF);
+#else
+            // NEO-YSA2: RIGHT first, LEFT second. 16-bit data in bits 15:0.
+            sample.left = (int16_t)(raw_second & 0xFFFF);
+            sample.right = (int16_t)(raw_first & 0xFFFF);
+#endif
 
             if (ap_ring_free(cap->ring) > 0) {
                 ap_ring_write(cap->ring, sample);
