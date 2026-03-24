@@ -628,3 +628,9 @@ Working implication for this board:
   - Reverted local change in `lib/pico_hdmi/src/video_output_rt.c`; submodule is clean again.
 - Verification:
   - Built default (`NEOPICO_VIDEO_240P=OFF`) and 240p (`NEOPICO_VIDEO_240P=ON`) successfully.
+- 2026-03-24 16:16: User requested disabling auto-release on every merge.
+- Updated `.github/workflows/build.yml` release behavior:
+  - `release` job now runs only on tag refs matching `v*` (`if: startsWith(github.ref, 'refs/tags/v')`).
+  - Removed main-branch auto-bump/tag creation logic.
+  - Release version now always uses pushed tag name (`github.ref_name`).
+- Resulting policy: merges to `main` still build/upload artifacts, but GitHub Releases are published only when manually pushing a version tag.
