@@ -634,3 +634,11 @@ Working implication for this board:
   - Removed main-branch auto-bump/tag creation logic.
   - Release version now always uses pushed tag name (`github.ref_name`).
 - Resulting policy: merges to `main` still build/upload artifacts, but GitHub Releases are published only when manually pushing a version tag.
+- 2026-03-24 16:22: User requested a local shell script to automate tag-based releases.
+- Added executable `scripts/release.sh`:
+  - Enforces clean working tree.
+  - Accepts optional explicit semver tag `vX.Y.Z`; otherwise auto-bumps patch from latest `v*` tag.
+  - Validates tag format and checks local/remote tag collisions.
+  - Creates annotated tag and pushes it to `origin` (triggering the tag-only GitHub release workflow).
+  - Includes `--help` usage output.
+- Portability tweak: script uses standard `grep/head` (no `rg` dependency at runtime).
