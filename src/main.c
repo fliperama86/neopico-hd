@@ -55,12 +55,16 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 #define NEOPICO_EXP_VTOTAL_LINES 532
 #endif
 
+#ifndef NEOPICO_VIDEO_240P
+#define NEOPICO_VIDEO_240P 0
+#endif
+
 #define SYS_CLK_60HZ_KHZ 126000U
 
 static inline uint32_t compute_sysclk_khz_for_fps_x100(uint32_t fps_x100)
 {
     // 126 MHz corresponds to 60.00 Hz output in current timing setup.
-    return (SYS_CLK_60HZ_KHZ * fps_x100 + 3000U) / 6000U;
+    return ((SYS_CLK_60HZ_KHZ * fps_x100) + 3000U) / 6000U;
 }
 
 static inline uint32_t get_current_pixel_clock_hz(void)
@@ -139,7 +143,9 @@ int main(void)
 
     // Initialize HDMI output pipeline
     hstx_di_queue_init();
-#if NEOPICO_EXP_VTOTAL_MATCH
+#if NEOPICO_VIDEO_240P
+    video_output_set_mode(&video_mode_240_p);
+#elif NEOPICO_EXP_VTOTAL_MATCH
     video_output_set_mode(build_vtotal_match_mode());
 #endif
     video_pipeline_init(FRAME_WIDTH, FRAME_HEIGHT);

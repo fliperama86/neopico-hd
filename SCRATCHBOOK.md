@@ -614,3 +614,17 @@ Working implication for this board:
   - Uses compile-time mode define via env flags during configure: `CFLAGS/CXXFLAGS=-DVIDEO_MODE_320x240=1`.
   - Renames outputs to `neopico_hd_240p.uf2` and `neopico_hd_240p.elf`.
   - Added both files to `Upload Artifacts` paths so they are included in `neopico-hd-build` artifact and downstream release packaging.
+- 2026-03-24 16:10: User reported `pico_hdmi` submodule dirty; migrated 240p selection to top-level firmware option so submodule can stay clean.
+- `src/CMakeLists.txt`:
+  - Added `NEOPICO_VIDEO_240P` option (default OFF).
+  - Propagates `NEOPICO_VIDEO_240P` compile definition only to `neopico_hd` target.
+- `src/main.c`:
+  - Added fallback macro for `NEOPICO_VIDEO_240P`.
+  - Before `video_pipeline_init()`, selects runtime mode with `video_output_set_mode(&video_mode_240_p)` when flag is ON.
+  - Keeps existing `NEOPICO_EXP_VTOTAL_MATCH` path as alternate mode select.
+- `.github/workflows/build.yml`:
+  - 240p CI build now uses `-DNEOPICO_VIDEO_240P=ON` (removed global `CFLAGS/CXXFLAGS=-DVIDEO_MODE_320x240=1`).
+- Submodule cleanup:
+  - Reverted local change in `lib/pico_hdmi/src/video_output_rt.c`; submodule is clean again.
+- Verification:
+  - Built default (`NEOPICO_VIDEO_240P=OFF`) and 240p (`NEOPICO_VIDEO_240P=ON`) successfully.

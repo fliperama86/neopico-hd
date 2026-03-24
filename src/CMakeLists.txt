@@ -17,10 +17,8 @@ add_executable(neopico_hd
     audio/src.c
 )
 
-# 240p direct mode: uncomment to enable (requires pico_hdmi 240p support)
-# add_compile_definitions(VIDEO_MODE_320x240=1)
-
 # Compile-time feature flags (cache params for fast A/B testing)
+option(NEOPICO_VIDEO_240P "Start HDMI output in 240p mode via runtime mode API" OFF)
 option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" OFF)
 option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD)" OFF)
 option(NEOPICO_ENABLE_DARK_SHADOW "Enable DARK/SHADOW LUT path in capture" OFF)
@@ -73,6 +71,12 @@ else()
     set(AUDIO_PCM1802_VALUE 0)
 endif()
 
+if(NEOPICO_VIDEO_240P)
+    set(VIDEO_240P_VALUE 1)
+else()
+    set(VIDEO_240P_VALUE 0)
+endif()
+
 # Enable runtime video mode switching in pico_hdmi
 set(PICO_HDMI_RUNTIME_MODES ON CACHE BOOL "" FORCE)
 
@@ -101,6 +105,7 @@ target_link_libraries(neopico_hd
 )
 
 target_compile_definitions(neopico_hd PRIVATE
+    NEOPICO_VIDEO_240P=${VIDEO_240P_VALUE}
     NEOPICO_ENABLE_OSD=${ENABLE_OSD_VALUE}
     NEOPICO_ENABLE_SELFTEST=${ENABLE_SELFTEST_VALUE}
     ENABLE_DARK_SHADOW=${ENABLE_DARK_SHADOW_VALUE}

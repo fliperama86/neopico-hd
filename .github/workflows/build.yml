@@ -54,8 +54,7 @@ jobs:
       run: |
         mkdir build-240p
         cd build-240p
-        CFLAGS="-DVIDEO_MODE_320x240=1" CXXFLAGS="-DVIDEO_MODE_320x240=1" \
-          cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release
+        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_VIDEO_240P=ON
         make -j$(nproc)
         # Rename to distinguish from default build
         cp src/neopico_hd.uf2 src/neopico_hd_240p.uf2
