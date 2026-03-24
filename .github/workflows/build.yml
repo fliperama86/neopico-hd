@@ -50,6 +50,17 @@ jobs:
         cp src/neopico_hd.uf2 src/neopico_hd_pcm1802.uf2
         cp src/neopico_hd.elf src/neopico_hd_pcm1802.elf
 
+    - name: Build NeoPico-HD (240p mode)
+      run: |
+        mkdir build-240p
+        cd build-240p
+        CFLAGS="-DVIDEO_MODE_320x240=1" CXXFLAGS="-DVIDEO_MODE_320x240=1" \
+          cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release
+        make -j$(nproc)
+        # Rename to distinguish from default build
+        cp src/neopico_hd.uf2 src/neopico_hd_240p.uf2
+        cp src/neopico_hd.elf src/neopico_hd_240p.elf
+
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -59,6 +70,8 @@ jobs:
           build/src/*.elf
           build-pcm1802/src/neopico_hd_pcm1802.uf2
           build-pcm1802/src/neopico_hd_pcm1802.elf
+          build-240p/src/neopico_hd_240p.uf2
+          build-240p/src/neopico_hd_240p.elf
 
   fabrication:
     runs-on: ubuntu-latest

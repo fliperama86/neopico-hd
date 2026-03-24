@@ -576,3 +576,41 @@ Working implication for this board:
     - `cmake -S . -B build -DNEOPICO_ENABLE_DARK_SHADOW=OFF && cmake --build build -j4`.
 - 2026-02-20 00:27:39 -03: User requested main-branch DARK/SHADOW algorithm while keeping DARK pin mapping on GPIO45. Updated src/video/video_capture.c to main-style shadow-dark LUT math; retained 19-bit capture path/pin map. Rebuild passed (cmake --build build -j4).
 - 2026-02-20 00:32:29 -03: Reviewed and corrected staged docs for DARK/SHADOW accuracy. Synced docs to current implementation: 19-bit capture incl. GPIO45 DARK, default NEOPICO_ENABLE_DARK_SHADOW=OFF (32K RGB LUT), optional ON path uses 64K RGB+SHADOW LUT with legacy shadow math; DARK shown in diagnostics but not used as conversion input.
+- 2026-03-24 15:17: User requested "Build and flash the 240p mode" and asked to proceed without repeated permission prompts.
+- Method used: configured isolated `build-240p-env` with `CFLAGS/CXXFLAGS=-DVIDEO_MODE_320x240=1`, built target `neopico_hd`, then flashed `build-240p-env/src/neopico_hd.uf2` via `pi flash`.
+- Blockers/workarounds:
+  - Initial attempt with `-DCMAKE_C_FLAGS/-DCMAKE_CXX_FLAGS` dropped toolchain arch flags (`-mcpu` etc.), causing RP2350 spin-lock compile errors.
+  - 240p path compile typo fixed in `lib/pico_hdmi/src/video_output_rt.c`: `VIDEO_MODE_240P` -> `video_mode_240_p`.
+- Result: build and flash succeeded; device rebooted into application mode after UF2 load.
+- 2026-03-24 15:41: User reported 240p implementation is visually broken (half image + tearing) and requested a fact-based deep investigation and solid plan before further edits.
+- Investigation findings (code-verified):
+  - `src/video/video_pipeline.c` still hardcodes 480p assumptions in scanline callback (`fb_line = active_line >> 1`, 2x blitter only), even when 240p mode is selected.
+  - In 240p mode (`1280x240`), callback currently writes only half the required horizontal words and maps only ~half the source vertical range, matching observed symptom.
+  - OSD span math is also tied to 2x horizontal scaling and must be mode-aware for 4x pixel replication.
+  - Timing mismatch noted: 240p mode table uses `v_total=262` (~60.11 Hz at 25.2 MHz), while MVS source is ~59.18 Hz; without lock control this increases frame-phase churn and can amplify visible tearing.
+- Resource snapshot from built 240p ELF:
+  - `text=42144`, `bss=308888`.
+  - Large RAM users: `g_line_ring` 163856, `g_color_correct_lut` 65536, `di_ring_buffer` 36864, `g_dma_buffer` 16384, `g_line_buffers` 3072, `line_buffer` 2560.
+- Next action pending user approval: implement mode-correct scanline mapping + full-line write guarantees first, then instrument and validate timing/tearing metrics before any genlock/timing tuning.
+- 2026-03-24 15:49: Implemented mode-aware scanline/OSD scaling fix in `src/video/video_pipeline.c`.
+- Changes:
+  - Switched to runtime mode API include (`pico_hdmi/video_output_rt.h`) and cached active mode geometry at init/VSYNC.
+  - Added `video_pipeline_refresh_mode_cache()` and cached fields (`mode_is_240p`, `mode_h_words`, OSD word spans).
+  - In scanline callback:
+    - 480p path keeps `fb_line = active_line >> 1` + 2x blit.
+    - 240p path uses `fb_line = active_line` + 4x blit to fully populate 1280 active pixels.
+    - No-signal and OSD branches now use mode-correct word offsets and full-line writes.
+- Verification:
+  - Built successfully in both default and 240p configs:
+    - `cmake --build build --target neopico_hd`
+    - `cmake --build build-240p-env --target neopico_hd`
+  - Flashed updated 240p UF2 (`build-240p-env/src/neopico_hd.uf2`) via `pi flash`; device rebooted into application mode.
+- 2026-03-24 15:54: User confirmed the 240p fix is visually perfect on hardware.
+- Cleanup completed on request: removed temporary `build-240p` and `build-240p-env` directories.
+- Current intentional working-tree changes for this effort: `src/video/video_pipeline.c`, `lib/pico_hdmi` (runtime-mode symbol fix), and `SCRATCHBOOK.md`.
+- 2026-03-24 16:02: User requested CI artifact for 240p mode.
+- Updated `.github/workflows/build.yml`:
+  - Added dedicated CI build step `Build NeoPico-HD (240p mode)` in `build-240p`.
+  - Uses compile-time mode define via env flags during configure: `CFLAGS/CXXFLAGS=-DVIDEO_MODE_320x240=1`.
+  - Renames outputs to `neopico_hd_240p.uf2` and `neopico_hd_240p.elf`.
+  - Added both files to `Upload Artifacts` paths so they are included in `neopico-hd-build` artifact and downstream release packaging.
