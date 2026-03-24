@@ -49,7 +49,7 @@ is_valid_tag() {
     [[ "$1" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]
 }
 
-latest_tag="$(git tag --sort=-v:refname | rg '^v[0-9]+\.[0-9]+\.[0-9]+$' -n --no-line-number -m 1 || true)"
+latest_tag="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
 if [[ -z "$latest_tag" ]]; then
     latest_tag="v0.0.0"
 fi
@@ -72,7 +72,7 @@ if git rev-parse -q --verify "refs/tags/${new_tag}" >/dev/null; then
     exit 1
 fi
 
-if git ls-remote --tags origin "refs/tags/${new_tag}" | rg . >/dev/null; then
+if [[ -n "$(git ls-remote --tags origin "refs/tags/${new_tag}")" ]]; then
     echo "Error: tag '${new_tag}' already exists on origin."
     exit 1
 fi
