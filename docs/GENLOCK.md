@@ -1,5 +1,7 @@
 # Genlock — Implementation Analysis
 
+For timing-policy selection and a stability-first decision matrix (Compat60 vs SourceLock), see `docs/PHASE_LOCK_OPTIONS.md`.
+
 ## Problem
 
 MVS runs at ~59.18 Hz. HDMI output at 60 Hz causes periodic frame repeats (~every 2s), visible as stutter in scrolling games.

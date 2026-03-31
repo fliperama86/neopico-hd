@@ -79,21 +79,21 @@ Working notes for intermittent audio corruption, power-domain behavior, and fast
     - Core1 background accumulates CSYNC high/low while OSD is visible and emits 1 Hz snapshot.
     - `selftest_layout_update()` now receives only `SELFTEST_BIT_CSYNC` in this phase.
 - Next incremental experiment extension:
-  - Added PCLK live status alongside CSYNC in `menu_diag_experiment.c`.
-  - Same 1 Hz snapshot cadence and same Core1 background-only path.
-  - Capture path remains untouched.
+    - Added PCLK live status alongside CSYNC in `menu_diag_experiment.c`.
+    - Same 1 Hz snapshot cadence and same Core1 background-only path.
+    - Capture path remains untouched.
 - Next incremental experiment extension (more ambitious):
-  - Added all remaining video signals at once in `menu_diag_experiment.c`:
-    - `SHADOW`, `R0..R4`, `G0..G4`, `B0..B4` (plus existing CSYNC/PCLK)
-  - Still Core1 background only and 1 Hz snapshot cadence.
-  - No capture-path modifications.
+    - Added all remaining video signals at once in `menu_diag_experiment.c`:
+        - `SHADOW`, `R0..R4`, `G0..G4`, `B0..B4` (plus existing CSYNC/PCLK)
+    - Still Core1 background only and 1 Hz snapshot cadence.
+    - No capture-path modifications.
 - Audio micro-step started:
-  - Added `BCK` only to experiment sampler (Core1 background, 1 Hz snapshot).
-  - Current snapshot now includes: full video signals + `BCK`.
-  - `WS`/`DAT` intentionally deferred to subsequent steps.
+    - Added `BCK` only to experiment sampler (Core1 background, 1 Hz snapshot).
+    - Current snapshot now includes: full video signals + `BCK`.
+    - `WS`/`DAT` intentionally deferred to subsequent steps.
 - Audio expansion:
-  - Added `WS` and `DAT` to experiment sampler.
-  - Current snapshot now includes full video + full audio (`BCK`, `WS`, `DAT`).
+    - Added `WS` and `DAT` to experiment sampler.
+    - Current snapshot now includes full video + full audio (`BCK`, `WS`, `DAT`).
 
 ## Context
 
@@ -314,17 +314,17 @@ Working implication for this board:
 
 - 2026-02-16 10:31:02 -03: User requested no-signal fallback color change from black to dark gray.
 - Applied minimal video-path-only change in `src/video/video_pipeline.c`:
-  - Added `NO_SIGNAL_COLOR_RGB565` = `0x2104` (dark gray).
-  - Added `video_pipeline_fill_rgb565(...)` helper to fill packed RGB565 words.
-  - Replaced no-signal black `memset` fills with dark-gray fills in both OSD-inactive and OSD-active/no-source paths.
+    - Added `NO_SIGNAL_COLOR_RGB565` = `0x2104` (dark gray).
+    - Added `video_pipeline_fill_rgb565(...)` helper to fill packed RGB565 words.
+    - Replaced no-signal black `memset` fills with dark-gray fills in both OSD-inactive and OSD-active/no-source paths.
 - Scope intentionally small: no capture-path logic changes, no audio-path changes, no flag behavior changes.
 - 2026-02-16 10:32:31 -03: User requested brighter no-signal fallback; changed `NO_SIGNAL_COLOR_RGB565` from `0x2104` (dark gray) to `0x7BEF` (mid gray) in `src/video/video_pipeline.c`.
 - 2026-02-16 10:34:40 -03: User requested overscan remain black while no-signal area stays gray; added `OVERSCAN_COLOR_RGB565=0x0000` and used it for lines outside active MVS window (`mvs_line_u32 >= MVS_HEIGHT`) in `src/video/video_pipeline.c`.
 - 2026-02-18 14:05:41 -03: User approved Step 1 baseline-only genlock experiment scaffolding (no clock/timing behavior changes).
 - Added compile-time flag `NEOPICO_EXP_BASELINE_TELEMETRY` (default OFF) in `src/CMakeLists.txt`.
 - Added low-rate telemetry path in `src/video/video_capture.c` behind `#if NEOPICO_EXP_BASELINE_TELEMETRY`:
-  - Tracks input VSYNC count (`g_input_vsync_count`) and output VSYNC count (`video_frame_count`).
-  - Reports every 2 seconds: totals, interval deltas, phase (`out-in`), slip estimate (frames/min), and input/output FPS.
+    - Tracks input VSYNC count (`g_input_vsync_count`) and output VSYNC count (`video_frame_count`).
+    - Reports every 2 seconds: totals, interval deltas, phase (`out-in`), slip estimate (frames/min), and input/output FPS.
 - Safe pattern preserved: experiment is flag-gated, off by default, and does not change sysclk/HSTX/ACR/resync logic.
 - 2026-02-18 14:08:04 -03: Built baseline telemetry experiment with `NEOPICO_EXP_BASELINE_TELEMETRY=ON`.
 - Commands run: `cmake -S . -B build -DNEOPICO_EXP_BASELINE_TELEMETRY=ON` and `cmake --build build -j4` (both successful).
@@ -341,9 +341,9 @@ Working implication for this board:
 - 2026-02-18 14:22:18 -03: User requested serial telemetry from `menu_diag_experiment_tick_background()` instead of capture loop.
 - Removed baseline telemetry code from `src/video/video_capture.c` (no `printf` or telemetry bookkeeping on Core 0 capture path).
 - Added baseline telemetry print path to `src/experiments/menu_diag_experiment.c` behind `NEOPICO_EXP_BASELINE_TELEMETRY`:
-  - Runs in Core 1 background task (`menu_diag_experiment_tick_background()`), 1 Hz interval.
-  - Uses `video_capture_get_frame_count()` for input and `video_frame_count` for output.
-  - Prints only when `tud_cdc_connected()`; resets baseline state on disconnect.
+    - Runs in Core 1 background task (`menu_diag_experiment_tick_background()`), 1 Hz interval.
+    - Uses `video_capture_get_frame_count()` for input and `video_frame_count` for output.
+    - Prints only when `tud_cdc_connected()`; resets baseline state on disconnect.
 - Build verification: `cmake --build build -j4` succeeded.
 - 2026-02-18 14:24:05 -03: Cleanup pass after telemetry move: removed now-unused `<stdio.h>` include from `src/video/video_capture.c` and rebuilt.
 - Verification: `cmake --build build -j4` succeeded with telemetry now only in Core1 background task path.
@@ -354,15 +354,15 @@ Working implication for this board:
 - 2026-02-18 14:23:08 -03: User requested rebuild; ran `cmake --build build -j4` and build succeeded (`neopico_hd` up to date).
 - 2026-02-18 14:23:48 -03: Correction: previous line timestamp text should be 14:23:48 -03.
 - 2026-02-18 14:28:05 -0300: Switched baseline telemetry from USB serial output to OSD-only updates in Core1 background task.
-- : removed CDC/printf path; keeps 1 Hz metrics computation and now calls  only when OSD is visible.
+- : removed CDC/printf path; keeps 1 Hz metrics computation and now calls only when OSD is visible.
 - : added ; reserved bottom rows for IN/OUT FPS and PH/SLIP display.
 - Safety intent preserved: no telemetry work in Core0 capture loop; no serial processing required.
-- Verification: [  0%] Built target neopico_hd_i2s_capture_pio_h
-[  2%] Built target neopico_hd_video_capture_pio_h
-[  2%] Built target bs2_default
-[  4%] Built target bs2_default_library
-[ 40%] Built target pico_hdmi
-[100%] Built target neopico_hd succeeded.
+- Verification: [ 0%] Built target neopico_hd_i2s_capture_pio_h
+  [ 2%] Built target neopico_hd_video_capture_pio_h
+  [ 2%] Built target bs2_default
+  [ 4%] Built target bs2_default_library
+  [ 40%] Built target pico_hdmi
+  [100%] Built target neopico_hd succeeded.
 - 2026-02-18 14:28:13 -0300: Switched baseline telemetry from USB serial output to OSD-only updates in Core1 background task.
 - src/experiments/menu_diag_experiment.c: removed CDC/printf path; keeps 1 Hz metrics computation and now calls selftest_layout_set_baseline(...) only when OSD is visible.
 - src/osd/selftest_layout.h and src/osd/selftest_layout.c: added selftest_layout_set_baseline(...); reserved bottom rows for IN/OUT FPS and PH/SLIP display.
@@ -375,20 +375,20 @@ Working implication for this board:
 - Verification: `cmake --build build -j4` succeeded.
 - 2026-02-18 14:32:47 -03: Correction: previous entry timestamp text should be 14:32:47 -03.
 - 2026-02-18 14:39:13 -0300: Implemented static genlock experiment (compile-time, off by default) and built test config with it ON.
-- : added  (BOOL) and  (STRING, default 5920) compile options.
-- : boot-time sysclk selection uses target FPS when static genlock enabled; computes sysclk from . Added one-time  after video pipeline init.
+- : added (BOOL) and (STRING, default 5920) compile options.
+- : boot-time sysclk selection uses target FPS when static genlock enabled; computes sysclk from . Added one-time after video pipeline init.
 - Test build config used now: , , .
 - Verification: -- Configuring done (0.1s)
--- Generating done (0.1s)
--- Build files have been written to: /Users/dudu/Projects/neogeo/neopico-hd/build + [  0%] Built target neopico_hd_i2s_capture_pio_h
-[  1%] Built target neopico_hd_video_capture_pio_h
-[  2%] Built target bs2_default
-[  4%] Built target bs2_default_library
-[ 40%] Built target pico_hdmi
-[100%] Built target neopico_hd succeeded.
+  -- Generating done (0.1s)
+  -- Build files have been written to: /Users/dudu/Projects/neogeo/neopico-hd/build + [ 0%] Built target neopico_hd_i2s_capture_pio_h
+  [ 1%] Built target neopico_hd_video_capture_pio_h
+  [ 2%] Built target bs2_default
+  [ 4%] Built target bs2_default_library
+  [ 40%] Built target pico_hdmi
+  [100%] Built target neopico_hd succeeded.
 - 2026-02-18 14:39:32 -0300: Implemented static genlock experiment (compile-time, OFF by default) and built test config with it ON.
 - src/CMakeLists.txt: added options NEOPICO_EXP_GENLOCK_STATIC (BOOL) and NEOPICO_GENLOCK_TARGET_FPS_X100 (STRING, default 5920).
-- src/main.c: boot-time sysclk uses target FPS when static genlock is enabled; formula 126000 * fps / 60. Added one-time video_output_update_acr() after video_pipeline_init().
+- src/main.c: boot-time sysclk uses target FPS when static genlock is enabled; formula 126000 \* fps / 60. Added one-time video_output_update_acr() after video_pipeline_init().
 - Active build config now: NEOPICO_EXP_GENLOCK_STATIC=ON, NEOPICO_GENLOCK_TARGET_FPS_X100=5920, NEOPICO_EXP_BASELINE_TELEMETRY=ON.
 - Verification: cmake configure + build completed successfully.
 - Note: previous malformed SCRATCHBOOK lines in this section were logging artifacts from shell quoting; this entry supersedes them.
@@ -401,7 +401,7 @@ Working implication for this board:
 - In src/main.c, when V-total match is enabled, code builds a custom mode from 480p baseline and sets v_total_lines and v_back_porch before video init via video_output_set_mode().
 - Static sysclk-genlock path is automatically bypassed when V-total match is enabled (keeps sysclk at 126000).
 - Active build now: NEOPICO_EXP_VTOTAL_MATCH=ON, NEOPICO_EXP_VTOTAL_LINES=532, NEOPICO_EXP_GENLOCK_STATIC=OFF, NEOPICO_EXP_BASELINE_TELEMETRY=ON.
-- Expected output frame rate at current timing: 25.2 MHz / (800 * 532) = 59.210526 Hz.
+- Expected output frame rate at current timing: 25.2 MHz / (800 \* 532) = 59.210526 Hz.
 - Verification: configure + build succeeded.
 - 2026-02-18 15:03:16 -0300: User requested revert of lib/pico_hdmi changes. Reverted example-only edits in submodule (, ); submodule no longer dirty in top-level status.
 - 2026-02-18 15:03:21 -0300: User requested revert of lib/pico_hdmi changes. Reverted example-only edits in submodule (bouncing_box CMakeLists and main files); submodule is clean in top-level status.
@@ -435,23 +435,23 @@ Working implication for this board:
 - LUT generation now bakes: raw mask/reverse handling, per-channel correction, non-shadow black-level clamp, and SHADOW->(halve + DARK) behavior to preserve prior output math while removing hot-loop work.
 - Non-DARK/SHADOW build path remains separate with existing 32K LUT (`g_color_correct_lut`) to avoid unnecessary default-memory growth.
 - Verification: built successfully in isolated dirs for both configs:
-  - `cmake -S . -B /tmp/neopico_dscheck -DNEOPICO_ENABLE_DARK_SHADOW=ON && cmake --build /tmp/neopico_dscheck -j4`
-  - `cmake -S . -B /tmp/neopico_defaultcheck -DNEOPICO_ENABLE_DARK_SHADOW=OFF && cmake --build /tmp/neopico_defaultcheck -j4`
+    - `cmake -S . -B /tmp/neopico_dscheck -DNEOPICO_ENABLE_DARK_SHADOW=ON && cmake --build /tmp/neopico_dscheck -j4`
+    - `cmake -S . -B /tmp/neopico_defaultcheck -DNEOPICO_ENABLE_DARK_SHADOW=OFF && cmake --build /tmp/neopico_defaultcheck -j4`
 - 2026-02-19 21:56:16 -0300: Additional hot-loop optimization for capture conversion.
 - `src/video/video_capture.c`: added `convert_active_pixels(...)` and switched both active-line loops to call it.
 - DARK/SHADOW path now uses 4-pixel unrolled LUT reads per iteration (plus tail loop), minimizing loop overhead in Core0 capture path.
 - Re-verified both build variants after this loop change:
-  - `cmake --build /tmp/neopico_dscheck -j4`
-  - `cmake --build /tmp/neopico_defaultcheck -j4`
+    - `cmake --build /tmp/neopico_dscheck -j4`
+    - `cmake --build /tmp/neopico_defaultcheck -j4`
 - 2026-02-19 22:08:03 -0300: User requested DARK/SHADOW enabled by default; updated CMake default in `src/CMakeLists.txt`.
 - Changed `option(NEOPICO_ENABLE_DARK_SHADOW ... OFF)` to `... ON` so fresh configure defaults to enabled while still allowing explicit override with `-DNEOPICO_ENABLE_DARK_SHADOW=OFF`.
 - 2026-02-19 22:10:42 -0300: User requested rebuild; ran `cmake --build build -j4` in repo root.
 - Reconfigure + build succeeded; artifacts updated: `build/src/neopico_hd.uf2` and `build/src/neopico_hd.elf`.
 - 2026-02-19 22:20:06 -0300: Investigated SHDW self-test false negatives; likely cause was Core1 GPIO polling missing sparse/short SHADOW pulses.
 - Added Core0-captured SHADOW activity latch in `src/video/video_capture.c`:
-  - New `g_shadow_activity_epoch` increments once per input frame if any raw pixel had bit17=1.
-  - `convert_active_pixels(...)` now returns per-line shadow-seen flag using OR of raw capture words.
-  - New API `video_capture_get_shadow_activity_epoch()` exposed in `src/video/video_capture.h`.
+    - New `g_shadow_activity_epoch` increments once per input frame if any raw pixel had bit17=1.
+    - `convert_active_pixels(...)` now returns per-line shadow-seen flag using OR of raw capture words.
+    - New API `video_capture_get_shadow_activity_epoch()` exposed in `src/video/video_capture.h`.
 - Updated self-test sampler in `src/experiments/menu_diag_experiment.c` to set `SELFTEST_BIT_SHADOW` when `video_capture_get_shadow_activity_epoch()` changes, replacing direct `gpio_get(PIN_MVS_SHADOW)` polling.
 - Verification: `cmake --build build -j4` succeeded.
 - 2026-02-19 22:39:12 -0300: User reported prior SHADOW latch test caused sync drop and reverted it; requested safer mapping test.
@@ -462,183 +462,461 @@ Working implication for this board:
 - 2026-02-19 23:04:27 -0300: User test result with bitscan OSD: `S15=1, S16=1, S17=0` (sticky highs).
 - Interpretation: raw capture bit17 never observed high in current test scenes; bits15/16 being high is expected from red data activity.
 - Hardware-file cross-check:
-  - `hardware/neopico-hd/neopico-hd.kicad_pcb` shows `GPIO44` on net `SHD` (pad 50), and `GPIO45` explicitly unconnected (`unconnected-(A1-GPIO45-Pad51)`).
-  - `MVS_SHD` enters level shifter U4 on `A8` and exits as `SHD` on `B8`, indicating intended non-inverting path to `GPIO44`.
+    - `hardware/neopico-hd/neopico-hd.kicad_pcb` shows `GPIO44` on net `SHD` (pad 50), and `GPIO45` explicitly unconnected (`unconnected-(A1-GPIO45-Pad51)`).
+    - `MVS_SHD` enters level shifter U4 on `A8` and exits as `SHD` on `B8`, indicating intended non-inverting path to `GPIO44`.
 - Current hypothesis: SHD line at Pico side is stuck low / never asserted in captured data (not an off-by-one GPIO mapping issue between 44/45).
 - 2026-02-19 23:19:24 -0300: User requested disabling bitscan experiment and rebuilding.
 - Ran: `cmake -S . -B build -DNEOPICO_EXP_SHADOW_BITSCAN=OFF && cmake --build build -j4`.
 - Verification:
-  - `build/CMakeCache.txt` => `NEOPICO_EXP_SHADOW_BITSCAN:BOOL=OFF`
-  - Updated artifacts: `build/src/neopico_hd.uf2`, `build/src/neopico_hd.elf`
+    - `build/CMakeCache.txt` => `NEOPICO_EXP_SHADOW_BITSCAN:BOOL=OFF`
+    - Updated artifacts: `build/src/neopico_hd.uf2`, `build/src/neopico_hd.elf`
 - 2026-02-19 23:24:41 -0300: User requested cross-check against MiSTer/MAME shadow-dark behavior.
 - Reference repos under `~/Projects/references`:
-  - `NeoGeo_MiSTer` at `2325e6c`
-  - `mame` at `e47c0f3` (sparse checkout of Neo Geo files)
+    - `NeoGeo_MiSTer` at `2325e6c`
+    - `mame` at `e47c0f3` (sparse checkout of Neo Geo files)
 - MiSTer core (`neogeo.sv` + `rtl/io/syslatch.v`):
-  - `SHADOW` is `syslatch` bit0 (`SLATCH[0]`) and is wired as a global control signal.
-  - DARK effect comes from palette bit15 subtraction in RGB expansion (`PAL_RAM_REG[15]`).
-  - SHADOW halves output RGB after DARK expansion (`~SHADOW ? R8 : {1'b0, R8[7:1]}` etc).
+    - `SHADOW` is `syslatch` bit0 (`SLATCH[0]`) and is wired as a global control signal.
+    - DARK effect comes from palette bit15 subtraction in RGB expansion (`PAL_RAM_REG[15]`).
+    - SHADOW halves output RGB after DARK expansion (`~SHADOW ? R8 : {1'b0, R8[7:1]}` etc).
 - MAME Neo Geo (`src/mame/neogeo/neogeo_v.cpp` + `neogeo.cpp`):
-  - Uses resistor-model lookups for 4 cases: normal, dark, shadow, dark+shadow.
-  - Dark is palette bit15; shadow is system latch q0 (`set_screen_shadow`).
-  - Rendering selects shadow pen bank (`+0x2000`) when screen shadow is active; not modeled as per-pixel SHADOW pin sampling.
+    - Uses resistor-model lookups for 4 cases: normal, dark, shadow, dark+shadow.
+    - Dark is palette bit15; shadow is system latch q0 (`set_screen_shadow`).
+    - Rendering selects shadow pen bank (`+0x2000`) when screen shadow is active; not modeled as per-pixel SHADOW pin sampling.
 - 2026-02-19 23:34:44 -0300: Improved selftest SHDW/DRK behavior to reduce false negatives on low-frequency SHADOW.
 - `src/experiments/menu_diag_experiment.c`:
-  - Added SHADOW activity hold (`SELFTEST_SHADOW_HOLD_UPDATES=30`) so SHDW stays green for ~30 update windows after any observed SHADOW assertion.
-  - Removed temporary DRK mapping to raw bit16 under `NEOPICO_EXP_SHADOW_BITSCAN` for boards without DARK pin.
+    - Added SHADOW activity hold (`SELFTEST_SHADOW_HOLD_UPDATES=30`) so SHDW stays green for ~30 update windows after any observed SHADOW assertion.
+    - Removed temporary DRK mapping to raw bit16 under `NEOPICO_EXP_SHADOW_BITSCAN` for boards without DARK pin.
 - `src/osd/selftest_layout.c`:
-  - DRK icon now renders neutral (`-`) when `PIN_MVS_DARK` is not defined (current board), instead of appearing as failed/inactive.
+    - DRK icon now renders neutral (`-`) when `PIN_MVS_DARK` is not defined (current board), instead of appearing as failed/inactive.
 - Build verification: `cmake --build build -j4` succeeded; updated `build/src/neopico_hd.elf` (and normal extra outputs).
 - 2026-02-19 23:49:07 -0300: User requested MiSTer-reference DARK/SHADOW behavior under existing flag only, plus cleanup of obsolete flags.
 - Removed obsolete diagnostic flag path `NEOPICO_EXP_SHADOW_BITSCAN` from:
-  - `src/CMakeLists.txt` (option + compile define removed)
-  - `src/video/video_capture.c/.h` (bitscan state/API removed)
-  - `src/experiments/menu_diag_experiment.c` (probe overlays and capture-mask dependency removed)
+    - `src/CMakeLists.txt` (option + compile define removed)
+    - `src/video/video_capture.c/.h` (bitscan state/API removed)
+    - `src/experiments/menu_diag_experiment.c` (probe overlays and capture-mask dependency removed)
 - `ENABLE_DARK_SHADOW` path migrated to MiSTer-style composition:
-  - DARK and SHADOW are independent (no "SHADOW forces DARK").
-  - SHADOW is 50% output halving.
-  - DARK uses MiSTer-compatible per-channel dark step model.
+    - DARK and SHADOW are independent (no "SHADOW forces DARK").
+    - SHADOW is 50% output halving.
+    - DARK uses MiSTer-compatible per-channel dark step model.
 - Added optional DARK wiring support with no new feature flag:
-  - `src/mvs_pins.h`: optional `PIN_MVS_DARK 45` + `MVS_CAPTURE_BITS`/`MVS_CAPTURE_PIN_LAST`.
-  - `src/video/video_capture.pio`: added `mvs_pixel_capture_dark19` program (`in pins, 19`) for GP27-45 capture.
-  - `src/video/video_capture.c`: selects 18-bit vs 19-bit PIO program/config from `PIN_MVS_DARK`.
+    - `src/mvs_pins.h`: optional `PIN_MVS_DARK 45` + `MVS_CAPTURE_BITS`/`MVS_CAPTURE_PIN_LAST`.
+    - `src/video/video_capture.pio`: added `mvs_pixel_capture_dark19` program (`in pins, 19`) for GP27-45 capture.
+    - `src/video/video_capture.c`: selects 18-bit vs 19-bit PIO program/config from `PIN_MVS_DARK`.
 - Memory/safety adjustment:
-  - Attempted 131072-entry LUT caused RAM overflow at link time.
-  - Final implementation uses 65536-entry LUT (RGB+SHADOW, DARK=0 fast path) plus MiSTer-compatible runtime conversion only when DARK bit is asserted.
-  - This keeps current build stable while enabling future DARK-wire validation.
+    - Attempted 131072-entry LUT caused RAM overflow at link time.
+    - Final implementation uses 65536-entry LUT (RGB+SHADOW, DARK=0 fast path) plus MiSTer-compatible runtime conversion only when DARK bit is asserted.
+    - This keeps current build stable while enabling future DARK-wire validation.
 - Reconfigure/build verification:
-  - `cmake -S . -B build && cmake --build build -j4` (initially exposed RAM overflow before LUT downsizing)
-  - `cmake --build build -j4` after downsizing succeeded.
-  - Cleared stale cache entry for removed option: `cmake -U NEOPICO_EXP_SHADOW_BITSCAN -S . -B build`.
+    - `cmake -S . -B build && cmake --build build -j4` (initially exposed RAM overflow before LUT downsizing)
+    - `cmake --build build -j4` after downsizing succeeded.
+    - Cleared stale cache entry for removed option: `cmake -U NEOPICO_EXP_SHADOW_BITSCAN -S . -B build`.
 - 2026-02-19 23:53:18 -0300: User requested treating DARK+SHADOW as one feature and removing "bodge/optional DARK" framing.
 - Updated mapping/docs to standard 19-bit capture (GP27-45) with DARK as normal input:
-  - `src/mvs_pins.h`: `PIN_MVS_DARK` now defined directly; `MVS_CAPTURE_BITS=19` fixed.
-  - `src/video/video_capture.c`: removed `#ifdef PIN_MVS_DARK` branching; always uses 19-bit capture program/config.
-  - `src/video/video_capture.pio`: removed obsolete 18-bit capture program; retained single 19-bit capture program.
-  - `src/experiments/menu_diag_experiment.c`: always samples DARK for selftest.
-  - `src/osd/selftest_layout.c`: DRK icon always rendered from toggled DARK bit.
+    - `src/mvs_pins.h`: `PIN_MVS_DARK` now defined directly; `MVS_CAPTURE_BITS=19` fixed.
+    - `src/video/video_capture.c`: removed `#ifdef PIN_MVS_DARK` branching; always uses 19-bit capture program/config.
+    - `src/video/video_capture.pio`: removed obsolete 18-bit capture program; retained single 19-bit capture program.
+    - `src/experiments/menu_diag_experiment.c`: always samples DARK for selftest.
+    - `src/osd/selftest_layout.c`: DRK icon always rendered from toggled DARK bit.
 - Removed wording about "no DARK pin", "optional DARK", and "bodge wire" from:
-  - `README.md`
-  - `docs/MVS_MV1C_DIGITAL_VIDEO.md`
-  - `src/video/hardware_config.h`
+    - `README.md`
+    - `docs/MVS_MV1C_DIGITAL_VIDEO.md`
+    - `src/video/hardware_config.h`
 - Build verification: `cmake --build build -j4` succeeded.
 - 2026-02-19 23:56:09 -0300: User reported signal drops after DARK integration changes.
 - Stabilization pass in `src/video/video_capture.c`:
-  - Replaced expensive per-dark-pixel full raw->RGB reconstruction path with LUT-first conversion plus lightweight RGB565 dark-step adjustment (`rgb565_apply_dark_step`).
-  - Kept single DARK+SHADOW feature path and 19-bit capture mapping.
-  - Goal: recover Core0 headroom and avoid capture/sync drops.
+    - Replaced expensive per-dark-pixel full raw->RGB reconstruction path with LUT-first conversion plus lightweight RGB565 dark-step adjustment (`rgb565_apply_dark_step`).
+    - Kept single DARK+SHADOW feature path and 19-bit capture mapping.
+    - Goal: recover Core0 headroom and avoid capture/sync drops.
 - Build verification: `cmake --build build -j4` succeeded.
 - 2026-02-19 23:59:13 -0300: User reported overhead still too high after first stabilization.
 - Additional hot-loop optimization in `src/video/video_capture.c`:
-  - Added tiny precomputed DARK step tables (`g_dark5_lut`, `g_dark6_lut`) to avoid per-channel branch/arithmetic in dark adjust.
-  - Reworked `convert_active_pixels(...)` to a 4-pixel fast path:
-    - Always does branchless LUT fetches first.
-    - Applies DARK adjustment only when any of the 4 raw pixels has DARK bit set.
-  - Tail loop likewise uses LUT-first + conditional DARK adjust (no full convert path call).
+    - Added tiny precomputed DARK step tables (`g_dark5_lut`, `g_dark6_lut`) to avoid per-channel branch/arithmetic in dark adjust.
+    - Reworked `convert_active_pixels(...)` to a 4-pixel fast path:
+        - Always does branchless LUT fetches first.
+        - Applies DARK adjustment only when any of the 4 raw pixels has DARK bit set.
+    - Tail loop likewise uses LUT-first + conditional DARK adjust (no full convert path call).
 - Build verification: `cmake --build build -j4` succeeded.
 - 2026-02-20 00:01:57 -0300: User requested reverting performance-costly DARK runtime approach to previous less-accurate fast path.
 - `src/video/video_capture.c` reverted to pure LUT hot-loop conversion:
-  - Removed per-pixel DARK runtime adjustment in `convert_pixel()` and `convert_active_pixels()`.
-  - Removed DARK step helper tables and generation.
-  - Conversion now always indexes LUT with raw bits [17:2], effectively ignoring DARK in conversion for maximum stability/headroom.
+    - Removed per-pixel DARK runtime adjustment in `convert_pixel()` and `convert_active_pixels()`.
+    - Removed DARK step helper tables and generation.
+    - Conversion now always indexes LUT with raw bits [17:2], effectively ignoring DARK in conversion for maximum stability/headroom.
 - Kept 19-bit capture/pin mapping and single DARK+SHADOW feature framing as requested.
 - Build verification: `cmake --build build -j4` succeeded.
 - 2026-02-20 00:05:15 -0300: User requested docs update to reflect current stable implementation.
 - Updated documentation to match current behavior (performance-first conversion):
-  - `README.md`: adjusted feature/status wording; removed claims of full DARK output accuracy and old 256KB/interp wording.
-  - `docs/MVS_MV1C_DIGITAL_VIDEO.md`: kept 19-bit capture map, documented SHADOW conversion path and that DARK is captured but not currently applied in output conversion.
-  - `docs/ARCHITECTURE.md`: replaced old Interpolator/256KB statements with 64K LUT hot-path notes.
-  - `docs/STREAMING_PIPELINE_PLAN.md`: replaced stale "future DARK/SHADOW" section with current status.
-  - `docs/HSTX_IMPLEMENTATION.md`: updated Core0 conversion summary wording.
-  - `docs/How SHADOW and DARK Work on Neo Geo.MD`: added explicit firmware note to avoid mismatch vs reference behavior.
+    - `README.md`: adjusted feature/status wording; removed claims of full DARK output accuracy and old 256KB/interp wording.
+    - `docs/MVS_MV1C_DIGITAL_VIDEO.md`: kept 19-bit capture map, documented SHADOW conversion path and that DARK is captured but not currently applied in output conversion.
+    - `docs/ARCHITECTURE.md`: replaced old Interpolator/256KB statements with 64K LUT hot-path notes.
+    - `docs/STREAMING_PIPELINE_PLAN.md`: replaced stale "future DARK/SHADOW" section with current status.
+    - `docs/HSTX_IMPLEMENTATION.md`: updated Core0 conversion summary wording.
+    - `docs/How SHADOW and DARK Work on Neo Geo.MD`: added explicit firmware note to avoid mismatch vs reference behavior.
 - 2026-02-20 00:05:46 -0300: Follow-up doc consistency fix in `docs/How SHADOW and DARK Work on Neo Geo.MD`.
 - Replaced outdated statement "SHADOW forces DARK on" with wording that SHADOW and DARK are independent controls (matching current/reference behavior notes).
 - 2026-02-20 00:15:46 -0300: User requested CMake flag cleanup and DARK/SHADOW default change.
 - `src/CMakeLists.txt` updates:
-  - Removed `NEOPICO_EXP_MENU_DIAG` option and hardcoded `EXP_MENU_DIAG=1` compile define.
-  - Removed `NEOPICO_EXP_BASELINE_TELEMETRY` option and hardcoded `NEOPICO_EXP_BASELINE_TELEMETRY=0`.
-  - Removed `HSTX_LAB_BUILD` compile define.
-  - Removed `hardware_interp` from target link libraries (no remaining usage).
-  - Changed `NEOPICO_ENABLE_DARK_SHADOW` option default from `ON` to `OFF`.
+    - Removed `NEOPICO_EXP_MENU_DIAG` option and hardcoded `EXP_MENU_DIAG=1` compile define.
+    - Removed `NEOPICO_EXP_BASELINE_TELEMETRY` option and hardcoded `NEOPICO_EXP_BASELINE_TELEMETRY=0`.
+    - Removed `HSTX_LAB_BUILD` compile define.
+    - Removed `hardware_interp` from target link libraries (no remaining usage).
+    - Changed `NEOPICO_ENABLE_DARK_SHADOW` option default from `ON` to `OFF`.
 - Reconfigured build cache to drop stale removed options and align current build with new default:
-  - `cmake -U NEOPICO_EXP_MENU_DIAG -U NEOPICO_EXP_BASELINE_TELEMETRY -S . -B build -DNEOPICO_ENABLE_DARK_SHADOW=OFF`
-  - `build/CMakeCache.txt` now shows `NEOPICO_ENABLE_DARK_SHADOW:BOOL=OFF`.
+    - `cmake -U NEOPICO_EXP_MENU_DIAG -U NEOPICO_EXP_BASELINE_TELEMETRY -S . -B build -DNEOPICO_ENABLE_DARK_SHADOW=OFF`
+    - `build/CMakeCache.txt` now shows `NEOPICO_ENABLE_DARK_SHADOW:BOOL=OFF`.
 - Build verification: `cmake --build build -j4` succeeded.
 - 2026-02-20 00:19:43 -0300: User asked if dead code was removed; performed full dead-branch cleanup for removed flags.
 - Removed compile-time dead branches/code tied to `EXP_MENU_DIAG` and `NEOPICO_EXP_BASELINE_TELEMETRY`:
-  - `src/experiments/menu_diag_experiment.c`: removed all `#if EXP_MENU_DIAG` and baseline telemetry conditional blocks; file now always compiles active path.
-  - `src/experiments/menu_diag_experiment.h`: removed fallback `#ifndef EXP_MENU_DIAG`.
-  - `src/osd/selftest_layout.c/.h`: removed baseline telemetry macros, rows, `selftest_layout_set_baseline(...)` implementation, and declaration.
-  - `src/CMakeLists.txt`: removed now-unneeded compile defines `EXP_MENU_DIAG=1` and `NEOPICO_EXP_BASELINE_TELEMETRY=0`.
+    - `src/experiments/menu_diag_experiment.c`: removed all `#if EXP_MENU_DIAG` and baseline telemetry conditional blocks; file now always compiles active path.
+    - `src/experiments/menu_diag_experiment.h`: removed fallback `#ifndef EXP_MENU_DIAG`.
+    - `src/osd/selftest_layout.c/.h`: removed baseline telemetry macros, rows, `selftest_layout_set_baseline(...)` implementation, and declaration.
+    - `src/CMakeLists.txt`: removed now-unneeded compile defines `EXP_MENU_DIAG=1` and `NEOPICO_EXP_BASELINE_TELEMETRY=0`.
 - Verification:
-  - `rg` confirms no remaining references to `EXP_MENU_DIAG`, `NEOPICO_EXP_BASELINE_TELEMETRY`, `HSTX_LAB_BUILD`, or `hardware_interp` in touched source/build config.
-  - Reconfigure/build succeeded with DARK/SHADOW default OFF:
-    - `cmake -S . -B build -DNEOPICO_ENABLE_DARK_SHADOW=OFF && cmake --build build -j4`.
+    - `rg` confirms no remaining references to `EXP_MENU_DIAG`, `NEOPICO_EXP_BASELINE_TELEMETRY`, `HSTX_LAB_BUILD`, or `hardware_interp` in touched source/build config.
+    - Reconfigure/build succeeded with DARK/SHADOW default OFF:
+        - `cmake -S . -B build -DNEOPICO_ENABLE_DARK_SHADOW=OFF && cmake --build build -j4`.
 - 2026-02-20 00:27:39 -03: User requested main-branch DARK/SHADOW algorithm while keeping DARK pin mapping on GPIO45. Updated src/video/video_capture.c to main-style shadow-dark LUT math; retained 19-bit capture path/pin map. Rebuild passed (cmake --build build -j4).
 - 2026-02-20 00:32:29 -03: Reviewed and corrected staged docs for DARK/SHADOW accuracy. Synced docs to current implementation: 19-bit capture incl. GPIO45 DARK, default NEOPICO_ENABLE_DARK_SHADOW=OFF (32K RGB LUT), optional ON path uses 64K RGB+SHADOW LUT with legacy shadow math; DARK shown in diagnostics but not used as conversion input.
 - 2026-03-24 15:17: User requested "Build and flash the 240p mode" and asked to proceed without repeated permission prompts.
 - Method used: configured isolated `build-240p-env` with `CFLAGS/CXXFLAGS=-DVIDEO_MODE_320x240=1`, built target `neopico_hd`, then flashed `build-240p-env/src/neopico_hd.uf2` via `pi flash`.
 - Blockers/workarounds:
-  - Initial attempt with `-DCMAKE_C_FLAGS/-DCMAKE_CXX_FLAGS` dropped toolchain arch flags (`-mcpu` etc.), causing RP2350 spin-lock compile errors.
-  - 240p path compile typo fixed in `lib/pico_hdmi/src/video_output_rt.c`: `VIDEO_MODE_240P` -> `video_mode_240_p`.
+    - Initial attempt with `-DCMAKE_C_FLAGS/-DCMAKE_CXX_FLAGS` dropped toolchain arch flags (`-mcpu` etc.), causing RP2350 spin-lock compile errors.
+    - 240p path compile typo fixed in `lib/pico_hdmi/src/video_output_rt.c`: `VIDEO_MODE_240P` -> `video_mode_240_p`.
 - Result: build and flash succeeded; device rebooted into application mode after UF2 load.
 - 2026-03-24 15:41: User reported 240p implementation is visually broken (half image + tearing) and requested a fact-based deep investigation and solid plan before further edits.
 - Investigation findings (code-verified):
-  - `src/video/video_pipeline.c` still hardcodes 480p assumptions in scanline callback (`fb_line = active_line >> 1`, 2x blitter only), even when 240p mode is selected.
-  - In 240p mode (`1280x240`), callback currently writes only half the required horizontal words and maps only ~half the source vertical range, matching observed symptom.
-  - OSD span math is also tied to 2x horizontal scaling and must be mode-aware for 4x pixel replication.
-  - Timing mismatch noted: 240p mode table uses `v_total=262` (~60.11 Hz at 25.2 MHz), while MVS source is ~59.18 Hz; without lock control this increases frame-phase churn and can amplify visible tearing.
+    - `src/video/video_pipeline.c` still hardcodes 480p assumptions in scanline callback (`fb_line = active_line >> 1`, 2x blitter only), even when 240p mode is selected.
+    - In 240p mode (`1280x240`), callback currently writes only half the required horizontal words and maps only ~half the source vertical range, matching observed symptom.
+    - OSD span math is also tied to 2x horizontal scaling and must be mode-aware for 4x pixel replication.
+    - Timing mismatch noted: 240p mode table uses `v_total=262` (~60.11 Hz at 25.2 MHz), while MVS source is ~59.18 Hz; without lock control this increases frame-phase churn and can amplify visible tearing.
 - Resource snapshot from built 240p ELF:
-  - `text=42144`, `bss=308888`.
-  - Large RAM users: `g_line_ring` 163856, `g_color_correct_lut` 65536, `di_ring_buffer` 36864, `g_dma_buffer` 16384, `g_line_buffers` 3072, `line_buffer` 2560.
+    - `text=42144`, `bss=308888`.
+    - Large RAM users: `g_line_ring` 163856, `g_color_correct_lut` 65536, `di_ring_buffer` 36864, `g_dma_buffer` 16384, `g_line_buffers` 3072, `line_buffer` 2560.
 - Next action pending user approval: implement mode-correct scanline mapping + full-line write guarantees first, then instrument and validate timing/tearing metrics before any genlock/timing tuning.
 - 2026-03-24 15:49: Implemented mode-aware scanline/OSD scaling fix in `src/video/video_pipeline.c`.
 - Changes:
-  - Switched to runtime mode API include (`pico_hdmi/video_output_rt.h`) and cached active mode geometry at init/VSYNC.
-  - Added `video_pipeline_refresh_mode_cache()` and cached fields (`mode_is_240p`, `mode_h_words`, OSD word spans).
-  - In scanline callback:
-    - 480p path keeps `fb_line = active_line >> 1` + 2x blit.
-    - 240p path uses `fb_line = active_line` + 4x blit to fully populate 1280 active pixels.
-    - No-signal and OSD branches now use mode-correct word offsets and full-line writes.
+    - Switched to runtime mode API include (`pico_hdmi/video_output_rt.h`) and cached active mode geometry at init/VSYNC.
+    - Added `video_pipeline_refresh_mode_cache()` and cached fields (`mode_is_240p`, `mode_h_words`, OSD word spans).
+    - In scanline callback:
+        - 480p path keeps `fb_line = active_line >> 1` + 2x blit.
+        - 240p path uses `fb_line = active_line` + 4x blit to fully populate 1280 active pixels.
+        - No-signal and OSD branches now use mode-correct word offsets and full-line writes.
 - Verification:
-  - Built successfully in both default and 240p configs:
-    - `cmake --build build --target neopico_hd`
-    - `cmake --build build-240p-env --target neopico_hd`
-  - Flashed updated 240p UF2 (`build-240p-env/src/neopico_hd.uf2`) via `pi flash`; device rebooted into application mode.
+    - Built successfully in both default and 240p configs:
+        - `cmake --build build --target neopico_hd`
+        - `cmake --build build-240p-env --target neopico_hd`
+    - Flashed updated 240p UF2 (`build-240p-env/src/neopico_hd.uf2`) via `pi flash`; device rebooted into application mode.
 - 2026-03-24 15:54: User confirmed the 240p fix is visually perfect on hardware.
 - Cleanup completed on request: removed temporary `build-240p` and `build-240p-env` directories.
 - Current intentional working-tree changes for this effort: `src/video/video_pipeline.c`, `lib/pico_hdmi` (runtime-mode symbol fix), and `SCRATCHBOOK.md`.
 - 2026-03-24 16:02: User requested CI artifact for 240p mode.
 - Updated `.github/workflows/build.yml`:
-  - Added dedicated CI build step `Build NeoPico-HD (240p mode)` in `build-240p`.
-  - Uses compile-time mode define via env flags during configure: `CFLAGS/CXXFLAGS=-DVIDEO_MODE_320x240=1`.
-  - Renames outputs to `neopico_hd_240p.uf2` and `neopico_hd_240p.elf`.
-  - Added both files to `Upload Artifacts` paths so they are included in `neopico-hd-build` artifact and downstream release packaging.
+    - Added dedicated CI build step `Build NeoPico-HD (240p mode)` in `build-240p`.
+    - Uses compile-time mode define via env flags during configure: `CFLAGS/CXXFLAGS=-DVIDEO_MODE_320x240=1`.
+    - Renames outputs to `neopico_hd_240p.uf2` and `neopico_hd_240p.elf`.
+    - Added both files to `Upload Artifacts` paths so they are included in `neopico-hd-build` artifact and downstream release packaging.
 - 2026-03-24 16:10: User reported `pico_hdmi` submodule dirty; migrated 240p selection to top-level firmware option so submodule can stay clean.
 - `src/CMakeLists.txt`:
-  - Added `NEOPICO_VIDEO_240P` option (default OFF).
-  - Propagates `NEOPICO_VIDEO_240P` compile definition only to `neopico_hd` target.
+    - Added `NEOPICO_VIDEO_240P` option (default OFF).
+    - Propagates `NEOPICO_VIDEO_240P` compile definition only to `neopico_hd` target.
 - `src/main.c`:
-  - Added fallback macro for `NEOPICO_VIDEO_240P`.
-  - Before `video_pipeline_init()`, selects runtime mode with `video_output_set_mode(&video_mode_240_p)` when flag is ON.
-  - Keeps existing `NEOPICO_EXP_VTOTAL_MATCH` path as alternate mode select.
+    - Added fallback macro for `NEOPICO_VIDEO_240P`.
+    - Before `video_pipeline_init()`, selects runtime mode with `video_output_set_mode(&video_mode_240_p)` when flag is ON.
+    - Keeps existing `NEOPICO_EXP_VTOTAL_MATCH` path as alternate mode select.
 - `.github/workflows/build.yml`:
-  - 240p CI build now uses `-DNEOPICO_VIDEO_240P=ON` (removed global `CFLAGS/CXXFLAGS=-DVIDEO_MODE_320x240=1`).
+    - 240p CI build now uses `-DNEOPICO_VIDEO_240P=ON` (removed global `CFLAGS/CXXFLAGS=-DVIDEO_MODE_320x240=1`).
 - Submodule cleanup:
-  - Reverted local change in `lib/pico_hdmi/src/video_output_rt.c`; submodule is clean again.
+    - Reverted local change in `lib/pico_hdmi/src/video_output_rt.c`; submodule is clean again.
 - Verification:
-  - Built default (`NEOPICO_VIDEO_240P=OFF`) and 240p (`NEOPICO_VIDEO_240P=ON`) successfully.
+    - Built default (`NEOPICO_VIDEO_240P=OFF`) and 240p (`NEOPICO_VIDEO_240P=ON`) successfully.
 - 2026-03-24 16:16: User requested disabling auto-release on every merge.
 - Updated `.github/workflows/build.yml` release behavior:
-  - `release` job now runs only on tag refs matching `v*` (`if: startsWith(github.ref, 'refs/tags/v')`).
-  - Removed main-branch auto-bump/tag creation logic.
-  - Release version now always uses pushed tag name (`github.ref_name`).
+    - `release` job now runs only on tag refs matching `v*` (`if: startsWith(github.ref, 'refs/tags/v')`).
+    - Removed main-branch auto-bump/tag creation logic.
+    - Release version now always uses pushed tag name (`github.ref_name`).
 - Resulting policy: merges to `main` still build/upload artifacts, but GitHub Releases are published only when manually pushing a version tag.
 - 2026-03-24 16:22: User requested a local shell script to automate tag-based releases.
 - Added executable `scripts/release.sh`:
-  - Enforces clean working tree.
-  - Accepts optional explicit semver tag `vX.Y.Z`; otherwise auto-bumps patch from latest `v*` tag.
-  - Validates tag format and checks local/remote tag collisions.
-  - Creates annotated tag and pushes it to `origin` (triggering the tag-only GitHub release workflow).
-  - Includes `--help` usage output.
+    - Enforces clean working tree.
+    - Accepts optional explicit semver tag `vX.Y.Z`; otherwise auto-bumps patch from latest `v*` tag.
+    - Validates tag format and checks local/remote tag collisions.
+    - Creates annotated tag and pushes it to `origin` (triggering the tag-only GitHub release workflow).
+    - Includes `--help` usage output.
 - Portability tweak: script uses standard `grep/head` (no `rg` dependency at runtime).
+- 2026-03-24 (later): User requested implementing dual-firmware timing strategy (Compat60 vs SourceLock), with source-lock as opt-in.
+- Build-system policy wiring (`src/CMakeLists.txt`):
+    - Added `NEOPICO_TIMING_POLICY` cache selector (`COMPAT60`/`SOURCELOCK`), exported as compile defs:
+      - `NEOPICO_TIMING_POLICY_COMPAT60`
+      - `NEOPICO_TIMING_POLICY_SOURCELOCK`
+    - Added SOURCELOCK boot-trim controls:
+      - `NEOPICO_SOURCELOCK_BOOT_TRIM` (default ON)
+      - `NEOPICO_SOURCELOCK_BOOT_TRIM_SAMPLES` (default 16)
+      - `NEOPICO_SOURCELOCK_BOOT_TRIM_TIMEOUT_MS` (default 200)
+    - Compat60 policy now force-disables runtime phase-controller experiment flags at configure time.
+- Source-lock isolation:
+    - `src/video/video_pipeline.c` now enforces compile-time policy validity and blocks runtime phase controllers in Compat60 policy.
+- Measurement and boot-trim implementation:
+    - `src/video/video_capture.h/.c`:
+      - Added `video_capture_measure_vsync_period_us(sample_count, timeout_ms, &avg_period_us)`.
+      - Expanded timestamp guard paths so `g_mvs_vsync_timestamp` is available for SourceLock telemetry/boot-trim modes.
+    - `lib/pico_hdmi/include/pico_hdmi/video_output_rt.h` + `lib/pico_hdmi/src/video_output_rt.c`:
+      - Added `video_output_get_frame_count()` accessor.
+    - `src/main.c`:
+      - Added startup timing-policy identification prints.
+      - Added SourceLock non-ISR background metrics (`in Hz`, `out Hz`, `phase`, `drift us/s`).
+      - Reordered startup so capture is initialized before HDMI init, enabling boot-time source cadence measurement.
+      - In SourceLock+boot-trim mode (and non-240p), measures source VSYNC period and builds a conservative static VTOTAL-trimmed 480p mode for initial output.
+- Documentation updates:
+    - Updated `docs/PHASE_LOCK_OPTIONS.md` with explicit dual-firmware strategy language.
+    - Added cross-links:
+      - `README.md` documentation list now links to `docs/PHASE_LOCK_OPTIONS.md`.
+      - `docs/GENLOCK.md` now points to `docs/PHASE_LOCK_OPTIONS.md` for policy-level guidance.
+- Verification:
+    - Full build passed in default policy (`build`).
+    - Full build passed with `-DNEOPICO_TIMING_POLICY=SOURCELOCK` (`build_sourcelock`).
+- User requested to build and flash the new genlock-oriented firmware.
+- Executed:
+    - `cmake -S . -B build_sourcelock -DNEOPICO_TIMING_POLICY=SOURCELOCK`
+    - `cmake --build build_sourcelock -j8`
+    - `picotool load -f -x build_sourcelock/src/neopico_hd.uf2`
+- Result: build and flash succeeded; device rebooted into SourceLock firmware.
+- User reported "no sync" after SourceLock flash.
+- Recovery attempt:
+    - Built Compat60 image: `cmake -S . -B build_compat60 -DNEOPICO_TIMING_POLICY=COMPAT60 && cmake --build build_compat60 -j8` (success).
+    - Flash attempts via automatic reboot failed twice (`picotool` exit 249): device did not re-enter BOOTSEL automatically and requested manual BOOTSEL entry.
+    - Next required action: user manually enters BOOTSEL, then re-run `picotool load -f -x build_compat60/src/neopico_hd.uf2`.
+- User asked to retry flash; retry succeeded:
+    - `picotool load -f -x build_compat60/src/neopico_hd.uf2`
+    - Device rebooted successfully into Compat60 firmware.
+- User still reported "no sync" after Compat60 flash, suggesting a broader regression in recent firmware changes.
+- Immediate recovery action taken:
+    - Flashed older pre-policy binary: `picotool load -f -x build_lowlat/src/neopico_hd.uf2` (success).
+    - Purpose: restore known-working video sync first, then debug forward from a stable baseline.
+- 2026-03-27: User requested a fresh, isolated test firmware focused on lock telemetry shown via OSD (without changing main firmware behavior first).
+- Implemented isolated test target scaffolding in `src/CMakeLists.txt`:
+    - Added `NEOPICO_BUILD_TESTFW` option (default `OFF`).
+    - Added separate executable target: `neopico_hd_testfw`.
+    - Test target compiles with OSD enabled (`NEOPICO_ENABLE_OSD=1`) and selftest disabled.
+    - Added per-target stack adjustment `PICO_CORE1_STACK_SIZE=1536` to resolve small `SCRATCH_X` linker overflow.
+- Added new files:
+    - `src/testfw_main.c`: test firmware entrypoint that reuses capture/output pipeline and attaches telemetry background task.
+    - `src/experiments/lock_telemetry_experiment.h/.c`: OSD HUD module that updates every 500ms.
+- Current OSD telemetry HUD fields (initial useful baseline):
+    - output FPS estimate, input FPS estimate
+    - output/input frame counters
+    - active output mode (`HxV`)
+    - runtime VTOTAL
+    - ring lag in lines (`write_idx - read_frame_start`)
+    - phase in microseconds when `NEOPICO_EXP_GENLOCK_DYNAMIC` is enabled, otherwise explicit `n/a`.
+- Verification:
+    - `cmake -S . -B build_testfw -DNEOPICO_BUILD_TESTFW=ON`
+    - `cmake --build build_testfw --target neopico_hd_testfw -j8`
+    - Build now succeeds and produces `build_testfw/src/neopico_hd_testfw.uf2`.
+- 2026-03-27 (later): User reported "no sync" after flashing `neopico_hd_testfw`.
+- Immediate recovery performed:
+    - Flashed known-good `build_lowlat/src/neopico_hd.uf2` (success) to restore output quickly.
+- Probable cause identified in test firmware path:
+    - Telemetry HUD used `snprintf` from Core1 background while test target reduced `PICO_CORE1_STACK_SIZE` to fit `SCRATCH_X`.
+    - This likely risks Core1 stack pressure/runtime instability.
+- Mitigation implemented:
+    - Reworked `lock_telemetry_experiment.c` to remove `stdio/snprintf` formatting from Core1 path.
+    - Added lightweight fixed-stack decimal formatting helpers and direct row writers.
+- Rebuilt + reflashed test firmware:
+    - `cmake --build build_testfw --target neopico_hd_testfw -j8`
+    - `picotool load -f -x build_testfw/src/neopico_hd_testfw.uf2`
+    - Flash succeeded; awaiting user sync confirmation.
+- 2026-03-27 (later): User clarified requirement: test firmware must be totally standalone (no capture path, no reuse of main video pipeline behavior) with only gray background + OSD.
+- Corrective changes applied:
+    - Restored `src/video/video_pipeline.c` test-only hooks (no shared-path testfw guards remain).
+    - Refactored `src/CMakeLists.txt` test target to standalone sources only:
+      - `testfw_main.c`
+      - `experiments/lock_telemetry_experiment.c`
+      - `osd/fast_osd.c`
+    - Removed testfw dependencies on capture/audio/pipeline modules and removed testfw PIO header generation.
+    - Simplified telemetry module to remove capture/ring/phase dependencies (reports output-only metrics and uptime).
+    - Reworked `testfw_main.c` to:
+      - initialize `video_output_rt` directly,
+      - provide a private scanline callback that renders solid gray and OSD blit only,
+      - run with no capture/audio pipeline initialization.
+- Verification:
+    - `cmake -S . -B build_testfw -DNEOPICO_BUILD_TESTFW=ON`
+    - `cmake --build build_testfw --target neopico_hd_testfw -j8` (success)
+    - `picotool load -f -x build_testfw/src/neopico_hd_testfw.uf2` (success)
+- 2026-03-27 (later): Added standalone PIO-based sync probe instrumentation to test firmware (still no capture/audio path coupling).
+- New standalone testfw files:
+    - `src/testfw/sync_probe.pio`: PIO program that detects CSYNC rising edges and triggers PIO IRQ.
+    - `src/testfw/sync_probe.h/.c`: probe module with IRQ timestamping using `timer_hw->timerawl`, window stats, and snapshot API.
+- Test target wiring updates (`src/CMakeLists.txt`):
+    - Added `testfw/sync_probe.c` to `neopico_hd_testfw`.
+    - Added testfw-only PIO header generation for `testfw/sync_probe.pio`.
+    - Added `testfw` include path for testfw target.
+- `src/testfw_main.c` updates:
+    - Initializes sync probe on `PIN_MVS_CSYNC`.
+- `src/experiments/lock_telemetry_experiment.c` updates:
+    - Reads probe snapshot and displays line timing metrics:
+      - line kHz (`line_hz_x100`)
+      - avg/min/max period in us
+      - edge samples per HUD window
+    - Retains standalone output-only telemetry fields (no capture path references).
+- Build/flash verification:
+    - `cmake -S . -B build_testfw -DNEOPICO_BUILD_TESTFW=ON`
+    - `cmake --build build_testfw --target neopico_hd_testfw -j8`
+    - `picotool load -f -x build_testfw/src/neopico_hd_testfw.uf2`
+    - All succeeded.
+- 2026-03-27 (later): Added non-PIO GPIO transition sampler to isolate whether CSYNC pin toggles at all independent from PIO IRQ path.
+- `src/testfw/sync_probe.h/.c` updates:
+    - Added raw GPIO sampler stats in snapshot:
+      - `gpio_edges_total`
+      - `gpio_edges_window`
+      - `gpio_high_samples_window`
+      - `gpio_low_samples_window`
+    - Added `sync_probe_poll_gpio()` burst sampler (`128` reads per call) that counts level transitions and high/low sample distribution.
+- `src/experiments/lock_telemetry_experiment.c` updates:
+    - Calls `sync_probe_poll_gpio()` every background tick (before 500ms HUD throttle).
+    - Added OSD row: `gpio edges w:` and renamed PIO total row to `pio edges t:`.
+- Build/flash verification:
+    - `cmake --build build_testfw --target neopico_hd_testfw -j8`
+    - `picotool load -f -x build_testfw/src/neopico_hd_testfw.uf2`
+    - Both succeeded.
+- 2026-03-27 (later): PIO probe saw no edges while raw GPIO sampler saw many transitions (`gpio edges w` varying, `pio edges t=0`), confirming pin activity but wrong PIO pin mapping.
+- Applied mapping parity fix in `src/testfw/sync_probe.c` to mirror working capture path:
+    - Set `GPIOBASE` from pin (`16` for GP27).
+    - Also wrote PIO1 GPIOBASE register directly (`+0x168`) as capture code does.
+    - Configured SM `pinctrl` IN base and `execctrl` JMP pin with relative index (`pin - gpio_base`).
+- Rebuilt + reflashed `neopico_hd_testfw` successfully; awaiting on-screen counters to verify PIO edges now increment.
+- 2026-03-27 (later): PIO still reported zero edges after GPIO base/pin mapping parity fix.
+- Applied next single-step hypothesis: align probe IRQ source with capture path IRQ index.
+    - `src/testfw/sync_probe.pio`: changed `irq 0` -> `irq 4`.
+    - `src/testfw/sync_probe.c`: changed interrupt clear/enable from index `0` to `SYNC_PROBE_IRQ_INDEX=4`.
+- Rebuilt and reflashed successfully; waiting for updated OSD counters (`gpio edges w`, `pio edges t`, `edges win`).
+- 2026-03-27 (later): User reported HDMI "no sync" after IRQ-index=4 experiment.
+- Reverted only that experiment to restore prior stable baseline:
+    - `src/testfw/sync_probe.pio`: `irq 4` -> `irq 0`
+    - `src/testfw/sync_probe.c`: `SYNC_PROBE_IRQ_INDEX=4` -> `0`
+- Build succeeded, but flash step failed twice because no RP device was detectable in BOOTSEL mode at the moment.
+- 2026-03-27 (later): User re-entered BOOTSEL mode manually; reflashed reverted `neopico_hd_testfw.uf2` successfully (`picotool load -f -x ...`).
+- 2026-03-27 (later): Stable baseline confirmed (`gpio` transitions present, PIO IRQ counters still zero).
+- Added next single-step diagnostic to distinguish PIO-flag generation vs NVIC delivery:
+    - `src/testfw/sync_probe.c`: in `sync_probe_poll_gpio()`, poll `pio_interrupt_get(..., IRQ_INDEX)` and clear/count hits in new counters.
+    - `src/testfw/sync_probe.h`: added snapshot fields `pio_flag_polls_total/window`.
+    - `src/experiments/lock_telemetry_experiment.c`: added HUD row `pio flag w:`.
+- Rebuilt and reflashed `neopico_hd_testfw` successfully.
+- 2026-03-27 (later): Results showed `pio flag w` high but `pio edges t`/`edges win` still zero, proving PIO sees edges while NVIC handler path is ineffective in this testfw setup.
+- Switched probe to polled edge accounting (no NVIC dependency):
+    - Added `sync_probe_record_edge()` helper and call it from `sync_probe_poll_gpio()` whenever `pio_interrupt_get()` is set.
+    - Disabled probe IRQ enable (`inte0` bit cleared) and kept PIO flag clear in polled path.
+- Rebuilt and reflashed successfully to continue telemetry bring-up from stable HDMI baseline.
+- 2026-03-27 (later): User reported working probe telemetry in polled mode (`pio flag w ~8000`, `pio edges t` rising, `edges win ~8000`, `per avg us ~62`).
+- HUD/units cleanup:
+    - Fixed `line_hz_x100` scaling in `src/testfw/sync_probe.c` to represent `kHz * 100` (previous formula was 1000x too large).
+    - Reworked telemetry rows in `src/experiments/lock_telemetry_experiment.c` to avoid row collisions so `gpio edges w`, `pio flag w`, output FPS, and probe lines all remain visible.
+- Rebuilt and reflashed `neopico_hd_testfw` successfully.
+- 2026-03-27 (later): User confirmed stable line readout around `16.12 kHz`.
+- Added first input frame estimator in probe (still standalone, no output-control coupling):
+    - `src/testfw/sync_probe.h`: added frame telemetry fields (`frame_*`, `valid_frame_window`).
+    - `src/testfw/sync_probe.c`: added frame-gap heuristic:
+      - treat `period_us >= 120` as frame-gap marker candidate
+      - compute frame period from consecutive markers (accepted range `12-25 ms`)
+      - track last lines between markers and windowed average frame period/frequency
+    - `src/experiments/lock_telemetry_experiment.c`: added row `in frm:` showing estimated input frame rate and lines/segment.
+- Rebuilt and reflashed successfully for threshold tuning from live OSD.
+- 2026-03-27 (later): User reported `in frm: n/a` while line telemetry stayed stable (`per avg 62 us`, `line 16.12 kHz`), indicating frame-gap threshold/mode mismatch (not probe failure).
+- Estimator tuning pass:
+    - Lowered frame-gap candidate threshold from `120us` to `90us`.
+    - Added marker debounce (`>=8ms`) to avoid multiple detections within one vertical interval.
+    - Kept accepted frame period window at `12-25ms`.
+    - Added fallback frame estimate in HUD from line rate (`line_hz / 262`) so OSD always shows an input frame estimate even when gap detector has no valid samples.
+- Rebuilt and reflashed `neopico_hd_testfw` successfully.
+- 2026-03-27 (later): User reported marker-based frame estimate unstable (`in frm: 68-71.5`, `l: 191-279`) while line timing remained stable (`per avg 62us`, `line 16.12kHz`).
+- Applied robustness gating in `src/experiments/lock_telemetry_experiment.c`:
+    - Use marker-based `frame_hz` only if plausible (`55.00-62.00 Hz` and `lines 240-320`).
+    - Otherwise use line-based estimate `line_hz / 272` (Neo Geo-oriented nominal total lines).
+    - Only show `l:` when marker-based path is plausible.
+- Rebuilt and reflashed successfully.
+- 2026-03-27 (later): User confirmed stable input frame estimate at `59.26` Hz after gating/fallback changes, indicating measurement stack is now usable for lock-control experiments.
+- 2026-03-27 (later): Added first testfw-only open-loop output trim controller in `src/experiments/lock_telemetry_experiment.c`.
+    - Added lightweight controller state (`vtotal_cmd`) with one-step adjustments every telemetry tick.
+    - Control law:
+      - estimate input fps from probe (`marker` if plausible, else `line/272`).
+      - compare to measured output fps.
+      - apply deadband (`0.10 Hz`) and nudge `video_output_set_runtime_vtotal()` by +/-1.
+      - clamp `vtotal` command to safe range (`250..340`).
+    - OSD row update:
+      - row 5 now shows `ctl in:<fps> vt:<cmd>` for live control visibility.
+      - retained existing line/probe metrics and runtime `vtotal` row.
+- Build + flash succeeded (`neopico_hd_testfw.uf2`).
+- 2026-03-27 (later): First open-loop trial feedback:
+    - `out: 70-72`, `ctl in: 49.26`, `vtotal: 525`, HDMI stable.
+    - Diagnosis:
+      - line-based input estimator polluted by frame-gap intervals (under-estimating input fps).
+      - fixed clamp range (`250..340`) incompatible with runtime `vtotal` around `525`, preventing trim movement.
+- Fixes applied:
+    - `src/testfw/sync_probe.c`: frame-gap intervals (`period >= frame-gap threshold`) are now excluded from line-period statistics.
+    - `src/experiments/lock_telemetry_experiment.c`: switched to dynamic `vtotal` clamp window around startup command (`±80`, bounded by `200..800`) so controller can move from the actual runtime baseline.
+- Rebuilt and reflashed successfully.
+- 2026-03-27 (later): User observed startup blinking/instability that settled after a few seconds (`out 68-70`, `ctl in 60.25`, `vtotal 541`, HDMI eventually stable).
+- Controller damping pass in `src/experiments/lock_telemetry_experiment.c`:
+    - Added startup holdoff before any trim action (`3s`).
+    - Slowed trim cadence to `1 step / 1s`.
+    - Increased deadband to `0.20 Hz`.
+    - Tightened initial trim window around startup runtime vtotal (`±20`).
+    - Synced `vtotal_cmd` to actual `video_output_get_runtime_vtotal()` each tick so HUD reflects applied value even if library clamps.
+- Rebuilt and reflashed successfully.
+- 2026-03-27 (later): Persistent `out 68-70` with `vtotal` pinned near `541` traced to baseline clock mismatch in standalone testfw, not controller tuning alone.
+    - Root cause: `src/testfw_main.c` did not set system clock baseline (main firmware uses 126 MHz baseline for 60 Hz path).
+    - Added `set_sys_clock_khz(126000, true)` before video init in testfw main.
+    - Added `hardware/clocks.h` include to use clock API correctly.
+- Rebuilt and reflashed successfully.
+- 2026-03-27 (later): Post-sysclk fix validation from user:
+    - `out: 60.00`
+    - `ctl in: 59.83-61.40`
+    - `vt: 524-525`
+    - `vtotal: 525`
+    - HDMI/output stable immediately from startup (no initial blinking).
+- Interpretation: baseline timing and open-loop trim path are now behaving as intended in standalone testfw; remaining work is estimator smoothing and lock-state policy (not fundamental timing bring-up).
+- 2026-03-27 (later): User requested no telemetry smoothing/masking; keep raw readings and make control decisions explicit.
+- Implemented raw-first transparent gating controller in `src/experiments/lock_telemetry_experiment.c`:
+    - No smoothing added to `ctl in` or displayed probe metrics.
+    - Added explicit control debug row: `err:<signed Hz> act:<state> g:<streak>`.
+    - Added consecutive same-sign gate before trim step (`TESTFW_VTRIM_SIGN_STREAK_REQUIRED=3`).
+    - Control action states now visible (`DEADBAND`, `START_HOLD`, `STEP_HOLD`, `GATE`, `STEP+`, `STEP-`, clamp states).
+    - After each step, streak resets so each new actuation requires fresh evidence.
+- Rebuilt + reflashed successfully.
+- 2026-03-27 (later): User validation of raw-first gated controller:
+    - Startup stable.
+    - `out: 60.00`
+    - `ctl in: 59.83-61.40`
+    - `vt: 524-525`
+    - `err` range roughly `-0.12 .. +1.96`
+    - observed actions include `GATE`, `STEP-`, `STEP_HOLD`, gate count `g:0-2`.
+- Interpretation: controller is acting as designed (consecutive-evidence gating + paced stepping), with no startup instability regression.
+- 2026-03-27 (later): Applied display-only readability improvements (no control-law changes) in `lock_telemetry_experiment.c`:
+    - Shortened action tokens for fast-glance readability:
+      - `DB` (deadband), `GT` (gate), `SH` (step hold), `ST` (startup hold), `S+`/`S-` (step), `MN`/`MX` (clamp), `NE` (no estimate), `HD` (idle hold).
+    - Compacted debug row label from `err/act` to `e/a`.
+    - Added short sticky action display (`~1.5s`) for step/clamp actions so transient events are readable on-screen.
+- Rebuilt and reflashed successfully.
+- 2026-03-27 (later): Continued realtime-adjustment work in standalone testfw by adding guarded coarse clock trim on top of fine VTOTAL trim.
+- `src/experiments/lock_telemetry_experiment.c` updates:
+    - Added slow coarse sysclk nudge path with explicit action codes `K+` / `K-`.
+    - Coarse trim only activates when:
+      - startup holdoff elapsed,
+      - coarse cadence elapsed (`3s`),
+      - fine trim is near VTOTAL window limits,
+      - absolute error is large (`>|1.50| Hz` in x100 units).
+    - Coarse limits/clamps:
+      - sysclk command range `123000..127000 kHz`
+      - step size `25 kHz`.
+    - After sysclk changes, reconfigure HSTX clock and refresh ACR:
+      - `video_output_reconfigure_clock()`
+      - `video_output_update_acr(...)`.
+    - OSD row 7 now shows both values for fast checks: `vt:<...> ck:<...>`.
+- Build + flash succeeded.
+- 2026-03-27 (later): User asked for concrete industry confirmation/references on handling input timing fluctuation and lock strategy.
+- Clarification captured:
+    - Industry/common practice is low-bandwidth feedback (PLL/TBC-style behavior), not instant frame-to-frame chasing.
+    - Existing project references analyzed earlier (OSSC, MiSTer, gbs-control, RetroTINK docs) align with this: conservative filtering/hysteresis, slow correction loops, and compatibility-first fallback modes.
+- 2026-03-27 (later): User asked strategic direction ("where are we going with all this?").
+- Direction clarified:
+    - Purpose of standalone testfw work: de-risk lock implementation by validating measurement + actuation behavior in isolation before touching production capture/output path.
+    - Proven so far: stable CSYNC-derived timing telemetry, predictable runtime vtotal trim behavior, startup stability, and readable/actionable OSD diagnostics.
+    - Next milestone (if desired): migrate this into main firmware behind compile-time flag(s), off by default, with strict rollback/failsafe behavior.
