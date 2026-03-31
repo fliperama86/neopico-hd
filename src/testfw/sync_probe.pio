@@ -1,7 +1,0 @@
-.program sync_probe_rise
-    ; Wait for CSYNC rising edges and raise IRQ each edge.
-.wrap_target
-    wait 0 pin 0
-    wait 1 pin 0
-    irq 0
-.wrap

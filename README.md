@@ -117,7 +117,6 @@ The project leverages the [PicoHDMI](https://github.com/fliperama86/pico_hdmi) l
 - **[Audio Implementation](docs/MVS_MV1C_DIGITAL_AUDIO.md)**: I2S format, ASRC strategy, and drift control.
 - **[HSTX & HDMI](docs/HSTX_IMPLEMENTATION.md)**: Output timing, TMDS, and Data Islands.
 - **[OSD](docs/OSD_IMPLEMENTATION.md)**: On-Screen Display rendering.
-- **[Phase Lock Options](docs/PHASE_LOCK_OPTIONS.md)**: Timing-policy options (Compat60 vs SourceLock), constraints, and validation gates.
 - **[Best Practices](docs/BEST_PRACTICES.md)**: Critical Do's and Don'ts for developers.
 
 ## Architecture Highlights
