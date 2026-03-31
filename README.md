@@ -1,4 +1,4 @@
-[![Discord](https://img.shields.io/discord/1469422496833863884)](https://discord.gg/KwRTbtee)
+[![Discord](https://img.shields.io/discord/1469422496833863884)](https://discord.gg/Th7HEHTC8p)
 
 # NeoPico-HD
 
