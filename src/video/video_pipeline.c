@@ -23,10 +23,16 @@ bool fx_scanlines_enabled = false;
 #if NEOPICO_ENABLE_OSD
 static bool osd_visible_latched = false;
 #endif
+typedef void (*pixel_scale_fn_t)(uint32_t *dst, const uint16_t *src, int count);
+
 static bool mode_is_240p = false;
+static bool mode_is_720p = false;
 static uint32_t mode_h_words = 320;
+static uint32_t mode_image_words = 320;
+static uint32_t mode_x_margin_words = 0;
 static uint32_t mode_osd_x_words = 0;
 static uint32_t mode_osd_w_words = 0;
+static pixel_scale_fn_t mode_scale_fn = video_pipeline_double_pixels_fast;
 // Overscan/background outside active 224-line image area (RGB565): black.
 #define OVERSCAN_COLOR_RGB565 0x0000
 // No-signal fallback color (RGB565): mid gray.
@@ -46,10 +52,18 @@ static inline void video_pipeline_refresh_mode_cache(void)
     const uint16_t v_active = video_output_get_v_active_lines();
 
     mode_is_240p = (h_active == 1280U && v_active == 240U);
+    mode_is_720p = (h_active == 1280U && v_active == 720U);
+    const uint32_t h_scale = mode_is_720p ? 3U : (h_active == (LINE_WIDTH * 4U)) ? 4U : 2U;
+
     mode_h_words = (uint32_t)h_active / 2U;
+    mode_image_words = (LINE_WIDTH * h_scale) / 2U;
+    mode_x_margin_words = (mode_h_words > mode_image_words) ? ((mode_h_words - mode_image_words) / 2U) : 0U;
+    mode_scale_fn = (h_scale == 4U)   ? video_pipeline_quadruple_pixels_fast
+                    : (h_scale == 3U) ? video_pipeline_triple_pixels_fast
+                                      : video_pipeline_double_pixels_fast;
 #if NEOPICO_ENABLE_OSD
-    mode_osd_x_words = mode_is_240p ? ((uint32_t)OSD_BOX_X * 2U) : (uint32_t)OSD_BOX_X;
-    mode_osd_w_words = mode_is_240p ? ((uint32_t)OSD_BOX_W * 2U) : (uint32_t)OSD_BOX_W;
+    mode_osd_x_words = mode_x_margin_words + (((uint32_t)OSD_BOX_X * h_scale) / 2U);
+    mode_osd_w_words = ((uint32_t)OSD_BOX_W * h_scale) / 2U;
 #else
     mode_osd_x_words = 0;
     mode_osd_w_words = 0;
@@ -88,6 +102,25 @@ void __scratch_y("") video_pipeline_double_pixels_fast(uint32_t *restrict dst, c
         d[0] = p0 | (p0 << 16);
         d[1] = p1 | (p1 << 16);
         d += 2;
+    }
+}
+
+/**
+ * Fast 3x pixel scaling: reads 2 pixels, writes 3 doubled words (6 output pixels).
+ * For 720p 4:3 mode (960 output pixels from 320 source pixels, centered).
+ */
+void __scratch_y("") video_pipeline_triple_pixels_fast(uint32_t *dst, const uint16_t *src, int count)
+{
+    const uint32_t *src32 = (const uint32_t *)src;
+    int pairs = count >> 1;
+
+    for (int i = 0; i < pairs; i++) {
+        uint32_t two = src32[i];
+        uint32_t p0 = two & 0xFFFF;
+        uint32_t p1 = two >> 16;
+        dst[(i * 3) + 0] = p0 | (p0 << 16);
+        dst[(i * 3) + 1] = p0 | (p1 << 16);
+        dst[(i * 3) + 2] = p1 | (p1 << 16);
     }
 }
 
@@ -180,7 +213,15 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     (void)v_scanline;
 
     const uint32_t h_words = mode_h_words;
-    const uint32_t fb_line = mode_is_240p ? active_line : (active_line >> 1);
+    uint32_t fb_line;
+    if (mode_is_720p) {
+        if ((active_line % 3U) != 0U) {
+            return;
+        }
+        fb_line = active_line / 3U;
+    } else {
+        fb_line = mode_is_240p ? active_line : (active_line >> 1);
+    }
 
 #if NEOPICO_ENABLE_OSD
     const uint32_t osd_line_u32 = fb_line - OSD_BOX_Y;
@@ -206,11 +247,10 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
             video_pipeline_fill_rgb565(dst, h_words, NO_SIGNAL_COLOR_RGB565);
             return;
         }
-        if (mode_is_240p) {
-            video_pipeline_quadruple_pixels_fast(dst, src, LINE_WIDTH);
-        } else {
-            video_pipeline_double_pixels_fast(dst, src, LINE_WIDTH);
-        }
+        video_pipeline_fill_rgb565(dst, mode_x_margin_words, OVERSCAN_COLOR_RGB565);
+        mode_scale_fn(dst + mode_x_margin_words, src, LINE_WIDTH);
+        video_pipeline_fill_rgb565(dst + mode_x_margin_words + mode_image_words,
+                                   h_words - mode_x_margin_words - mode_image_words, OVERSCAN_COLOR_RGB565);
         return;
     }
 
@@ -229,35 +269,21 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     if (!src) {
         // No capture source: render OSD over fallback color without double-writing the OSD span.
         video_pipeline_fill_rgb565(dst, mode_osd_x_words, NO_SIGNAL_COLOR_RGB565);
-        if (mode_is_240p) {
-            video_pipeline_quadruple_pixels_fast(dst + mode_osd_x_words, osd_src, OSD_BOX_W);
-        } else {
-            video_pipeline_double_pixels_fast(dst + mode_osd_x_words, osd_src, OSD_BOX_W);
-        }
+        mode_scale_fn(dst + mode_osd_x_words, osd_src, OSD_BOX_W);
         video_pipeline_fill_rgb565(dst + mode_osd_x_words + mode_osd_w_words,
                                    h_words - mode_osd_x_words - mode_osd_w_words, NO_SIGNAL_COLOR_RGB565);
         return;
     }
 
     // Before OSD
-    if (mode_is_240p) {
-        video_pipeline_quadruple_pixels_fast(dst, src, OSD_BOX_X);
-    } else {
-        video_pipeline_double_pixels_fast(dst, src, OSD_BOX_X);
-    }
+    video_pipeline_fill_rgb565(dst, mode_x_margin_words, OVERSCAN_COLOR_RGB565);
+    mode_scale_fn(dst + mode_x_margin_words, src, OSD_BOX_X);
     // OSD region (blit from OSD framebuffer)
-    if (mode_is_240p) {
-        video_pipeline_quadruple_pixels_fast(dst + mode_osd_x_words, osd_src, OSD_BOX_W);
-    } else {
-        video_pipeline_double_pixels_fast(dst + mode_osd_x_words, osd_src, OSD_BOX_W);
-    }
+    mode_scale_fn(dst + mode_osd_x_words, osd_src, OSD_BOX_W);
     // After OSD
-    if (mode_is_240p) {
-        video_pipeline_quadruple_pixels_fast(dst + mode_osd_x_words + mode_osd_w_words, src + OSD_BOX_X + OSD_BOX_W,
-                                             LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
-    } else {
-        video_pipeline_double_pixels_fast(dst + mode_osd_x_words + mode_osd_w_words, src + OSD_BOX_X + OSD_BOX_W,
-                                          LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
-    }
+    mode_scale_fn(dst + mode_osd_x_words + mode_osd_w_words, src + OSD_BOX_X + OSD_BOX_W,
+                  LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
+    video_pipeline_fill_rgb565(dst + mode_x_margin_words + mode_image_words,
+                               h_words - mode_x_margin_words - mode_image_words, OVERSCAN_COLOR_RGB565);
 #endif
 }

@@ -7,6 +7,7 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 ## Features
 
 - **Native 240p HDMI output** at 60fps (via 480p line doubling for audio compatibility)
+- **Experimental 720p HDMI output** - `NEOPICO_VIDEO_720P=ON`, centered 3x 4:3 scale; minor pixel glitches currently expected
 - **15-bit RGB + SHADOW/DARK capture** - 19-bit capture path includes SHADOW and DARK control lines
 - **Pixel Conversion Modes** - Default 32K RGB LUT, optional 64K SHADOW LUT path via `NEOPICO_ENABLE_DARK_SHADOW=ON`
 - **Digital audio capture** from I2S bus (before DAC) with 48kHz HDMI output
@@ -18,6 +19,7 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 | Feature                 | Status                                     |
 | ----------------------- | ------------------------------------------ |
 | 480p HDMI video         | Working                                    |
+| 720p HDMI video         | Experimental (`NEOPICO_VIDEO_720P=ON`)     |
 | 60fps capture           | Working                                    |
 | RGB555 video path       | Working                                    |
 | SHADOW/DARK capture     | Working                                    |
@@ -83,6 +85,10 @@ Requires [Pico SDK](https://github.com/raspberrypi/pico-sdk) with `PICO_SDK_PATH
 ```bash
 # Build and flash
 ./flash
+
+# Experimental 720p build
+cmake -S . -B build_720p -DNEOPICO_VIDEO_720P=ON
+cmake --build build_720p --target neopico_hd -j4
 ```
 
 ## Architecture

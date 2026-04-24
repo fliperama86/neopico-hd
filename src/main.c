@@ -12,6 +12,7 @@
 #include "pico/stdlib.h"
 
 #include "hardware/clocks.h"
+#include "hardware/vreg.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -59,7 +60,16 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 #define NEOPICO_VIDEO_240P 0
 #endif
 
+#ifndef NEOPICO_VIDEO_720P
+#define NEOPICO_VIDEO_720P 0
+#endif
+
+#if NEOPICO_VIDEO_720P && NEOPICO_VIDEO_240P
+#error "NEOPICO_VIDEO_720P and NEOPICO_VIDEO_240P are mutually exclusive"
+#endif
+
 #define SYS_CLK_60HZ_KHZ 126000U
+#define SYS_CLK_720P_KHZ 372000U
 
 static inline uint32_t compute_sysclk_khz_for_fps_x100(uint32_t fps_x100)
 {
@@ -110,11 +120,19 @@ int main(void)
 {
     sleep_ms(1000);
     // Set system clock before starting video pipeline.
+#if NEOPICO_VIDEO_720P
+    // 720p60 needs ~74.25 MHz pixel clock; closest on 12 MHz XOSC is 372 MHz sysclk.
+    // 1.30V VREG is required for stable operation above 150 MHz.
+    vreg_set_voltage(VREG_VOLTAGE_1_30);
+    sleep_ms(10);
+    set_sys_clock_khz(SYS_CLK_720P_KHZ, true);
+#else
     uint32_t sys_clk_khz = SYS_CLK_60HZ_KHZ;
 #if NEOPICO_EXP_GENLOCK_STATIC && !NEOPICO_EXP_VTOTAL_MATCH
     sys_clk_khz = compute_sysclk_khz_for_fps_x100((uint32_t)NEOPICO_GENLOCK_TARGET_FPS_X100);
 #endif
     set_sys_clock_khz(sys_clk_khz, true);
+#endif
 
     stdio_init_all();
 
@@ -143,7 +161,9 @@ int main(void)
 
     // Initialize HDMI output pipeline
     hstx_di_queue_init();
-#if NEOPICO_VIDEO_240P
+#if NEOPICO_VIDEO_720P
+    video_output_set_mode(&video_mode_720_p);
+#elif NEOPICO_VIDEO_240P
     video_output_set_mode(&video_mode_240_p);
 #elif NEOPICO_EXP_VTOTAL_MATCH
     video_output_set_mode(build_vtotal_match_mode());

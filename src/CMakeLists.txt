@@ -19,6 +19,7 @@ add_executable(neopico_hd
 
 # Compile-time feature flags (cache params for fast A/B testing)
 option(NEOPICO_VIDEO_240P "Start HDMI output in 240p mode via runtime mode API" OFF)
+option(NEOPICO_VIDEO_720P "Build HDMI output in 1280x720 @ 60Hz mode (requires sys_clk 372 MHz / 1.30V)" OFF)
 option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" OFF)
 option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD)" OFF)
 option(NEOPICO_ENABLE_DARK_SHADOW "Enable DARK/SHADOW LUT path in capture" OFF)
@@ -77,11 +78,25 @@ else()
     set(VIDEO_240P_VALUE 0)
 endif()
 
+if(NEOPICO_VIDEO_720P)
+    set(VIDEO_720P_VALUE 1)
+    if(NEOPICO_VIDEO_240P)
+        message(FATAL_ERROR "NEOPICO_VIDEO_720P and NEOPICO_VIDEO_240P are mutually exclusive")
+    endif()
+else()
+    set(VIDEO_720P_VALUE 0)
+endif()
+
 # Enable runtime video mode switching in pico_hdmi
 set(PICO_HDMI_RUNTIME_MODES ON CACHE BOOL "" FORCE)
 
 # Add pico_hdmi library (MUST be after add_compile_definitions and option overrides)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../lib/pico_hdmi ${CMAKE_CURRENT_BINARY_DIR}/pico_hdmi)
+
+# 720p requires compile-time polarity / DI placement in pico_hdmi (VIDEO_MODE_1280x720)
+if(NEOPICO_VIDEO_720P)
+    target_compile_definitions(pico_hdmi PRIVATE VIDEO_MODE_1280x720)
+endif()
 
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
@@ -106,6 +121,7 @@ target_link_libraries(neopico_hd
 
 target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_VIDEO_240P=${VIDEO_240P_VALUE}
+    NEOPICO_VIDEO_720P=${VIDEO_720P_VALUE}
     NEOPICO_ENABLE_OSD=${ENABLE_OSD_VALUE}
     NEOPICO_ENABLE_SELFTEST=${ENABLE_SELFTEST_VALUE}
     ENABLE_DARK_SHADOW=${ENABLE_DARK_SHADOW_VALUE}
