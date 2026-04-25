@@ -1,6 +1,10 @@
 #include "video_pipeline.h"
 
+#if NEOPICO_USE_NONRT_HDMI
+#include "pico_hdmi/video_output.h"
+#else
 #include "pico_hdmi/video_output_rt.h"
+#endif
 
 #include <string.h>
 
@@ -10,12 +14,16 @@
 #endif
 #include "pico.h"
 #include "video_config.h"
-#if NEOPICO_EXP_GENLOCK_DYNAMIC
+#if NEOPICO_EXP_GENLOCK_DYNAMIC && !NEOPICO_USE_NONRT_HDMI
 #include "pico_hdmi/video_output_rt.h"
 
 #include "hardware/timer.h"
 
 #include "video_capture.h"
+#endif
+
+#ifndef NEOPICO_VIDEO_TEST_PATTERN
+#define NEOPICO_VIDEO_TEST_PATTERN 0
 #endif
 
 // Scanline effect toggle (off by default)
@@ -46,10 +54,43 @@ static inline void __scratch_y("") video_pipeline_fill_rgb565(uint32_t *dst, uin
     }
 }
 
+#if NEOPICO_VIDEO_TEST_PATTERN
+static uint16_t test_pattern_line[LINE_WIDTH] __attribute__((aligned(4)));
+static bool test_pattern_line_ready = false;
+
+static void video_pipeline_init_test_pattern_line(void)
+{
+    static const uint16_t colors[] = {
+        0x0000, // black
+        0xF800, // red
+        0x07E0, // green
+        0x001F, // blue
+        0xFFE0, // yellow
+        0xF81F, // magenta
+        0x07FF, // cyan
+        0xFFFF, // white
+    };
+    const uint32_t color_count = (uint32_t)(sizeof(colors) / sizeof(colors[0]));
+    for (uint32_t x = 0; x < LINE_WIDTH; x++) {
+        test_pattern_line[x] = colors[(x * color_count) / LINE_WIDTH];
+    }
+    test_pattern_line_ready = true;
+}
+#endif
+
 static inline void video_pipeline_refresh_mode_cache(void)
 {
+#if NEOPICO_USE_NONRT_HDMI
+    // Non-rt: mode is fixed at compile time. frame_width/frame_height track the
+    // *framebuffer* (320x240 source), not the *display* mode — we need the
+    // mode's active pixels here, which the non-rt path exposes as compile-time
+    // MODE_H_ACTIVE_PIXELS / MODE_V_ACTIVE_LINES via video_output.h.
+    const uint16_t h_active = MODE_H_ACTIVE_PIXELS;
+    const uint16_t v_active = MODE_V_ACTIVE_LINES;
+#else
     const uint16_t h_active = video_output_get_h_active_pixels();
     const uint16_t v_active = video_output_get_v_active_lines();
+#endif
 
     mode_is_240p = (h_active == 1280U && v_active == 240U);
     mode_is_720p = (h_active == 1280U && v_active == 720U);
@@ -146,7 +187,7 @@ void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const u
     }
 }
 
-#if NEOPICO_EXP_GENLOCK_DYNAMIC
+#if NEOPICO_EXP_GENLOCK_DYNAMIC && !NEOPICO_USE_NONRT_HDMI
 // Nominals that approximate MVS ~59.18 Hz at 25.2 MHz pixel clock:
 //   480p: 25.2M / (800 * 532) = 59.21 Hz   (±1 → 59.10–59.32 Hz)
 //   240p: 25.2M / (1600 * 266) = 59.21 Hz  (±1 → 58.99–59.43 Hz)
@@ -200,7 +241,7 @@ void __scratch_x("") video_pipeline_vsync_callback(void)
 {
     video_pipeline_refresh_mode_cache();
     line_ring_output_vsync();
-#if NEOPICO_EXP_GENLOCK_DYNAMIC
+#if NEOPICO_EXP_GENLOCK_DYNAMIC && !NEOPICO_USE_NONRT_HDMI
     genlock_dynamic_update();
 #endif
 #if NEOPICO_ENABLE_OSD
@@ -213,6 +254,23 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     (void)v_scanline;
 
     const uint32_t h_words = mode_h_words;
+
+#if NEOPICO_VIDEO_TEST_PATTERN
+    if (mode_is_720p) {
+        if (!test_pattern_line_ready) {
+            video_pipeline_init_test_pattern_line();
+        }
+        if ((active_line % 3U) != 0U) {
+            return;
+        }
+        video_pipeline_fill_rgb565(dst, mode_x_margin_words, OVERSCAN_COLOR_RGB565);
+        mode_scale_fn(dst + mode_x_margin_words, test_pattern_line, LINE_WIDTH);
+        video_pipeline_fill_rgb565(dst + mode_x_margin_words + mode_image_words,
+                                   h_words - mode_x_margin_words - mode_image_words, OVERSCAN_COLOR_RGB565);
+        return;
+    }
+#endif
+
     uint32_t fb_line;
     if (mode_is_720p) {
         if ((active_line % 3U) != 0U) {

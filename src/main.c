@@ -6,7 +6,11 @@
  */
 
 #include "pico_hdmi/hstx_data_island_queue.h"
+#if NEOPICO_USE_NONRT_HDMI
+#include "pico_hdmi/video_output.h"
+#else
 #include "pico_hdmi/video_output_rt.h"
+#endif
 
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
@@ -64,6 +68,10 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 #define NEOPICO_VIDEO_720P 0
 #endif
 
+#ifndef NEOPICO_VIDEO_DVI_ONLY
+#define NEOPICO_VIDEO_DVI_ONLY 0
+#endif
+
 #if NEOPICO_VIDEO_720P && NEOPICO_VIDEO_240P
 #error "NEOPICO_VIDEO_720P and NEOPICO_VIDEO_240P are mutually exclusive"
 #endif
@@ -79,11 +87,16 @@ static inline uint32_t compute_sysclk_khz_for_fps_x100(uint32_t fps_x100)
 
 static inline uint32_t get_current_pixel_clock_hz(void)
 {
+#if NEOPICO_USE_NONRT_HDMI
+    // Compile-time path: hstx_clk_div=1, hstx_csr_clkdiv=5 across all modes.
+    return clock_get_hz(clk_sys) / 5U;
+#else
     const video_mode_t *mode = video_output_active_mode;
     return clock_get_hz(clk_sys) / ((uint32_t)mode->hstx_clk_div * (uint32_t)mode->hstx_csr_clkdiv);
+#endif
 }
 
-#if NEOPICO_EXP_VTOTAL_MATCH
+#if NEOPICO_EXP_VTOTAL_MATCH && !NEOPICO_USE_NONRT_HDMI
 static video_mode_t s_vtotal_match_mode;
 
 static const video_mode_t *build_vtotal_match_mode(void)
@@ -106,7 +119,9 @@ static const video_mode_t *build_vtotal_match_mode(void)
 
 static void combined_background_task(void)
 {
+#if !NEOPICO_VIDEO_DVI_ONLY
     audio_subsystem_background_task();
+#endif
 #if NEOPICO_ENABLE_OSD
     menu_diag_experiment_tick_background();
 #endif
@@ -161,6 +176,10 @@ int main(void)
 
     // Initialize HDMI output pipeline
     hstx_di_queue_init();
+#if NEOPICO_VIDEO_DVI_ONLY
+    video_output_set_dvi_mode(true);
+#endif
+#if !NEOPICO_USE_NONRT_HDMI
 #if NEOPICO_VIDEO_720P
     video_output_set_mode(&video_mode_720_p);
 #elif NEOPICO_VIDEO_240P
@@ -168,12 +187,16 @@ int main(void)
 #elif NEOPICO_EXP_VTOTAL_MATCH
     video_output_set_mode(build_vtotal_match_mode());
 #endif
+#endif
     video_pipeline_init(FRAME_WIDTH, FRAME_HEIGHT);
-#if NEOPICO_EXP_GENLOCK_STATIC && !NEOPICO_EXP_VTOTAL_MATCH
+#if NEOPICO_EXP_GENLOCK_STATIC && !NEOPICO_EXP_VTOTAL_MATCH && !NEOPICO_USE_NONRT_HDMI
     // Sysclk is already set before video init; only ACR needs custom CTS.
+    // The non-rt path doesn't expose video_output_update_acr; skip it.
     video_output_update_acr(get_current_pixel_clock_hz());
 #endif
+#if !NEOPICO_VIDEO_DVI_ONLY || NEOPICO_ENABLE_OSD
     video_output_set_background_task(combined_background_task);
+#endif
 
     // Initialize video capture
     video_capture_init(MVS_HEIGHT);

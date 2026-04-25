@@ -7,7 +7,15 @@
 #include <stdint.h>
 
 // Line buffer configuration
-#define LINE_RING_SIZE 256 // Full frame buffer for stability
+#ifndef NEOPICO_LINE_RING_SIZE
+#define NEOPICO_LINE_RING_SIZE 256
+#endif
+
+#if NEOPICO_LINE_RING_SIZE < 256
+#error "NEOPICO_LINE_RING_SIZE must be at least 256"
+#endif
+
+#define LINE_RING_SIZE NEOPICO_LINE_RING_SIZE
 #define LINE_WIDTH 320
 #define LINES_PER_FRAME 224 // MVS active lines
 

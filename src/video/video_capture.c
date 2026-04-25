@@ -40,6 +40,10 @@
 #define ENABLE_DARK_SHADOW 0
 #endif
 
+#ifndef NEOPICO_CAPTURE_FREEZE_AFTER_FRAME
+#define NEOPICO_CAPTURE_FREEZE_AFTER_FRAME 0
+#endif
+
 // =============================================================================
 // MVS Timing Constants
 // =============================================================================
@@ -51,6 +55,7 @@
 #define H_SKIP_END 36
 #define V_SKIP_LINES 16
 #define NEO_V_ACTIVE 224
+#define MVS_CAPTURE_PIO_TARGET_HZ 126000000U
 
 // PIO IRQ index: sync SM raises this on every line push for event-driven vsync (no polling)
 #define MVS_SYNC_IRQ_INDEX 0
@@ -63,7 +68,7 @@
 
 static uint g_mvs_height = 0;
 
-PIO g_pio_mvs = NULL;
+static PIO g_pio_mvs = NULL;
 static uint g_sm_sync = 0;
 static uint g_offset_sync = 0;
 static uint g_sm_pixel = 0;
@@ -81,6 +86,7 @@ volatile uint32_t g_mvs_vsync_timestamp = 0;
 static int g_skip_start_words = 0;
 static int g_active_words = 0;
 static int g_line_words = 0;
+static float g_capture_pio_clkdiv = 1.0F;
 
 // Semaphore released by sync IRQ handler when vsync is detected (one release per frame)
 static semaphore_t g_vsync_sem;
@@ -342,6 +348,10 @@ void video_capture_init(uint mvs_height)
     g_skip_start_words = H_SKIP_START;
     g_active_words = NEO_H_ACTIVE;
     g_line_words = NEO_H_TOTAL;
+    g_capture_pio_clkdiv = (float)clock_get_hz(clk_sys) / (float)MVS_CAPTURE_PIO_TARGET_HZ;
+    if (g_capture_pio_clkdiv < 1.0F) {
+        g_capture_pio_clkdiv = 1.0F;
+    }
 
     // Initialize PIO blocks
     pio_clear_instruction_memory(pio0);
@@ -373,7 +383,7 @@ void video_capture_init(uint mvs_height)
 
     // 5. Configure Sync SM: CSYNC = GP27 (pin index 11 with GPIOBASE=16)
     pio_sm_config c = mvs_sync_4a_program_get_default_config(g_offset_sync);
-    sm_config_set_clkdiv(&c, 1.0F);
+    sm_config_set_clkdiv(&c, g_capture_pio_clkdiv);
     sm_config_set_in_shift(&c, false, false, 32);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
     pio_sm_init(g_pio_mvs, g_sm_sync, g_offset_sync, &c);
@@ -384,7 +394,7 @@ void video_capture_init(uint mvs_height)
 
     // 6. Configure Pixel SM: IN_BASE = GP27 (pin index 11), capture GP27-45
     pio_sm_config pc = mvs_pixel_capture_dark19_program_get_default_config(g_offset_pixel);
-    sm_config_set_clkdiv(&pc, 1.0F);
+    sm_config_set_clkdiv(&pc, g_capture_pio_clkdiv);
     sm_config_set_in_shift(&pc, false, true, MVS_CAPTURE_BITS);
     pio_sm_init(g_pio_mvs, g_sm_pixel, g_offset_pixel, &pc);
 
@@ -498,6 +508,16 @@ void video_capture_run(void)
 
             line_ring_commit(g_mvs_height);
         }
+
+#if NEOPICO_CAPTURE_FREEZE_AFTER_FRAME
+        dma_channel_abort(g_dma_chan);
+        pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
+        pio_sm_set_enabled(g_pio_mvs, g_sm_sync, false);
+        while (1) {
+            tud_task();
+            tight_loop_contents();
+        }
+#endif
     }
 }
 

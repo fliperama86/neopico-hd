@@ -9792,7 +9792,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "SN74LVC2G14DBV"
+		(property "Value" "SN74LVC2G17DBVR"
 			(at 97.282 88.646 0)
 			(effects
 				(font
@@ -13586,7 +13586,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "SN74LVC2G14DBV"
+		(property "Value" "SN74LVC2G17DBVR"
 			(at 96.52 119.634 0)
 			(effects
 				(font

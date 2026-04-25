@@ -7,7 +7,7 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 ## Features
 
 - **Native 240p HDMI output** at 60fps (via 480p line doubling for audio compatibility)
-- **Experimental 720p HDMI output** - `NEOPICO_VIDEO_720P=ON`, centered 3x 4:3 scale; minor pixel glitches currently expected
+- **Experimental 720p HDMI output** - `NEOPICO_VIDEO_720P=ON`, centered 3x 4:3 scale; release builds use the non-RT PicoHDMI path for the best 720p stability
 - **15-bit RGB + SHADOW/DARK capture** - 19-bit capture path includes SHADOW and DARK control lines
 - **Pixel Conversion Modes** - Default 32K RGB LUT, optional 64K SHADOW LUT path via `NEOPICO_ENABLE_DARK_SHADOW=ON`
 - **Digital audio capture** from I2S bus (before DAC) with 48kHz HDMI output
@@ -19,7 +19,7 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 | Feature                 | Status                                     |
 | ----------------------- | ------------------------------------------ |
 | 480p HDMI video         | Working                                    |
-| 720p HDMI video         | Experimental (`NEOPICO_VIDEO_720P=ON`)     |
+| 720p HDMI video         | Experimental (`NEOPICO_VIDEO_720P=ON`, non-RT release build) |
 | 60fps capture           | Working                                    |
 | RGB555 video path       | Working                                    |
 | SHADOW/DARK capture     | Working                                    |
@@ -78,6 +78,19 @@ To ensure clean audio and video capture, follow these best practices:
 | I2S WS   | GPIO 23 | R90            |
 | I2S BCK  | GPIO 24 | R92            |
 
+## Prebuilt Firmware
+
+GitHub Releases include ready-to-flash UF2 files:
+
+| Asset | Mode | Notes |
+| ----- | ---- | ----- |
+| `neopico_hd.uf2` | 480p HDMI | Default MV1C digital-audio build |
+| `neopico_hd_240p.uf2` | 240p HDMI | Runtime-mode 240p output |
+| `neopico_hd_720p_nonrt.uf2` | 720p HDMI | Experimental 1280x720 non-RT PicoHDMI path |
+| `neopico_hd_pcm1802.uf2` | 480p HDMI | PCM1802 analog-audio build |
+
+The 720p build runs the RP2350 at 372 MHz with 1.3V core voltage. It uses the compile-time PicoHDMI path (`NEOPICO_USE_NONRT_HDMI=ON`) and the PicoHDMI HSTX fast-slew/12mA pad configuration.
+
 ## Building
 
 Requires [Pico SDK](https://github.com/raspberrypi/pico-sdk) with `PICO_SDK_PATH` set.
@@ -86,9 +99,13 @@ Requires [Pico SDK](https://github.com/raspberrypi/pico-sdk) with `PICO_SDK_PATH
 # Build and flash
 ./flash
 
-# Experimental 720p build
-cmake -S . -B build_720p -DNEOPICO_VIDEO_720P=ON
-cmake --build build_720p --target neopico_hd -j4
+# Experimental 720p non-RT build
+cmake -S . -B build_720p_nonrt -DNEOPICO_VIDEO_720P=ON -DNEOPICO_USE_NONRT_HDMI=ON
+cmake --build build_720p_nonrt --target neopico_hd -j4
+
+# Optional standalone HDMI/OSD self-test firmware
+cmake -S . -B build_selftest -DNEOPICO_BUILD_SELFTEST=ON
+cmake --build build_selftest --target neopico_selftest -j4
 ```
 
 ## Architecture

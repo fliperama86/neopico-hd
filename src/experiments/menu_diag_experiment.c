@@ -44,6 +44,9 @@ void menu_diag_experiment_init(void)
     s_audio_samples = 0;
     s_shadow_hold_updates = 0;
 #endif
+    if (osd_visible) {
+        menu_diag_experiment_on_menu_open();
+    }
 }
 
 void menu_diag_experiment_on_menu_open(void)
