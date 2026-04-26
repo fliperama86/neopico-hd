@@ -36,6 +36,7 @@ option(NEOPICO_EXP_VTOTAL_MATCH "Enable fixed-pixel-clock output with custom V t
 set(NEOPICO_EXP_VTOTAL_LINES "532" CACHE STRING "Custom V total lines when NEOPICO_EXP_VTOTAL_MATCH is ON")
 option(NEOPICO_EXP_GENLOCK_DYNAMIC "Enable dynamic VTOTAL genlock (runtime phase tracking)" OFF)
 option(NEOPICO_EXP_REBOOT_MODE_SWITCH "Enable experimental reboot-based 480p/240p HDMI mode switching via OSD Back button" OFF)
+option(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P "Allow the reboot-based HDMI mode switch experiment to cycle through 720p" OFF)
 option(NEOPICO_EXP_RUNTIME_MODE_SWITCH "Deprecated alias for NEOPICO_EXP_REBOOT_MODE_SWITCH" OFF)
 option(NEOPICO_AUDIO_PCM1802 "Use PCM1802 ADC for analog audio capture (AES/non-MV1C boards)" OFF)
 option(NEOPICO_CAPTURE_FREEZE_AFTER_FRAME "Capture one MVS frame then stop capture writes for video isolation tests" OFF)
@@ -88,6 +89,12 @@ else()
     set(REBOOT_MODE_SWITCH_VALUE 0)
 endif()
 
+if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P)
+    set(REBOOT_MODE_SWITCH_720P_VALUE 1)
+else()
+    set(REBOOT_MODE_SWITCH_720P_VALUE 0)
+endif()
+
 if(NEOPICO_AUDIO_PCM1802)
     set(AUDIO_PCM1802_VALUE 1)
 else()
@@ -131,11 +138,15 @@ if(NEOPICO_EXP_REBOOT_MODE_SWITCH)
         message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH requires the runtime pico_hdmi path")
     endif()
     if(NEOPICO_VIDEO_720P)
-        message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH is currently limited to 480p/240p; do not combine with NEOPICO_VIDEO_720P")
+        message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH selects 720p at boot from watchdog scratch; use NEOPICO_EXP_REBOOT_MODE_SWITCH_720P instead of NEOPICO_VIDEO_720P")
     endif()
     if(NOT NEOPICO_ENABLE_OSD)
         message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH currently uses the OSD Back button, so NEOPICO_ENABLE_OSD=ON is required")
     endif()
+endif()
+
+if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P AND NOT NEOPICO_EXP_REBOOT_MODE_SWITCH)
+    message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH_720P requires NEOPICO_EXP_REBOOT_MODE_SWITCH=ON")
 endif()
 
 if(NEOPICO_VIDEO_DVI_ONLY)
@@ -160,7 +171,7 @@ endif()
 # Add pico_hdmi library (MUST be after add_compile_definitions and option overrides)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../lib/pico_hdmi ${CMAKE_CURRENT_BINARY_DIR}/pico_hdmi)
 
-# 720p requires compile-time polarity / DI placement in pico_hdmi (VIDEO_MODE_1280x720)
+# 720p static builds require compile-time polarity / DI placement in pico_hdmi (VIDEO_MODE_1280x720).
 if(NEOPICO_VIDEO_720P)
     target_compile_definitions(pico_hdmi PRIVATE VIDEO_MODE_1280x720)
     # When using the non-rt path, code calling hstx_encode_data_island directly
@@ -171,6 +182,10 @@ if(NEOPICO_VIDEO_720P)
     if(NEOPICO_USE_NONRT_HDMI)
         target_compile_definitions(neopico_hd PRIVATE VIDEO_MODE_1280x720)
     endif()
+endif()
+
+if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P)
+    target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_RT_RUNTIME_MODE_ATTRS=1)
 endif()
 
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
@@ -209,6 +224,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_EXP_VTOTAL_LINES=${NEOPICO_EXP_VTOTAL_LINES}
     NEOPICO_EXP_GENLOCK_DYNAMIC=${GENLOCK_DYNAMIC_VALUE}
     NEOPICO_EXP_REBOOT_MODE_SWITCH=${REBOOT_MODE_SWITCH_VALUE}
+    NEOPICO_EXP_REBOOT_MODE_SWITCH_720P=${REBOOT_MODE_SWITCH_720P_VALUE}
     NEOPICO_AUDIO_PCM1802=${AUDIO_PCM1802_VALUE}
     NEOPICO_CAPTURE_FREEZE_AFTER_FRAME=${CAPTURE_FREEZE_AFTER_FRAME_VALUE}
     NEOPICO_LINE_RING_SIZE=${NEOPICO_LINE_RING_SIZE}

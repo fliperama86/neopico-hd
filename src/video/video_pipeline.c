@@ -42,8 +42,16 @@
 #define NEOPICO_EXP_REBOOT_MODE_SWITCH 0
 #endif
 
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH && (NEOPICO_USE_NONRT_HDMI || NEOPICO_VIDEO_720P)
-#error "NEOPICO_EXP_REBOOT_MODE_SWITCH is currently limited to rt 480p/240p builds"
+#ifndef NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+#define NEOPICO_EXP_REBOOT_MODE_SWITCH_720P 0
+#endif
+
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH && NEOPICO_USE_NONRT_HDMI
+#error "NEOPICO_EXP_REBOOT_MODE_SWITCH requires the rt PicoHDMI path"
+#endif
+
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH && NEOPICO_VIDEO_720P
+#error "Use NEOPICO_EXP_REBOOT_MODE_SWITCH_720P for 720p reboot switching; do not combine with NEOPICO_VIDEO_720P"
 #endif
 
 // Scanline effect toggle (off by default)
@@ -58,13 +66,19 @@ typedef void (*pixel_scale_fn_t)(uint32_t *dst, const uint16_t *src, int count);
 #define NO_SIGNAL_COLOR_RGB565 0x7BEF
 
 #if NEOPICO_EXP_REBOOT_MODE_SWITCH
-static bool reboot_requested_240p = (NEOPICO_VIDEO_240P != 0);
+static video_pipeline_reboot_mode_t reboot_requested_mode =
+    (NEOPICO_VIDEO_240P != 0) ? VIDEO_PIPELINE_REBOOT_MODE_240P : VIDEO_PIPELINE_REBOOT_MODE_480P;
 #define REBOOT_MODE_BOOT_MAGIC 0x4e505253U
 #define REBOOT_MODE_BOOT_CHECK_XOR 0xa5a55a5aU
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+#define REBOOT_MODE_MAX VIDEO_PIPELINE_REBOOT_MODE_720P
+#else
+#define REBOOT_MODE_MAX VIDEO_PIPELINE_REBOOT_MODE_240P
+#endif
 
-static inline uint32_t reboot_mode_boot_check(uint32_t enabled)
+static inline uint32_t reboot_mode_boot_check(uint32_t mode)
 {
-    return REBOOT_MODE_BOOT_MAGIC ^ enabled ^ REBOOT_MODE_BOOT_CHECK_XOR;
+    return REBOOT_MODE_BOOT_MAGIC ^ mode ^ REBOOT_MODE_BOOT_CHECK_XOR;
 }
 #elif NEOPICO_VIDEO_720P
 #define VIDEO_PIPELINE_H_WORDS (1280U / 2U)
@@ -154,7 +168,13 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
     video_output_set_scanline_callback(video_pipeline_scanline_callback);
     video_output_set_vsync_callback(video_pipeline_vsync_callback);
 #if NEOPICO_EXP_REBOOT_MODE_SWITCH
-    reboot_requested_240p = (video_output_active_mode->v_active_lines == 240U);
+    if (video_output_active_mode->v_active_lines == 720U) {
+        reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_720P;
+    } else if (video_output_active_mode->v_active_lines == 240U) {
+        reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_240P;
+    } else {
+        reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
+    }
 #endif
 
 #if NEOPICO_ENABLE_OSD
@@ -163,13 +183,15 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
 }
 
 #if NEOPICO_EXP_REBOOT_MODE_SWITCH
-void video_pipeline_request_reboot_240p(bool enabled)
+void video_pipeline_request_reboot_mode(video_pipeline_reboot_mode_t mode)
 {
-    reboot_requested_240p = enabled;
-    const uint32_t mode = enabled ? 1U : 0U;
+    if (mode > REBOOT_MODE_MAX) {
+        mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
+    }
+    reboot_requested_mode = mode;
     watchdog_hw->scratch[0] = REBOOT_MODE_BOOT_MAGIC;
-    watchdog_hw->scratch[1] = mode;
-    watchdog_hw->scratch[2] = reboot_mode_boot_check(mode);
+    watchdog_hw->scratch[1] = (uint32_t)mode;
+    watchdog_hw->scratch[2] = reboot_mode_boot_check((uint32_t)mode);
     __dmb();
     watchdog_reboot(0, 0, 10);
     while (true) {
@@ -177,12 +199,12 @@ void video_pipeline_request_reboot_240p(bool enabled)
     }
 }
 
-bool video_pipeline_reboot_requested_240p(void)
+video_pipeline_reboot_mode_t video_pipeline_reboot_requested_mode(void)
 {
-    return reboot_requested_240p;
+    return reboot_requested_mode;
 }
 
-bool video_pipeline_take_reboot_240p_boot_request(bool *enabled)
+bool video_pipeline_take_reboot_mode_boot_request(video_pipeline_reboot_mode_t *requested_mode)
 {
     const uint32_t magic = watchdog_hw->scratch[0];
     const uint32_t mode = watchdog_hw->scratch[1];
@@ -191,12 +213,36 @@ bool video_pipeline_take_reboot_240p_boot_request(bool *enabled)
     watchdog_hw->scratch[1] = 0;
     watchdog_hw->scratch[2] = 0;
 
-    if ((magic != REBOOT_MODE_BOOT_MAGIC) || (mode > 1U) || (check != reboot_mode_boot_check(mode))) {
+    if ((magic != REBOOT_MODE_BOOT_MAGIC) || (mode > (uint32_t)REBOOT_MODE_MAX) ||
+        (check != reboot_mode_boot_check(mode))) {
+        return false;
+    }
+
+    if (requested_mode) {
+        *requested_mode = (video_pipeline_reboot_mode_t)mode;
+    }
+    return true;
+}
+
+void video_pipeline_request_reboot_240p(bool enabled)
+{
+    video_pipeline_request_reboot_mode(enabled ? VIDEO_PIPELINE_REBOOT_MODE_240P : VIDEO_PIPELINE_REBOOT_MODE_480P);
+}
+
+bool video_pipeline_reboot_requested_240p(void)
+{
+    return reboot_requested_mode == VIDEO_PIPELINE_REBOOT_MODE_240P;
+}
+
+bool video_pipeline_take_reboot_240p_boot_request(bool *enabled)
+{
+    video_pipeline_reboot_mode_t mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
+    if (!video_pipeline_take_reboot_mode_boot_request(&mode) || mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
         return false;
     }
 
     if (enabled) {
-        *enabled = (mode != 0U);
+        *enabled = (mode == VIDEO_PIPELINE_REBOOT_MODE_240P);
     }
     return true;
 }
@@ -329,15 +375,21 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
 
 #if NEOPICO_EXP_REBOOT_MODE_SWITCH
     const bool mode_is_240p = (video_output_active_mode->v_active_lines == 240U);
-    const uint32_t h_words = mode_is_240p ? (1280U / 2U) : (640U / 2U);
-    const uint32_t image_words = h_words;
-    const uint32_t x_margin_words = 0;
-    const pixel_scale_fn_t scale_pixels =
-        mode_is_240p ? video_pipeline_quadruple_pixels_fast : video_pipeline_double_pixels_fast;
-    const uint32_t fb_line = mode_is_240p ? active_line : (active_line >> 1);
+    const bool mode_is_720p = (video_output_active_mode->v_active_lines == 720U);
+    const uint32_t h_words = (mode_is_240p || mode_is_720p) ? (1280U / 2U) : (640U / 2U);
+    const uint32_t h_scale = mode_is_720p ? 3U : mode_is_240p ? 4U : 2U;
+    const uint32_t image_words = (LINE_WIDTH * h_scale) / 2U;
+    const uint32_t x_margin_words = (h_words > image_words) ? ((h_words - image_words) / 2U) : 0U;
+    const pixel_scale_fn_t scale_pixels = mode_is_720p   ? video_pipeline_triple_pixels_fast
+                                          : mode_is_240p ? video_pipeline_quadruple_pixels_fast
+                                                         : video_pipeline_double_pixels_fast;
+    if (mode_is_720p && ((active_line % 3U) != 0U)) {
+        return;
+    }
+    const uint32_t fb_line = mode_is_720p ? (active_line / 3U) : mode_is_240p ? active_line : (active_line >> 1);
 #if NEOPICO_ENABLE_OSD
-    const uint32_t osd_x_words = mode_is_240p ? ((uint32_t)OSD_BOX_X * 2U) : (uint32_t)OSD_BOX_X;
-    const uint32_t osd_w_words = mode_is_240p ? ((uint32_t)OSD_BOX_W * 2U) : (uint32_t)OSD_BOX_W;
+    const uint32_t osd_x_words = x_margin_words + (((uint32_t)OSD_BOX_X * h_scale) / 2U);
+    const uint32_t osd_w_words = (((uint32_t)OSD_BOX_W * h_scale) / 2U);
 #endif
 #define VIDEO_PIPELINE_SCALE_SELECTED(dst_arg, src_arg, count_arg) scale_pixels((dst_arg), (src_arg), (count_arg))
 #else

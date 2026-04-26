@@ -37,11 +37,20 @@ void __scratch_y("") video_pipeline_triple_pixels_fast(uint32_t *dst, const uint
 void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const uint16_t *src, int count);
 
 #if NEOPICO_EXP_REBOOT_MODE_SWITCH
+typedef enum {
+    VIDEO_PIPELINE_REBOOT_MODE_480P = 0,
+    VIDEO_PIPELINE_REBOOT_MODE_240P = 1,
+    VIDEO_PIPELINE_REBOOT_MODE_720P = 2,
+} video_pipeline_reboot_mode_t;
+
 /**
- * Request a reboot-based output mode switch between default 480p and true 240p.
- * Experimental: 720p is intentionally excluded. The request is consumed during
- * the next boot before HDMI output starts.
+ * Request a reboot-based output mode switch. The request is consumed during the
+ * next boot before HDMI output starts. 720p requires the separate
+ * NEOPICO_EXP_REBOOT_MODE_SWITCH_720P experiment flag.
  */
+void video_pipeline_request_reboot_mode(video_pipeline_reboot_mode_t mode);
+video_pipeline_reboot_mode_t video_pipeline_reboot_requested_mode(void);
+bool video_pipeline_take_reboot_mode_boot_request(video_pipeline_reboot_mode_t *mode);
 void video_pipeline_request_reboot_240p(bool enabled);
 bool video_pipeline_reboot_requested_240p(void);
 bool video_pipeline_take_reboot_240p_boot_request(bool *enabled);

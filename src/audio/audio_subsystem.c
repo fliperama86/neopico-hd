@@ -30,12 +30,14 @@ static uint32_t audio_collect_count = 0;
 #define NEOPICO_VIDEO_720P 0
 #endif
 
-// 720p has a narrow hsync pulse, so Data Islands are encoded for back-porch placement.
-#if NEOPICO_VIDEO_720P
-#define AUDIO_DI_HSYNC_ACTIVE false
+static inline bool audio_di_hsync_active(void)
+{
+#if NEOPICO_USE_NONRT_HDMI
+    return DI_HSYNC_ACTIVE;
 #else
-#define AUDIO_DI_HSYNC_ACTIVE true
+    return hstx_di_queue_get_hsync_active();
 #endif
+}
 
 // When true, push silence to HDMI instead of captured samples (CPS2_DIGAV-style: no garbage on power-on/timeout)
 static volatile bool audio_output_muted = true;
@@ -62,7 +64,7 @@ static void audio_output_callback(const audio_sample_t *samples, uint32_t count,
             int new_frame_counter = hstx_packet_set_audio_samples(&packet, src, 4, audio_frame_counter);
 
             hstx_data_island_t island;
-            hstx_encode_data_island(&island, &packet, false, AUDIO_DI_HSYNC_ACTIVE);
+            hstx_encode_data_island(&island, &packet, false, audio_di_hsync_active());
 
             if (hstx_di_queue_push(&island)) {
                 audio_frame_counter = new_frame_counter;
@@ -253,7 +255,7 @@ void audio_subsystem_prefill_di_queue(void)
         hstx_packet_t packet;
         int fc = hstx_packet_set_audio_samples(&packet, audio_silence, 4, audio_frame_counter);
         hstx_data_island_t island;
-        hstx_encode_data_island(&island, &packet, false, AUDIO_DI_HSYNC_ACTIVE);
+        hstx_encode_data_island(&island, &packet, false, audio_di_hsync_active());
         if (!hstx_di_queue_push(&island))
             break;
         audio_frame_counter = fc;

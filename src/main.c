@@ -48,6 +48,10 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 #define NEOPICO_EXP_REBOOT_MODE_SWITCH 0
 #endif
 
+#ifndef NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+#define NEOPICO_EXP_REBOOT_MODE_SWITCH_720P 0
+#endif
+
 #if NEOPICO_EXP_GENLOCK_DYNAMIC && (NEOPICO_EXP_GENLOCK_STATIC || NEOPICO_EXP_VTOTAL_MATCH)
 #error "GENLOCK_DYNAMIC is mutually exclusive with GENLOCK_STATIC and VTOTAL_MATCH"
 #endif
@@ -121,6 +125,22 @@ static const video_mode_t *build_vtotal_match_mode(void)
 }
 #endif
 
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_USE_NONRT_HDMI
+static const video_mode_t *video_output_mode_for_reboot_mode(video_pipeline_reboot_mode_t mode)
+{
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+    if (mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
+        return &video_mode_720_p;
+    }
+#else
+    if (mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
+        mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
+    }
+#endif
+    return (mode == VIDEO_PIPELINE_REBOOT_MODE_240P) ? &video_mode_240_p : &video_mode_480_p;
+}
+#endif
+
 static void combined_background_task(void)
 {
 #if !NEOPICO_VIDEO_DVI_ONLY
@@ -138,6 +158,13 @@ static void combined_background_task(void)
 int main(void)
 {
     sleep_ms(1000);
+
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_USE_NONRT_HDMI
+    video_pipeline_reboot_mode_t reboot_boot_mode =
+        (NEOPICO_VIDEO_240P != 0) ? VIDEO_PIPELINE_REBOOT_MODE_240P : VIDEO_PIPELINE_REBOOT_MODE_480P;
+    (void)video_pipeline_take_reboot_mode_boot_request(&reboot_boot_mode);
+#endif
+
     // Set system clock before starting video pipeline.
 #if NEOPICO_VIDEO_720P
     // 720p60 needs ~74.25 MHz pixel clock; closest on 12 MHz XOSC is 372 MHz sysclk.
@@ -146,11 +173,20 @@ int main(void)
     sleep_ms(10);
     set_sys_clock_khz(SYS_CLK_720P_KHZ, true);
 #else
-    uint32_t sys_clk_khz = SYS_CLK_60HZ_KHZ;
-#if NEOPICO_EXP_GENLOCK_STATIC && !NEOPICO_EXP_VTOTAL_MATCH
-    sys_clk_khz = compute_sysclk_khz_for_fps_x100((uint32_t)NEOPICO_GENLOCK_TARGET_FPS_X100);
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_USE_NONRT_HDMI && NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+    if (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
+        vreg_set_voltage(VREG_VOLTAGE_1_30);
+        sleep_ms(10);
+        set_sys_clock_khz(SYS_CLK_720P_KHZ, true);
+    } else
 #endif
-    set_sys_clock_khz(sys_clk_khz, true);
+    {
+        uint32_t sys_clk_khz = SYS_CLK_60HZ_KHZ;
+#if NEOPICO_EXP_GENLOCK_STATIC && !NEOPICO_EXP_VTOTAL_MATCH
+        sys_clk_khz = compute_sysclk_khz_for_fps_x100((uint32_t)NEOPICO_GENLOCK_TARGET_FPS_X100);
+#endif
+        set_sys_clock_khz(sys_clk_khz, true);
+    }
 #endif
 
     stdio_init_all();
@@ -172,11 +208,6 @@ int main(void)
     // Initialize line ring buffer
     memset(&g_line_ring, 0, sizeof(g_line_ring));
 
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_USE_NONRT_HDMI
-    bool reboot_boot_240p = (NEOPICO_VIDEO_240P != 0);
-    (void)video_pipeline_take_reboot_240p_boot_request(&reboot_boot_240p);
-#endif
-
 #if NEOPICO_ENABLE_OSD
     // Initialize OSD (before video pipeline so framebuffer is ready)
     fast_osd_init();
@@ -192,7 +223,7 @@ int main(void)
 #if NEOPICO_VIDEO_720P
     video_output_set_mode(&video_mode_720_p);
 #elif NEOPICO_EXP_REBOOT_MODE_SWITCH
-    video_output_set_mode(reboot_boot_240p ? &video_mode_240_p : &video_mode_480_p);
+    video_output_set_mode(video_output_mode_for_reboot_mode(reboot_boot_mode));
 #elif NEOPICO_VIDEO_240P
     video_output_set_mode(&video_mode_240_p);
 #elif NEOPICO_EXP_VTOTAL_MATCH

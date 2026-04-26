@@ -19,6 +19,10 @@
 #define NEOPICO_EXP_REBOOT_MODE_SWITCH 0
 #endif
 
+#ifndef NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+#define NEOPICO_EXP_REBOOT_MODE_SWITCH_720P 0
+#endif
+
 // Global frame counter from video output runtime.
 extern volatile uint32_t video_frame_count;
 
@@ -103,7 +107,23 @@ void menu_diag_experiment_tick_background(void)
     const bool back_pressed = !gpio_get(PIN_OSD_BTN_BACK); // active low
     if (back_pressed && !s_back_was_pressed && (now_ms - s_last_back_press_ms) >= 200U) {
         s_last_back_press_ms = now_ms;
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+        video_pipeline_reboot_mode_t next_mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
+        switch (video_pipeline_reboot_requested_mode()) {
+            case VIDEO_PIPELINE_REBOOT_MODE_480P:
+                next_mode = VIDEO_PIPELINE_REBOOT_MODE_240P;
+                break;
+            case VIDEO_PIPELINE_REBOOT_MODE_240P:
+                next_mode = VIDEO_PIPELINE_REBOOT_MODE_720P;
+                break;
+            default:
+                next_mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
+                break;
+        }
+        video_pipeline_request_reboot_mode(next_mode);
+#else
         video_pipeline_request_reboot_240p(!video_pipeline_reboot_requested_240p());
+#endif
     }
     s_back_was_pressed = back_pressed;
 #endif
