@@ -140,7 +140,8 @@ The project leverages the [PicoHDMI](https://github.com/fliperama86/pico_hdmi) l
 - **[Audio Implementation](docs/MVS_MV1C_DIGITAL_AUDIO.md)**: I2S format, ASRC strategy, and drift control.
 - **[HSTX & HDMI](docs/HSTX_IMPLEMENTATION.md)**: Output timing, TMDS, and Data Islands.
 - **[OSD](docs/OSD_IMPLEMENTATION.md)**: On-Screen Display rendering.
-- **[Best Practices](docs/BEST_PRACTICES.md)**: Critical Do's and Don'ts for developers.
+- **[720p Samsung Game Mode Investigation](docs/720P_SAMSUNG_GAME_MODE_INVESTIGATION.md)**: Current findings on Samsung Game Mode 720p glitches.
+- **[Known Issues](docs/KNOWN_ISSUES.md)**: Current limitations and compatibility notes.
 
 ## Architecture Highlights
 
