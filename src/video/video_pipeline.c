@@ -26,27 +26,71 @@
 #define NEOPICO_VIDEO_TEST_PATTERN 0
 #endif
 
+#ifndef NEOPICO_VIDEO_240P
+#define NEOPICO_VIDEO_240P 0
+#endif
+
+#ifndef NEOPICO_VIDEO_720P
+#define NEOPICO_VIDEO_720P 0
+#endif
+
 // Scanline effect toggle (off by default)
 bool fx_scanlines_enabled = false;
 #if NEOPICO_ENABLE_OSD
 static bool osd_visible_latched = false;
 #endif
-typedef void (*pixel_scale_fn_t)(uint32_t *dst, const uint16_t *src, int count);
-
-static bool mode_is_240p = false;
-static bool mode_is_720p = false;
-static uint32_t mode_h_words = 320;
-static uint32_t mode_image_words = 320;
-static uint32_t mode_x_margin_words = 0;
-static uint32_t mode_osd_x_words = 0;
-static uint32_t mode_osd_w_words = 0;
-static pixel_scale_fn_t mode_scale_fn = video_pipeline_double_pixels_fast;
 // Overscan/background outside active 224-line image area (RGB565): black.
 #define OVERSCAN_COLOR_RGB565 0x0000
 // No-signal fallback color (RGB565): mid gray.
 #define NO_SIGNAL_COLOR_RGB565 0x7BEF
 
-static inline void __scratch_y("") video_pipeline_fill_rgb565(uint32_t *dst, uint32_t words, uint16_t color)
+#if NEOPICO_VIDEO_720P
+#define VIDEO_PIPELINE_H_WORDS (1280U / 2U)
+#define VIDEO_PIPELINE_H_SCALE 3U
+#define VIDEO_PIPELINE_SCALE_PIXELS(dst, src, count) video_pipeline_triple_pixels_fast((dst), (src), (count))
+static inline bool video_pipeline_map_active_line(uint32_t active_line, uint32_t *fb_line)
+{
+    if ((active_line % 3U) != 0U) {
+        return false;
+    }
+    *fb_line = active_line / 3U;
+    return true;
+}
+#elif NEOPICO_VIDEO_240P
+#define VIDEO_PIPELINE_H_WORDS (1280U / 2U)
+#define VIDEO_PIPELINE_H_SCALE 4U
+#define VIDEO_PIPELINE_SCALE_PIXELS(dst, src, count) video_pipeline_quadruple_pixels_fast((dst), (src), (count))
+static inline bool video_pipeline_map_active_line(uint32_t active_line, uint32_t *fb_line)
+{
+    *fb_line = active_line;
+    return true;
+}
+#else
+#define VIDEO_PIPELINE_H_WORDS (640U / 2U)
+#define VIDEO_PIPELINE_H_SCALE 2U
+#define VIDEO_PIPELINE_SCALE_PIXELS(dst, src, count) video_pipeline_double_pixels_fast((dst), (src), (count))
+static inline bool video_pipeline_map_active_line(uint32_t active_line, uint32_t *fb_line)
+{
+    *fb_line = active_line >> 1;
+    return true;
+}
+#endif
+
+#define VIDEO_PIPELINE_IMAGE_WORDS ((LINE_WIDTH * VIDEO_PIPELINE_H_SCALE) / 2U)
+#define VIDEO_PIPELINE_X_MARGIN_WORDS                                                                                  \
+    ((VIDEO_PIPELINE_H_WORDS > VIDEO_PIPELINE_IMAGE_WORDS)                                                             \
+         ? ((VIDEO_PIPELINE_H_WORDS - VIDEO_PIPELINE_IMAGE_WORDS) / 2U)                                                \
+         : 0U)
+#if NEOPICO_ENABLE_OSD
+#define VIDEO_PIPELINE_OSD_X_WORDS                                                                                     \
+    (VIDEO_PIPELINE_X_MARGIN_WORDS + (((uint32_t)OSD_BOX_X * VIDEO_PIPELINE_H_SCALE) / 2U))
+#define VIDEO_PIPELINE_OSD_W_WORDS (((uint32_t)OSD_BOX_W * VIDEO_PIPELINE_H_SCALE) / 2U)
+#endif
+
+static void __scratch_y("") video_pipeline_fill_rgb565(uint32_t *dst, uint32_t words, uint16_t color)
+    __attribute__((noinline, noclone));
+
+static void __scratch_y("") video_pipeline_fill_rgb565(uint32_t *dst, uint32_t words, uint16_t color)
 {
     const uint32_t packed = ((uint32_t)color << 16) | color;
     for (uint32_t i = 0; i < words; i++) {
@@ -78,39 +122,6 @@ static void video_pipeline_init_test_pattern_line(void)
 }
 #endif
 
-static inline void video_pipeline_refresh_mode_cache(void)
-{
-#if NEOPICO_USE_NONRT_HDMI
-    // Non-rt: mode is fixed at compile time. frame_width/frame_height track the
-    // *framebuffer* (320x240 source), not the *display* mode — we need the
-    // mode's active pixels here, which the non-rt path exposes as compile-time
-    // MODE_H_ACTIVE_PIXELS / MODE_V_ACTIVE_LINES via video_output.h.
-    const uint16_t h_active = MODE_H_ACTIVE_PIXELS;
-    const uint16_t v_active = MODE_V_ACTIVE_LINES;
-#else
-    const uint16_t h_active = video_output_get_h_active_pixels();
-    const uint16_t v_active = video_output_get_v_active_lines();
-#endif
-
-    mode_is_240p = (h_active == 1280U && v_active == 240U);
-    mode_is_720p = (h_active == 1280U && v_active == 720U);
-    const uint32_t h_scale = mode_is_720p ? 3U : (h_active == (LINE_WIDTH * 4U)) ? 4U : 2U;
-
-    mode_h_words = (uint32_t)h_active / 2U;
-    mode_image_words = (LINE_WIDTH * h_scale) / 2U;
-    mode_x_margin_words = (mode_h_words > mode_image_words) ? ((mode_h_words - mode_image_words) / 2U) : 0U;
-    mode_scale_fn = (h_scale == 4U)   ? video_pipeline_quadruple_pixels_fast
-                    : (h_scale == 3U) ? video_pipeline_triple_pixels_fast
-                                      : video_pipeline_double_pixels_fast;
-#if NEOPICO_ENABLE_OSD
-    mode_osd_x_words = mode_x_margin_words + (((uint32_t)OSD_BOX_X * h_scale) / 2U);
-    mode_osd_w_words = ((uint32_t)OSD_BOX_W * h_scale) / 2U;
-#else
-    mode_osd_x_words = 0;
-    mode_osd_w_words = 0;
-#endif
-}
-
 /**
  * Initialize the video pipeline.
  * Sets up HDMI output and registers scanline/vsync callbacks.
@@ -120,7 +131,6 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
     video_output_init(frame_width, frame_height);
     video_output_set_scanline_callback(video_pipeline_scanline_callback);
     video_output_set_vsync_callback(video_pipeline_vsync_callback);
-    video_pipeline_refresh_mode_cache();
 
 #if NEOPICO_ENABLE_OSD
     osd_visible_latched = osd_visible;
@@ -239,7 +249,6 @@ static void __scratch_x("") genlock_dynamic_update(void)
  */
 void __scratch_x("") video_pipeline_vsync_callback(void)
 {
-    video_pipeline_refresh_mode_cache();
     line_ring_output_vsync();
 #if NEOPICO_EXP_GENLOCK_DYNAMIC && !NEOPICO_USE_NONRT_HDMI
     genlock_dynamic_update();
@@ -253,32 +262,26 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
 {
     (void)v_scanline;
 
-    const uint32_t h_words = mode_h_words;
+    const uint32_t h_words = VIDEO_PIPELINE_H_WORDS;
 
-#if NEOPICO_VIDEO_TEST_PATTERN
-    if (mode_is_720p) {
-        if (!test_pattern_line_ready) {
-            video_pipeline_init_test_pattern_line();
-        }
-        if ((active_line % 3U) != 0U) {
-            return;
-        }
-        video_pipeline_fill_rgb565(dst, mode_x_margin_words, OVERSCAN_COLOR_RGB565);
-        mode_scale_fn(dst + mode_x_margin_words, test_pattern_line, LINE_WIDTH);
-        video_pipeline_fill_rgb565(dst + mode_x_margin_words + mode_image_words,
-                                   h_words - mode_x_margin_words - mode_image_words, OVERSCAN_COLOR_RGB565);
+#if NEOPICO_VIDEO_TEST_PATTERN && NEOPICO_VIDEO_720P
+    if (!test_pattern_line_ready) {
+        video_pipeline_init_test_pattern_line();
+    }
+    if ((active_line % 3U) != 0U) {
         return;
     }
+    video_pipeline_fill_rgb565(dst, VIDEO_PIPELINE_X_MARGIN_WORDS, OVERSCAN_COLOR_RGB565);
+    VIDEO_PIPELINE_SCALE_PIXELS(dst + VIDEO_PIPELINE_X_MARGIN_WORDS, test_pattern_line, LINE_WIDTH);
+    video_pipeline_fill_rgb565(dst + VIDEO_PIPELINE_X_MARGIN_WORDS + VIDEO_PIPELINE_IMAGE_WORDS,
+                               h_words - VIDEO_PIPELINE_X_MARGIN_WORDS - VIDEO_PIPELINE_IMAGE_WORDS,
+                               OVERSCAN_COLOR_RGB565);
+    return;
 #endif
 
     uint32_t fb_line;
-    if (mode_is_720p) {
-        if ((active_line % 3U) != 0U) {
-            return;
-        }
-        fb_line = active_line / 3U;
-    } else {
-        fb_line = mode_is_240p ? active_line : (active_line >> 1);
+    if (!video_pipeline_map_active_line(active_line, &fb_line)) {
+        return;
     }
 
 #if NEOPICO_ENABLE_OSD
@@ -305,10 +308,11 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
             video_pipeline_fill_rgb565(dst, h_words, NO_SIGNAL_COLOR_RGB565);
             return;
         }
-        video_pipeline_fill_rgb565(dst, mode_x_margin_words, OVERSCAN_COLOR_RGB565);
-        mode_scale_fn(dst + mode_x_margin_words, src, LINE_WIDTH);
-        video_pipeline_fill_rgb565(dst + mode_x_margin_words + mode_image_words,
-                                   h_words - mode_x_margin_words - mode_image_words, OVERSCAN_COLOR_RGB565);
+        video_pipeline_fill_rgb565(dst, VIDEO_PIPELINE_X_MARGIN_WORDS, OVERSCAN_COLOR_RGB565);
+        VIDEO_PIPELINE_SCALE_PIXELS(dst + VIDEO_PIPELINE_X_MARGIN_WORDS, src, LINE_WIDTH);
+        video_pipeline_fill_rgb565(dst + VIDEO_PIPELINE_X_MARGIN_WORDS + VIDEO_PIPELINE_IMAGE_WORDS,
+                                   h_words - VIDEO_PIPELINE_X_MARGIN_WORDS - VIDEO_PIPELINE_IMAGE_WORDS,
+                                   OVERSCAN_COLOR_RGB565);
         return;
     }
 
@@ -326,22 +330,24 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     const uint16_t *osd_src = osd_framebuffer[osd_line_u32];
     if (!src) {
         // No capture source: render OSD over fallback color without double-writing the OSD span.
-        video_pipeline_fill_rgb565(dst, mode_osd_x_words, NO_SIGNAL_COLOR_RGB565);
-        mode_scale_fn(dst + mode_osd_x_words, osd_src, OSD_BOX_W);
-        video_pipeline_fill_rgb565(dst + mode_osd_x_words + mode_osd_w_words,
-                                   h_words - mode_osd_x_words - mode_osd_w_words, NO_SIGNAL_COLOR_RGB565);
+        video_pipeline_fill_rgb565(dst, VIDEO_PIPELINE_OSD_X_WORDS, NO_SIGNAL_COLOR_RGB565);
+        VIDEO_PIPELINE_SCALE_PIXELS(dst + VIDEO_PIPELINE_OSD_X_WORDS, osd_src, OSD_BOX_W);
+        video_pipeline_fill_rgb565(dst + VIDEO_PIPELINE_OSD_X_WORDS + VIDEO_PIPELINE_OSD_W_WORDS,
+                                   h_words - VIDEO_PIPELINE_OSD_X_WORDS - VIDEO_PIPELINE_OSD_W_WORDS,
+                                   NO_SIGNAL_COLOR_RGB565);
         return;
     }
 
     // Before OSD
-    video_pipeline_fill_rgb565(dst, mode_x_margin_words, OVERSCAN_COLOR_RGB565);
-    mode_scale_fn(dst + mode_x_margin_words, src, OSD_BOX_X);
+    video_pipeline_fill_rgb565(dst, VIDEO_PIPELINE_X_MARGIN_WORDS, OVERSCAN_COLOR_RGB565);
+    VIDEO_PIPELINE_SCALE_PIXELS(dst + VIDEO_PIPELINE_X_MARGIN_WORDS, src, OSD_BOX_X);
     // OSD region (blit from OSD framebuffer)
-    mode_scale_fn(dst + mode_osd_x_words, osd_src, OSD_BOX_W);
+    VIDEO_PIPELINE_SCALE_PIXELS(dst + VIDEO_PIPELINE_OSD_X_WORDS, osd_src, OSD_BOX_W);
     // After OSD
-    mode_scale_fn(dst + mode_osd_x_words + mode_osd_w_words, src + OSD_BOX_X + OSD_BOX_W,
-                  LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
-    video_pipeline_fill_rgb565(dst + mode_x_margin_words + mode_image_words,
-                               h_words - mode_x_margin_words - mode_image_words, OVERSCAN_COLOR_RGB565);
+    VIDEO_PIPELINE_SCALE_PIXELS(dst + VIDEO_PIPELINE_OSD_X_WORDS + VIDEO_PIPELINE_OSD_W_WORDS,
+                                src + OSD_BOX_X + OSD_BOX_W, LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
+    video_pipeline_fill_rgb565(dst + VIDEO_PIPELINE_X_MARGIN_WORDS + VIDEO_PIPELINE_IMAGE_WORDS,
+                               h_words - VIDEO_PIPELINE_X_MARGIN_WORDS - VIDEO_PIPELINE_IMAGE_WORDS,
+                               OVERSCAN_COLOR_RGB565);
 #endif
 }
