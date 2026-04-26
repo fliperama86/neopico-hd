@@ -36,6 +36,17 @@ void __scratch_y("") video_pipeline_triple_pixels_fast(uint32_t *dst, const uint
  */
 void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const uint16_t *src, int count);
 
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+/**
+ * Request a reboot-based output mode switch between default 480p and true 240p.
+ * Experimental: 720p is intentionally excluded. The request is consumed during
+ * the next boot before HDMI output starts.
+ */
+void video_pipeline_request_reboot_240p(bool enabled);
+bool video_pipeline_reboot_requested_240p(void);
+bool video_pipeline_take_reboot_240p_boot_request(bool *enabled);
+#endif
+
 /**
  * Scanline callback for HDMI output.
  * Called by Core 1 DMA ISR for every active video line.

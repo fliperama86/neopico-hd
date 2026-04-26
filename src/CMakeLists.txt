@@ -35,6 +35,8 @@ set(NEOPICO_GENLOCK_TARGET_FPS_X100 "5920" CACHE STRING "Static genlock target F
 option(NEOPICO_EXP_VTOTAL_MATCH "Enable fixed-pixel-clock output with custom V total for near-source frame rate" OFF)
 set(NEOPICO_EXP_VTOTAL_LINES "532" CACHE STRING "Custom V total lines when NEOPICO_EXP_VTOTAL_MATCH is ON")
 option(NEOPICO_EXP_GENLOCK_DYNAMIC "Enable dynamic VTOTAL genlock (runtime phase tracking)" OFF)
+option(NEOPICO_EXP_REBOOT_MODE_SWITCH "Enable experimental reboot-based 480p/240p HDMI mode switching via OSD Back button" OFF)
+option(NEOPICO_EXP_RUNTIME_MODE_SWITCH "Deprecated alias for NEOPICO_EXP_REBOOT_MODE_SWITCH" OFF)
 option(NEOPICO_AUDIO_PCM1802 "Use PCM1802 ADC for analog audio capture (AES/non-MV1C boards)" OFF)
 option(NEOPICO_CAPTURE_FREEZE_AFTER_FRAME "Capture one MVS frame then stop capture writes for video isolation tests" OFF)
 set(NEOPICO_LINE_RING_SIZE "256" CACHE STRING "Number of 320px lines in the capture/display ring")
@@ -75,6 +77,17 @@ else()
     set(GENLOCK_DYNAMIC_VALUE 0)
 endif()
 
+if(NEOPICO_EXP_RUNTIME_MODE_SWITCH)
+    message(WARNING "NEOPICO_EXP_RUNTIME_MODE_SWITCH is deprecated; enabling NEOPICO_EXP_REBOOT_MODE_SWITCH instead")
+    set(NEOPICO_EXP_REBOOT_MODE_SWITCH ON CACHE BOOL "Enable experimental reboot-based 480p/240p HDMI mode switching via OSD Back button" FORCE)
+endif()
+
+if(NEOPICO_EXP_REBOOT_MODE_SWITCH)
+    set(REBOOT_MODE_SWITCH_VALUE 1)
+else()
+    set(REBOOT_MODE_SWITCH_VALUE 0)
+endif()
+
 if(NEOPICO_AUDIO_PCM1802)
     set(AUDIO_PCM1802_VALUE 1)
 else()
@@ -111,6 +124,18 @@ if(NEOPICO_USE_NONRT_HDMI)
     endif()
 else()
     set(USE_NONRT_HDMI_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_REBOOT_MODE_SWITCH)
+    if(NEOPICO_USE_NONRT_HDMI)
+        message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH requires the runtime pico_hdmi path")
+    endif()
+    if(NEOPICO_VIDEO_720P)
+        message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH is currently limited to 480p/240p; do not combine with NEOPICO_VIDEO_720P")
+    endif()
+    if(NOT NEOPICO_ENABLE_OSD)
+        message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH currently uses the OSD Back button, so NEOPICO_ENABLE_OSD=ON is required")
+    endif()
 endif()
 
 if(NEOPICO_VIDEO_DVI_ONLY)
@@ -183,6 +208,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_EXP_VTOTAL_MATCH=${VTOTAL_MATCH_VALUE}
     NEOPICO_EXP_VTOTAL_LINES=${NEOPICO_EXP_VTOTAL_LINES}
     NEOPICO_EXP_GENLOCK_DYNAMIC=${GENLOCK_DYNAMIC_VALUE}
+    NEOPICO_EXP_REBOOT_MODE_SWITCH=${REBOOT_MODE_SWITCH_VALUE}
     NEOPICO_AUDIO_PCM1802=${AUDIO_PCM1802_VALUE}
     NEOPICO_CAPTURE_FREEZE_AFTER_FRAME=${CAPTURE_FREEZE_AFTER_FRAME_VALUE}
     NEOPICO_LINE_RING_SIZE=${NEOPICO_LINE_RING_SIZE}

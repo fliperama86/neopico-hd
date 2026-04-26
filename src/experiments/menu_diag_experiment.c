@@ -8,10 +8,15 @@
 
 #include "mvs_pins.h"
 #include "osd/fast_osd.h"
+#include "video_pipeline.h"
 #if NEOPICO_ENABLE_SELFTEST
 #include "osd/selftest_layout.h"
 
 #define SELFTEST_SHADOW_HOLD_UPDATES 30U
+#endif
+
+#ifndef NEOPICO_EXP_REBOOT_MODE_SWITCH
+#define NEOPICO_EXP_REBOOT_MODE_SWITCH 0
 #endif
 
 // Global frame counter from video output runtime.
@@ -19,6 +24,10 @@ extern volatile uint32_t video_frame_count;
 
 static bool s_btn_was_pressed = false;
 static uint32_t s_last_press_ms = 0;
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+static bool s_back_was_pressed = false;
+static uint32_t s_last_back_press_ms = 0;
+#endif
 #if NEOPICO_ENABLE_SELFTEST
 static uint32_t s_last_update_frame = 0;
 static uint32_t s_video_hi = 0;
@@ -34,6 +43,10 @@ void menu_diag_experiment_init(void)
 {
     s_btn_was_pressed = false;
     s_last_press_ms = 0;
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+    s_back_was_pressed = false;
+    s_last_back_press_ms = 0;
+#endif
 #if NEOPICO_ENABLE_SELFTEST
     s_last_update_frame = video_frame_count;
     s_video_hi = 0;
@@ -85,6 +98,15 @@ void menu_diag_experiment_tick_background(void)
         }
     }
     s_btn_was_pressed = btn_pressed;
+
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+    const bool back_pressed = !gpio_get(PIN_OSD_BTN_BACK); // active low
+    if (back_pressed && !s_back_was_pressed && (now_ms - s_last_back_press_ms) >= 200U) {
+        s_last_back_press_ms = now_ms;
+        video_pipeline_request_reboot_240p(!video_pipeline_reboot_requested_240p());
+    }
+    s_back_was_pressed = back_pressed;
+#endif
 
 #if NEOPICO_ENABLE_SELFTEST
     if (osd_visible) {

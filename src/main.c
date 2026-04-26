@@ -44,6 +44,10 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 #define NEOPICO_EXP_GENLOCK_DYNAMIC 0
 #endif
 
+#ifndef NEOPICO_EXP_REBOOT_MODE_SWITCH
+#define NEOPICO_EXP_REBOOT_MODE_SWITCH 0
+#endif
+
 #if NEOPICO_EXP_GENLOCK_DYNAMIC && (NEOPICO_EXP_GENLOCK_STATIC || NEOPICO_EXP_VTOTAL_MATCH)
 #error "GENLOCK_DYNAMIC is mutually exclusive with GENLOCK_STATIC and VTOTAL_MATCH"
 #endif
@@ -168,6 +172,11 @@ int main(void)
     // Initialize line ring buffer
     memset(&g_line_ring, 0, sizeof(g_line_ring));
 
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_USE_NONRT_HDMI
+    bool reboot_boot_240p = (NEOPICO_VIDEO_240P != 0);
+    (void)video_pipeline_take_reboot_240p_boot_request(&reboot_boot_240p);
+#endif
+
 #if NEOPICO_ENABLE_OSD
     // Initialize OSD (before video pipeline so framebuffer is ready)
     fast_osd_init();
@@ -182,6 +191,8 @@ int main(void)
 #if !NEOPICO_USE_NONRT_HDMI
 #if NEOPICO_VIDEO_720P
     video_output_set_mode(&video_mode_720_p);
+#elif NEOPICO_EXP_REBOOT_MODE_SWITCH
+    video_output_set_mode(reboot_boot_240p ? &video_mode_240_p : &video_mode_480_p);
 #elif NEOPICO_VIDEO_240P
     video_output_set_mode(&video_mode_240_p);
 #elif NEOPICO_EXP_VTOTAL_MATCH
