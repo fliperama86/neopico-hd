@@ -7,6 +7,16 @@
 #include "font_8x8.h"
 #include "pico.h"
 
+#ifndef NEOPICO_EXP_RAM_SELECTOR_UI
+#define NEOPICO_EXP_RAM_SELECTOR_UI 0
+#endif
+
+#if NEOPICO_EXP_RAM_SELECTOR_UI
+#define FAST_OSD_RENDER_RAM(name) __not_in_flash_func(name)
+#else
+#define FAST_OSD_RENDER_RAM(name) name
+#endif
+
 volatile bool osd_visible = false;
 uint16_t __attribute__((aligned(4))) osd_framebuffer[OSD_BOX_H][OSD_BOX_W];
 
@@ -57,7 +67,7 @@ static inline void fast_osd_render_cell(uint8_t row, uint8_t col, char c, uint16
     }
 }
 
-void fast_osd_clear(void)
+void FAST_OSD_RENDER_RAM(fast_osd_clear)(void)
 {
     uint32_t *dst32 = (uint32_t *)osd_framebuffer;
     const uint32_t bg32 = OSD_COLOR_BG | ((uint32_t)OSD_COLOR_BG << 16);
@@ -80,12 +90,12 @@ void fast_osd_init(void)
     fast_osd_clear();
 }
 
-void fast_osd_putc(uint8_t row, uint8_t col, char c)
+void FAST_OSD_RENDER_RAM(fast_osd_putc)(uint8_t row, uint8_t col, char c)
 {
     fast_osd_putc_color(row, col, c, OSD_COLOR_FG);
 }
 
-void fast_osd_putc_color(uint8_t row, uint8_t col, char c, uint16_t color)
+void FAST_OSD_RENDER_RAM(fast_osd_putc_color)(uint8_t row, uint8_t col, char c, uint16_t color)
 {
     if (!fast_osd_in_bounds(row, col)) {
         return;
@@ -101,12 +111,12 @@ void fast_osd_putc_color(uint8_t row, uint8_t col, char c, uint16_t color)
     fast_osd_render_cell(row, col, norm, color);
 }
 
-void fast_osd_puts(uint8_t row, uint8_t col, const char *text)
+void FAST_OSD_RENDER_RAM(fast_osd_puts)(uint8_t row, uint8_t col, const char *text)
 {
     fast_osd_puts_color(row, col, text, OSD_COLOR_FG);
 }
 
-void fast_osd_puts_color(uint8_t row, uint8_t col, const char *text, uint16_t color)
+void FAST_OSD_RENDER_RAM(fast_osd_puts_color)(uint8_t row, uint8_t col, const char *text, uint16_t color)
 {
     if (!text || row >= FAST_OSD_ROWS || col >= FAST_OSD_COLS) {
         return;

@@ -52,6 +52,18 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 #define NEOPICO_EXP_REBOOT_MODE_SWITCH_720P 0
 #endif
 
+#ifndef NEOPICO_EXP_DISABLE_BACKGROUND_TASK
+#define NEOPICO_EXP_DISABLE_BACKGROUND_TASK 0
+#endif
+
+#ifndef NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND
+#define NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND 0
+#endif
+
+#ifndef NEOPICO_EXP_DISABLE_OSD_BACKGROUND
+#define NEOPICO_EXP_DISABLE_OSD_BACKGROUND 0
+#endif
+
 #if NEOPICO_EXP_GENLOCK_DYNAMIC && (NEOPICO_EXP_GENLOCK_STATIC || NEOPICO_EXP_VTOTAL_MATCH)
 #error "GENLOCK_DYNAMIC is mutually exclusive with GENLOCK_STATIC and VTOTAL_MATCH"
 #endif
@@ -143,10 +155,10 @@ static const video_mode_t *video_output_mode_for_reboot_mode(video_pipeline_rebo
 
 static void combined_background_task(void)
 {
-#if !NEOPICO_VIDEO_DVI_ONLY
+#if !NEOPICO_VIDEO_DVI_ONLY && !NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND
     audio_subsystem_background_task();
 #endif
-#if NEOPICO_ENABLE_OSD
+#if NEOPICO_ENABLE_OSD && !NEOPICO_EXP_DISABLE_OSD_BACKGROUND
     menu_diag_experiment_tick_background();
 #endif
 }
@@ -223,7 +235,9 @@ int main(void)
 #if NEOPICO_VIDEO_720P
     video_output_set_mode(&video_mode_720_p);
 #elif NEOPICO_EXP_REBOOT_MODE_SWITCH
-    video_output_set_mode(video_output_mode_for_reboot_mode(reboot_boot_mode));
+    if (reboot_boot_mode != VIDEO_PIPELINE_REBOOT_MODE_480P) {
+        video_output_set_mode(video_output_mode_for_reboot_mode(reboot_boot_mode));
+    }
 #elif NEOPICO_VIDEO_240P
     video_output_set_mode(&video_mode_240_p);
 #elif NEOPICO_EXP_VTOTAL_MATCH
@@ -236,7 +250,7 @@ int main(void)
     // The non-rt path doesn't expose video_output_update_acr; skip it.
     video_output_update_acr(get_current_pixel_clock_hz());
 #endif
-#if !NEOPICO_VIDEO_DVI_ONLY || NEOPICO_ENABLE_OSD
+#if (!NEOPICO_VIDEO_DVI_ONLY || NEOPICO_ENABLE_OSD) && !NEOPICO_EXP_DISABLE_BACKGROUND_TASK
     video_output_set_background_task(combined_background_task);
 #endif
 

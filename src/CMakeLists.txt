@@ -37,6 +37,24 @@ set(NEOPICO_EXP_VTOTAL_LINES "532" CACHE STRING "Custom V total lines when NEOPI
 option(NEOPICO_EXP_GENLOCK_DYNAMIC "Enable dynamic VTOTAL genlock (runtime phase tracking)" OFF)
 option(NEOPICO_EXP_REBOOT_MODE_SWITCH "Enable experimental reboot-based 480p/240p HDMI mode switching via OSD Back button" OFF)
 option(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P "Allow the reboot-based HDMI mode switch experiment to cycle through 720p" OFF)
+option(NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI "Compile reboot-mode plumbing but disable the OSD resolution selector UI for timing isolation" OFF)
+option(NEOPICO_EXP_RAM_SELECTOR_UI "Place reboot selector UI/render helpers in SRAM for timing isolation" OFF)
+option(NEOPICO_EXP_STATIC_OSD_TOGGLE_ONLY "Pre-render reboot selector OSD once and only toggle visibility with MENU for timing isolation" OFF)
+option(NEOPICO_EXP_STATIC_OSD_SELECT_ONLY "Pre-render reboot selector OSD once; MENU toggles visibility and BACK only updates selection glyphs" OFF)
+option(NEOPICO_EXP_STATIC_OSD_APPLY "Pre-render reboot selector OSD once; MENU applies when visible and BACK only updates selection glyphs" OFF)
+option(NEOPICO_EXP_RAM_OSD_APPLY_PATH "Place cold OSD apply/reboot request path in SRAM and keep it noinline for timing isolation" OFF)
+option(NEOPICO_EXP_DISABLE_BACKGROUND_TASK "Disable the Core 1 background task for timing isolation" OFF)
+option(NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND "Disable only the audio branch of the Core 1 background task" OFF)
+option(NEOPICO_EXP_DISABLE_OSD_BACKGROUND "Disable only the OSD/menu branch of the Core 1 background task" OFF)
+option(NEOPICO_EXP_AUDIO_NO_CAPTURE_START "Initialize audio but do not start I2S capture DMA/PIO for timing isolation" OFF)
+option(NEOPICO_EXP_AUDIO_CAPTURE_ONLY "Start I2S capture DMA/PIO but skip audio processing/output for timing isolation" OFF)
+option(NEOPICO_EXP_AUDIO_PROCESS_NO_OUTPUT "Process captured audio but suppress HDMI audio enqueue for timing isolation" OFF)
+option(NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE "Encode HDMI audio packets but suppress DI queue push for timing isolation" OFF)
+option(NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK "Limit Core 1 audio background processing to one chunk per pass" OFF)
+option(NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS "Limit Core 1 audio output to one HDMI packet per background pass" OFF)
+option(NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE "Push a pre-encoded static silent HDMI audio packet for timing isolation" OFF)
+option(NEOPICO_EXP_ALIGN_HSTX_DI_BUFFERS "Align runtime HSTX Data Island command-list buffers for timing isolation" OFF)
+option(NEOPICO_EXP_RAM_DI_QUEUE_PUSH "Place hstx_di_queue_push in SRAM for timing isolation" OFF)
 option(NEOPICO_EXP_RUNTIME_MODE_SWITCH "Deprecated alias for NEOPICO_EXP_REBOOT_MODE_SWITCH" OFF)
 option(NEOPICO_AUDIO_PCM1802 "Use PCM1802 ADC for analog audio capture (AES/non-MV1C boards)" OFF)
 option(NEOPICO_CAPTURE_FREEZE_AFTER_FRAME "Capture one MVS frame then stop capture writes for video isolation tests" OFF)
@@ -93,6 +111,102 @@ if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P)
     set(REBOOT_MODE_SWITCH_720P_VALUE 1)
 else()
     set(REBOOT_MODE_SWITCH_720P_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI)
+    set(DISABLE_REBOOT_SELECTOR_UI_VALUE 1)
+else()
+    set(DISABLE_REBOOT_SELECTOR_UI_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_RAM_SELECTOR_UI)
+    set(RAM_SELECTOR_UI_VALUE 1)
+else()
+    set(RAM_SELECTOR_UI_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_STATIC_OSD_TOGGLE_ONLY)
+    set(STATIC_OSD_TOGGLE_ONLY_VALUE 1)
+else()
+    set(STATIC_OSD_TOGGLE_ONLY_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_STATIC_OSD_SELECT_ONLY)
+    set(STATIC_OSD_SELECT_ONLY_VALUE 1)
+else()
+    set(STATIC_OSD_SELECT_ONLY_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_STATIC_OSD_APPLY)
+    set(STATIC_OSD_APPLY_VALUE 1)
+else()
+    set(STATIC_OSD_APPLY_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_RAM_OSD_APPLY_PATH)
+    set(RAM_OSD_APPLY_PATH_VALUE 1)
+else()
+    set(RAM_OSD_APPLY_PATH_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_DISABLE_BACKGROUND_TASK)
+    set(DISABLE_BACKGROUND_TASK_VALUE 1)
+else()
+    set(DISABLE_BACKGROUND_TASK_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND)
+    set(DISABLE_AUDIO_BACKGROUND_VALUE 1)
+else()
+    set(DISABLE_AUDIO_BACKGROUND_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_DISABLE_OSD_BACKGROUND)
+    set(DISABLE_OSD_BACKGROUND_VALUE 1)
+else()
+    set(DISABLE_OSD_BACKGROUND_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_AUDIO_NO_CAPTURE_START)
+    set(AUDIO_NO_CAPTURE_START_VALUE 1)
+else()
+    set(AUDIO_NO_CAPTURE_START_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_AUDIO_CAPTURE_ONLY)
+    set(AUDIO_CAPTURE_ONLY_VALUE 1)
+else()
+    set(AUDIO_CAPTURE_ONLY_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_AUDIO_PROCESS_NO_OUTPUT)
+    set(AUDIO_PROCESS_NO_OUTPUT_VALUE 1)
+else()
+    set(AUDIO_PROCESS_NO_OUTPUT_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE)
+    set(AUDIO_ENCODE_NO_QUEUE_VALUE 1)
+else()
+    set(AUDIO_ENCODE_NO_QUEUE_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK)
+    set(AUDIO_LIMIT_BACKGROUND_WORK_VALUE 1)
+else()
+    set(AUDIO_LIMIT_BACKGROUND_WORK_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS)
+    set(AUDIO_LIMIT_OUTPUT_PACKETS_VALUE 1)
+else()
+    set(AUDIO_LIMIT_OUTPUT_PACKETS_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE)
+    set(AUDIO_PUSH_STATIC_SILENCE_VALUE 1)
+else()
+    set(AUDIO_PUSH_STATIC_SILENCE_VALUE 0)
 endif()
 
 if(NEOPICO_AUDIO_PCM1802)
@@ -188,6 +302,14 @@ if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P)
     target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_RT_RUNTIME_MODE_ATTRS=1)
 endif()
 
+if(NEOPICO_EXP_ALIGN_HSTX_DI_BUFFERS)
+    target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_ALIGN_DI_BUFFERS=1)
+endif()
+
+if(NEOPICO_EXP_RAM_DI_QUEUE_PUSH)
+    target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_RAM_DI_QUEUE_PUSH=1)
+endif()
+
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
 
@@ -225,6 +347,22 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_EXP_GENLOCK_DYNAMIC=${GENLOCK_DYNAMIC_VALUE}
     NEOPICO_EXP_REBOOT_MODE_SWITCH=${REBOOT_MODE_SWITCH_VALUE}
     NEOPICO_EXP_REBOOT_MODE_SWITCH_720P=${REBOOT_MODE_SWITCH_720P_VALUE}
+    NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI=${DISABLE_REBOOT_SELECTOR_UI_VALUE}
+    NEOPICO_EXP_RAM_SELECTOR_UI=${RAM_SELECTOR_UI_VALUE}
+    NEOPICO_EXP_STATIC_OSD_TOGGLE_ONLY=${STATIC_OSD_TOGGLE_ONLY_VALUE}
+    NEOPICO_EXP_STATIC_OSD_SELECT_ONLY=${STATIC_OSD_SELECT_ONLY_VALUE}
+    NEOPICO_EXP_STATIC_OSD_APPLY=${STATIC_OSD_APPLY_VALUE}
+    NEOPICO_EXP_RAM_OSD_APPLY_PATH=${RAM_OSD_APPLY_PATH_VALUE}
+    NEOPICO_EXP_DISABLE_BACKGROUND_TASK=${DISABLE_BACKGROUND_TASK_VALUE}
+    NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND=${DISABLE_AUDIO_BACKGROUND_VALUE}
+    NEOPICO_EXP_DISABLE_OSD_BACKGROUND=${DISABLE_OSD_BACKGROUND_VALUE}
+    NEOPICO_EXP_AUDIO_NO_CAPTURE_START=${AUDIO_NO_CAPTURE_START_VALUE}
+    NEOPICO_EXP_AUDIO_CAPTURE_ONLY=${AUDIO_CAPTURE_ONLY_VALUE}
+    NEOPICO_EXP_AUDIO_PROCESS_NO_OUTPUT=${AUDIO_PROCESS_NO_OUTPUT_VALUE}
+    NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE=${AUDIO_ENCODE_NO_QUEUE_VALUE}
+    NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK=${AUDIO_LIMIT_BACKGROUND_WORK_VALUE}
+    NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS=${AUDIO_LIMIT_OUTPUT_PACKETS_VALUE}
+    NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE=${AUDIO_PUSH_STATIC_SILENCE_VALUE}
     NEOPICO_AUDIO_PCM1802=${AUDIO_PCM1802_VALUE}
     NEOPICO_CAPTURE_FREEZE_AFTER_FRAME=${CAPTURE_FREEZE_AFTER_FRAME_VALUE}
     NEOPICO_LINE_RING_SIZE=${NEOPICO_LINE_RING_SIZE}
