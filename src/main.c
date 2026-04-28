@@ -52,6 +52,10 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 #define NEOPICO_EXP_REBOOT_MODE_SWITCH_720P 0
 #endif
 
+#ifndef NEOPICO_EXP_REBOOT_BUTTON_CYCLER
+#define NEOPICO_EXP_REBOOT_BUTTON_CYCLER 0
+#endif
+
 #ifndef NEOPICO_EXP_DISABLE_BACKGROUND_TASK
 #define NEOPICO_EXP_DISABLE_BACKGROUND_TASK 0
 #endif
@@ -153,10 +157,57 @@ static const video_mode_t *video_output_mode_for_reboot_mode(video_pipeline_rebo
 }
 #endif
 
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH && NEOPICO_EXP_REBOOT_BUTTON_CYCLER
+static bool reboot_button_back_was_pressed = false;
+static uint32_t reboot_button_last_back_press_ms = 0;
+
+static video_pipeline_reboot_mode_t reboot_button_next_mode(video_pipeline_reboot_mode_t mode)
+{
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+    switch (mode) {
+        case VIDEO_PIPELINE_REBOOT_MODE_480P:
+            return VIDEO_PIPELINE_REBOOT_MODE_240P;
+        case VIDEO_PIPELINE_REBOOT_MODE_240P:
+            return VIDEO_PIPELINE_REBOOT_MODE_720P;
+        default:
+            return VIDEO_PIPELINE_REBOOT_MODE_480P;
+    }
+#else
+    return (mode == VIDEO_PIPELINE_REBOOT_MODE_240P) ? VIDEO_PIPELINE_REBOOT_MODE_480P
+                                                     : VIDEO_PIPELINE_REBOOT_MODE_240P;
+#endif
+}
+
+static void reboot_button_cycler_init(void)
+{
+    gpio_init(PIN_OSD_BTN_BACK);
+    gpio_set_dir(PIN_OSD_BTN_BACK, GPIO_IN);
+    gpio_pull_up(PIN_OSD_BTN_BACK);
+    reboot_button_back_was_pressed = !gpio_get(PIN_OSD_BTN_BACK);
+    reboot_button_last_back_press_ms = to_ms_since_boot(get_absolute_time());
+}
+
+static void reboot_button_cycler_tick_background(void)
+{
+    const bool back_pressed = !gpio_get(PIN_OSD_BTN_BACK); // active low
+    if (back_pressed && !reboot_button_back_was_pressed) {
+        const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+        if ((now_ms - reboot_button_last_back_press_ms) >= 200U) {
+            reboot_button_last_back_press_ms = now_ms;
+            video_pipeline_request_reboot_mode(reboot_button_next_mode(video_pipeline_reboot_requested_mode()));
+        }
+    }
+    reboot_button_back_was_pressed = back_pressed;
+}
+#endif
+
 static void combined_background_task(void)
 {
 #if !NEOPICO_VIDEO_DVI_ONLY && !NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND
     audio_subsystem_background_task();
+#endif
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH && NEOPICO_EXP_REBOOT_BUTTON_CYCLER
+    reboot_button_cycler_tick_background();
 #endif
 #if NEOPICO_ENABLE_OSD && !NEOPICO_EXP_DISABLE_OSD_BACKGROUND
     menu_diag_experiment_tick_background();
@@ -212,6 +263,8 @@ int main(void)
     gpio_init(PIN_OSD_BTN_BACK);
     gpio_set_dir(PIN_OSD_BTN_BACK, GPIO_IN);
     gpio_pull_up(PIN_OSD_BTN_BACK);
+#elif NEOPICO_EXP_REBOOT_MODE_SWITCH && NEOPICO_EXP_REBOOT_BUTTON_CYCLER
+    reboot_button_cycler_init();
 #endif
 
     sleep_ms(500);

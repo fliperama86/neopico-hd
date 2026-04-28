@@ -188,11 +188,7 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
 #endif
     } else if (video_output_active_mode->v_active_lines == 240U) {
         reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_240P;
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
-        video_output_set_scanline_callback(video_pipeline_scanline_callback_reboot_modes);
-#else
         video_output_set_scanline_callback(video_pipeline_scanline_callback_480p);
-#endif
     } else {
         reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
         video_output_set_scanline_callback(video_pipeline_scanline_callback_480p);

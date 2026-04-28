@@ -266,20 +266,29 @@ void menu_diag_experiment_on_menu_close(void)
     // Keep existing OSD buffer contents; visibility controls display.
 }
 
-void menu_diag_experiment_tick_background(void)
+void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
 {
 #if NEOPICO_STATIC_OSD_TOGGLE_ONLY || NEOPICO_STATIC_OSD_SELECT_ONLY || NEOPICO_STATIC_OSD_APPLY
     {
-        const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
         const bool btn_pressed = !gpio_get(PIN_OSD_BTN_MENU); // active low
+        if (!osd_visible) {
+            if (btn_pressed && !s_btn_was_pressed) {
+                s_btn_was_pressed = true;
+                s_back_was_pressed = false;
+                s_last_press_ms = to_ms_since_boot(get_absolute_time());
+                osd_show();
+            } else {
+                s_btn_was_pressed = btn_pressed;
+                s_back_was_pressed = false;
+            }
+            return;
+        }
+
+        const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
         if (btn_pressed && !s_btn_was_pressed && (now_ms - s_last_press_ms) >= 200U) {
             s_last_press_ms = now_ms;
 #if NEOPICO_STATIC_OSD_APPLY
-            if (osd_visible) {
-                resolution_selector_apply();
-            } else {
-                osd_show();
-            }
+            resolution_selector_apply();
 #else
             osd_toggle();
 #endif

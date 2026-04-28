@@ -37,6 +37,7 @@ set(NEOPICO_EXP_VTOTAL_LINES "532" CACHE STRING "Custom V total lines when NEOPI
 option(NEOPICO_EXP_GENLOCK_DYNAMIC "Enable dynamic VTOTAL genlock (runtime phase tracking)" OFF)
 option(NEOPICO_EXP_REBOOT_MODE_SWITCH "Enable experimental reboot-based 480p/240p HDMI mode switching via OSD Back button" OFF)
 option(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P "Allow the reboot-based HDMI mode switch experiment to cycle through 720p" OFF)
+option(NEOPICO_EXP_REBOOT_BUTTON_CYCLER "Enable bare BACK-button reboot-mode cycling without the OSD/menu module" OFF)
 option(NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI "Compile reboot-mode plumbing but disable the OSD resolution selector UI for timing isolation" OFF)
 option(NEOPICO_EXP_RAM_SELECTOR_UI "Place reboot selector UI/render helpers in SRAM for timing isolation" OFF)
 option(NEOPICO_EXP_STATIC_OSD_TOGGLE_ONLY "Pre-render reboot selector OSD once and only toggle visibility with MENU for timing isolation" OFF)
@@ -53,6 +54,7 @@ option(NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE "Encode HDMI audio packets but suppress
 option(NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK "Limit Core 1 audio background processing to one chunk per pass" OFF)
 option(NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS "Limit Core 1 audio output to one HDMI packet per background pass" OFF)
 option(NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE "Push a pre-encoded static silent HDMI audio packet for timing isolation" OFF)
+option(NEOPICO_EXP_LEGACY_240P_AVI_INFOFRAME "Use v0.1.5-style 240p AVI InfoFrame metadata for compatibility isolation" OFF)
 option(NEOPICO_EXP_ALIGN_HSTX_DI_BUFFERS "Align runtime HSTX Data Island command-list buffers for timing isolation" OFF)
 option(NEOPICO_EXP_RAM_DI_QUEUE_PUSH "Place hstx_di_queue_push in SRAM for timing isolation" OFF)
 option(NEOPICO_EXP_RUNTIME_MODE_SWITCH "Deprecated alias for NEOPICO_EXP_REBOOT_MODE_SWITCH" OFF)
@@ -111,6 +113,12 @@ if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P)
     set(REBOOT_MODE_SWITCH_720P_VALUE 1)
 else()
     set(REBOOT_MODE_SWITCH_720P_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_REBOOT_BUTTON_CYCLER)
+    set(REBOOT_BUTTON_CYCLER_VALUE 1)
+else()
+    set(REBOOT_BUTTON_CYCLER_VALUE 0)
 endif()
 
 if(NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI)
@@ -254,9 +262,13 @@ if(NEOPICO_EXP_REBOOT_MODE_SWITCH)
     if(NEOPICO_VIDEO_720P)
         message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH selects 720p at boot from watchdog scratch; use NEOPICO_EXP_REBOOT_MODE_SWITCH_720P instead of NEOPICO_VIDEO_720P")
     endif()
-    if(NOT NEOPICO_ENABLE_OSD)
-        message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH currently uses the OSD Back button, so NEOPICO_ENABLE_OSD=ON is required")
+    if(NOT NEOPICO_ENABLE_OSD AND NOT NEOPICO_EXP_REBOOT_BUTTON_CYCLER)
+        message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH requires NEOPICO_ENABLE_OSD=ON or NEOPICO_EXP_REBOOT_BUTTON_CYCLER=ON")
     endif()
+endif()
+
+if(NEOPICO_EXP_REBOOT_BUTTON_CYCLER AND NOT NEOPICO_EXP_REBOOT_MODE_SWITCH)
+    message(FATAL_ERROR "NEOPICO_EXP_REBOOT_BUTTON_CYCLER requires NEOPICO_EXP_REBOOT_MODE_SWITCH=ON")
 endif()
 
 if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P AND NOT NEOPICO_EXP_REBOOT_MODE_SWITCH)
@@ -310,6 +322,10 @@ if(NEOPICO_EXP_RAM_DI_QUEUE_PUSH)
     target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_RAM_DI_QUEUE_PUSH=1)
 endif()
 
+if(NEOPICO_EXP_LEGACY_240P_AVI_INFOFRAME)
+    target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_LEGACY_240P_AVI_INFOFRAME=1)
+endif()
+
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
 
@@ -347,6 +363,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_EXP_GENLOCK_DYNAMIC=${GENLOCK_DYNAMIC_VALUE}
     NEOPICO_EXP_REBOOT_MODE_SWITCH=${REBOOT_MODE_SWITCH_VALUE}
     NEOPICO_EXP_REBOOT_MODE_SWITCH_720P=${REBOOT_MODE_SWITCH_720P_VALUE}
+    NEOPICO_EXP_REBOOT_BUTTON_CYCLER=${REBOOT_BUTTON_CYCLER_VALUE}
     NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI=${DISABLE_REBOOT_SELECTOR_UI_VALUE}
     NEOPICO_EXP_RAM_SELECTOR_UI=${RAM_SELECTOR_UI_VALUE}
     NEOPICO_EXP_STATIC_OSD_TOGGLE_ONLY=${STATIC_OSD_TOGGLE_ONLY_VALUE}
