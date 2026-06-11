@@ -901,3 +901,12 @@ Working implication for this board:
   3. Medium: precomposed scanout + native pixel mode on the non-RT path (`PICO_HDMI_PRECOMPOSED_ACTIVE_LINES`) — ISR shrinks to pointer swap + island patch; NOTE: OSD compositing currently lives in the doubling phase of the ISR and must move (canvas-row pattern from rp2350-doom).
   4. Large: port precomposed mode into `video_output_rt.c` → candidate for stable RT 720p.
 - Caution from rp2350-doom: never printf on the HDMI core's background task; validate audio changes with a pure sine + spectrogram (square waves mask dropped-sample artifacts).
+
+## 2026-06-11 — Phase 2: precomposed/native integration (built, NOT committed, NOT hardware-tested)
+- New flag `NEOPICO_EXP_PRECOMPOSED_HDMI` (OFF default; requires `NEOPICO_USE_NONRT_HDMI=ON`, 480p-only — native pixel mode is a 2x doubler, so 720p/240p excluded for now).
+- When ON: pointer-model scanline callback in `video_pipeline.c` — video rows return the captured `line_ring` line DIRECTLY (zero copy; hardware does the 2x), letterbox/no-signal rows return static native color lines, OSD rows return a ping/pong native scratch composed once per source line (explicit word loops, no memcpy in ISR context; cache invalidated per frame in vsync cb). `video_output_set_native_pixel_mode(true)` + 8-entry compose ring; `video_output_compose_service()` added at top of `combined_background_task` (one-time header build). Audio pump unchanged — the library ISR now pops/patches islands itself (starvation-proof).
+- RAM cost ~5 KB (ring 2.5K + scratches). Builds: `build/` and `build-720p-nonrt/` regression-clean (flag off, zero diffs in behavior); new `build-precomp/` (480p non-RT + flag ON) compiles clean, no warnings.
+- NEXT: flash `build-precomp/src/neopico_hd.uf2` on MVS hardware. Expect: identical picture (incl. OSD toggle), identical audio; wins are ISR headroom + audio starvation immunity. Validate audio with a sustained tone source if possible (square-ish content masks dropped-sample artifacts — rp2350-doom lesson). If good → consider making it the default 480p path, then tackle 720p (precomposed islands apply as-is; pixel path needs the 3x pre-expansion strategy or stays copy-model).
+
+## 2026-06-11 — Phase 2 hardware verdict
+- `build-precomp` flashed on MVS hardware: picture/OSD/audio stable ("stable enough" — user). Committing the flag-gated integration; flag remains OFF by default. Longer soak + sustained-tone audio check still recommended before making it the default 480p path.

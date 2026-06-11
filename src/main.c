@@ -203,6 +203,11 @@ static void reboot_button_cycler_tick_background(void)
 
 static void combined_background_task(void)
 {
+#if NEOPICO_EXP_PRECOMPOSED_HDMI
+    // One-time precomposed header build (no-op afterwards); island patching
+    // itself happens in the scanline ISR and cannot be starved from here.
+    video_output_compose_service();
+#endif
 #if !NEOPICO_VIDEO_DVI_ONLY && !NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND
     audio_subsystem_background_task();
 #endif

@@ -25,6 +25,7 @@ option(NEOPICO_VIDEO_720P "Build HDMI output in 1280x720 @ 60Hz mode (requires s
 # code that uses those is #ifdef'd out. Use as an A/B against the rt path
 # when chasing 720p stability.
 option(NEOPICO_USE_NONRT_HDMI "Use compile-time pico_hdmi path instead of runtime-mode" OFF)
+option(NEOPICO_EXP_PRECOMPOSED_HDMI "EXPERIMENTAL: pico_hdmi 2.0 precomposed scanout + native-pixel pointer path (requires NEOPICO_USE_NONRT_HDMI; 480p only)" OFF)
 option(NEOPICO_VIDEO_DVI_ONLY "Disable HDMI Data Islands/audio output for video isolation tests" OFF)
 option(NEOPICO_VIDEO_TEST_PATTERN "Render a static Core 1 video test pattern instead of captured video" OFF)
 option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" OFF)
@@ -287,11 +288,26 @@ else()
     set(VIDEO_TEST_PATTERN_VALUE 0)
 endif()
 
+if(NEOPICO_EXP_PRECOMPOSED_HDMI)
+    if(NOT NEOPICO_USE_NONRT_HDMI)
+        message(FATAL_ERROR "NEOPICO_EXP_PRECOMPOSED_HDMI requires NEOPICO_USE_NONRT_HDMI=ON (precomposed mode lives in the compile-time pico_hdmi path)")
+    endif()
+    if(NEOPICO_VIDEO_720P OR NEOPICO_VIDEO_240P)
+        message(FATAL_ERROR "NEOPICO_EXP_PRECOMPOSED_HDMI is 480p-only for now (native pixel mode is a 2x horizontal doubler)")
+    endif()
+endif()
+
 # Pick rt vs compile-time pico_hdmi path
 if(NEOPICO_USE_NONRT_HDMI)
     set(PICO_HDMI_RUNTIME_MODES OFF CACHE BOOL "" FORCE)
 else()
     set(PICO_HDMI_RUNTIME_MODES ON CACHE BOOL "" FORCE)
+endif()
+
+if(NEOPICO_EXP_PRECOMPOSED_HDMI)
+    set(PICO_HDMI_PRECOMPOSED_ACTIVE_LINES ON CACHE BOOL "" FORCE)
+else()
+    set(PICO_HDMI_PRECOMPOSED_ACTIVE_LINES OFF CACHE BOOL "" FORCE)
 endif()
 
 # Add pico_hdmi library (MUST be after add_compile_definitions and option overrides)
@@ -316,6 +332,10 @@ endif()
 
 if(NEOPICO_EXP_ALIGN_HSTX_DI_BUFFERS)
     target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_ALIGN_DI_BUFFERS=1)
+endif()
+
+if(NEOPICO_EXP_PRECOMPOSED_HDMI)
+    target_compile_definitions(neopico_hd PRIVATE NEOPICO_EXP_PRECOMPOSED_HDMI=1)
 endif()
 
 if(NEOPICO_EXP_RAM_DI_QUEUE_PUSH)

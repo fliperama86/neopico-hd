@@ -170,6 +170,83 @@ static void video_pipeline_init_test_pattern_line(void)
 }
 #endif
 
+#if NEOPICO_EXP_PRECOMPOSED_HDMI
+// ===========================================================================
+// pico_hdmi 2.0 precomposed + native-pixel path (EXPERIMENTAL, 480p non-RT).
+// The scanline ISR shrinks to a pointer lookup: video rows return the
+// captured native 320px line DIRECTLY (zero copy -- the bus write replicates
+// each halfword and the HSTX expander doubles it to 640), constant rows
+// return static color lines, and OSD rows return a native-width compose
+// scratch refreshed once per source line. Audio data islands are patched
+// into precomposed line headers by the library's scanline ISR itself, so
+// audio cannot be starved by Core 1 background work.
+// ===========================================================================
+
+static video_output_precomposed_line_t precomposed_ring[8];
+static uint32_t overscan_native_line[LINE_WIDTH / 2];
+static uint32_t nosignal_native_line[LINE_WIDTH / 2];
+
+#if NEOPICO_ENABLE_OSD
+// Ping/pong native-width scratch for rows where the OSD box overlays video.
+// Composed once per source line (the callback fires twice per line-doubled
+// pair); invalidated each frame from the vsync callback.
+static uint16_t osd_native_scratch[2][LINE_WIDTH];
+static volatile uint16_t osd_native_scratch_line = 0xFFFF;
+#endif
+
+static const uint32_t *__scratch_x("000_video_pipeline_precomp")
+    video_pipeline_scanline_ptr_callback(uint32_t v_scanline, uint32_t active_line)
+{
+    (void)v_scanline;
+    const uint32_t fb_line = active_line >> 1;
+
+#if NEOPICO_ENABLE_OSD
+    const uint32_t osd_line_u32 = fb_line - OSD_BOX_Y;
+    if (osd_visible_latched && osd_line_u32 < OSD_BOX_H) {
+        uint16_t *scratch = osd_native_scratch[fb_line & 1];
+        if (osd_native_scratch_line != (uint16_t)fb_line) {
+            const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
+            const uint16_t *src = NULL;
+            if (mvs_line_u32 < MVS_HEIGHT && line_ring_ready((uint16_t)mvs_line_u32)) {
+                src = line_ring_read_ptr((uint16_t)mvs_line_u32);
+            }
+            // Explicit word loops: this runs in DMA-ISR context from
+            // __scratch_x, so no library memcpy (flash) calls.
+            uint32_t *d32 = (uint32_t *)scratch;
+            if (src) {
+                const uint32_t *s32 = (const uint32_t *)src;
+                for (uint32_t i = 0; i < LINE_WIDTH / 2; i++) {
+                    d32[i] = s32[i];
+                }
+            } else {
+                const uint32_t fill = NO_SIGNAL_COLOR_RGB565 | ((uint32_t)NO_SIGNAL_COLOR_RGB565 << 16);
+                for (uint32_t i = 0; i < LINE_WIDTH / 2; i++) {
+                    d32[i] = fill;
+                }
+            }
+            // OSD box is halfword-aligned but OSD_BOX_X may be odd-width
+            // positioned; copy as halfwords for safety.
+            const uint16_t *osd_src = osd_framebuffer[osd_line_u32];
+            for (uint32_t i = 0; i < OSD_BOX_W; i++) {
+                scratch[OSD_BOX_X + i] = osd_src[i];
+            }
+            osd_native_scratch_line = (uint16_t)fb_line;
+        }
+        return (const uint32_t *)scratch;
+    }
+#endif
+
+    const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
+    if (mvs_line_u32 >= MVS_HEIGHT) {
+        return overscan_native_line;
+    }
+    if (!line_ring_ready((uint16_t)mvs_line_u32)) {
+        return nosignal_native_line;
+    }
+    return (const uint32_t *)line_ring_read_ptr((uint16_t)mvs_line_u32);
+}
+#endif // NEOPICO_EXP_PRECOMPOSED_HDMI
+
 /**
  * Initialize the video pipeline.
  * Sets up HDMI output and registers scanline/vsync callbacks.
@@ -193,6 +270,14 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
         reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
         video_output_set_scanline_callback(video_pipeline_scanline_callback_480p);
     }
+#elif NEOPICO_EXP_PRECOMPOSED_HDMI
+    for (uint32_t i = 0; i < LINE_WIDTH / 2; i++) {
+        overscan_native_line[i] = OVERSCAN_COLOR_RGB565 | ((uint32_t)OVERSCAN_COLOR_RGB565 << 16);
+        nosignal_native_line[i] = NO_SIGNAL_COLOR_RGB565 | ((uint32_t)NO_SIGNAL_COLOR_RGB565 << 16);
+    }
+    video_output_set_scanline_pointer_callback(video_pipeline_scanline_ptr_callback);
+    video_output_set_native_pixel_mode(true);
+    video_output_set_compose_ring(precomposed_ring, sizeof(precomposed_ring) / sizeof(precomposed_ring[0]));
 #else
     video_output_set_scanline_callback(video_pipeline_scanline_callback);
 #endif
@@ -387,6 +472,9 @@ static void __scratch_x("") genlock_dynamic_update(void)
 void __scratch_x("") video_pipeline_vsync_callback(void)
 {
     line_ring_output_vsync();
+#if NEOPICO_EXP_PRECOMPOSED_HDMI && NEOPICO_ENABLE_OSD
+    osd_native_scratch_line = 0xFFFF;
+#endif
 #if NEOPICO_EXP_GENLOCK_DYNAMIC && !NEOPICO_USE_NONRT_HDMI
     genlock_dynamic_update();
 #endif
