@@ -201,12 +201,51 @@ static void reboot_button_cycler_tick_background(void)
 }
 #endif
 
+#if NEOPICO_EXP_PRECOMPOSED_HDMI
+// Desync events recovered by the frame-pacing watchdog (shown on the
+// selftest OSD as "RS"). A desynced HSTX command stream makes scanlines
+// complete at bus speed; >12 vsyncs per 100 ms window (expected: 6) means
+// the expander lost framing and a full restart is needed.
+volatile uint32_t g_neopico_resync_count;
+
+static void precomposed_desync_watchdog(void)
+{
+    static uint32_t window_ms;
+    static uint32_t last_frame_count;
+    const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+    const uint32_t elapsed_ms = now_ms - window_ms;
+    if (elapsed_ms >= 100U) {
+        const uint32_t frames = video_frame_count - last_frame_count;
+        last_frame_count = video_frame_count;
+        window_ms = now_ms;
+        // Compare RATES, not counts: this background task can legitimately
+        // stall for hundreds of ms (audio SRC bursts), stretching the window
+        // and accumulating normal frames. Fire only above ~120 fps
+        // equivalent (expected: 60), i.e. frames/elapsed > 12/100.
+        if (frames * 100U > elapsed_ms * 12U) {
+            video_output_force_resync();
+            g_neopico_resync_count++;
+        }
+    }
+}
+#endif
+
+#ifndef NEOPICO_EXP_STRESS_CORE1_US
+#define NEOPICO_EXP_STRESS_CORE1_US 0
+#endif
+
 static void combined_background_task(void)
 {
 #if NEOPICO_EXP_PRECOMPOSED_HDMI
     // One-time precomposed header build (no-op afterwards); island patching
     // itself happens in the scanline ISR and cannot be starved from here.
     video_output_compose_service();
+    precomposed_desync_watchdog();
+#endif
+#if NEOPICO_EXP_STRESS_CORE1_US > 0
+    // Repro accelerator: simulate heavy Core 1 background bursts to raise
+    // the rate of any IRQ-timing-sensitive failure. Diagnostics only.
+    busy_wait_us_32(NEOPICO_EXP_STRESS_CORE1_US);
 #endif
 #if !NEOPICO_VIDEO_DVI_ONLY && !NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND
     audio_subsystem_background_task();

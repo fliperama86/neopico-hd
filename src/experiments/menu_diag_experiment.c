@@ -12,6 +12,26 @@
 #if NEOPICO_ENABLE_SELFTEST
 #include "osd/selftest_layout.h"
 
+#if NEOPICO_EXP_PRECOMPOSED_HDMI
+extern volatile uint32_t g_neopico_resync_count;
+#define SELFTEST_RESYNC_ROW 15
+
+static void selftest_draw_resync_count(void)
+{
+    char buf[12];
+    uint32_t v = g_neopico_resync_count;
+    int i = (int)sizeof(buf) - 1;
+    buf[i--] = 0;
+    do {
+        buf[i--] = (char)('0' + (v % 10U));
+        v /= 10U;
+    } while (v != 0U && i >= 0);
+    fast_osd_puts_color(SELFTEST_RESYNC_ROW, 1, "RS", OSD_COLOR_GRAY);
+    fast_osd_puts_color(SELFTEST_RESYNC_ROW, 4, &buf[i + 1],
+                        g_neopico_resync_count ? OSD_COLOR_YELLOW : OSD_COLOR_GREEN);
+}
+#endif
+
 #define SELFTEST_SHADOW_HOLD_UPDATES 30U
 #endif
 
@@ -47,6 +67,10 @@
 #define NEOPICO_EXP_RAM_OSD_APPLY_PATH 0
 #endif
 
+#ifndef NEOPICO_OSD_ROOT_MENU
+#define NEOPICO_OSD_ROOT_MENU 0
+#endif
+
 #if NEOPICO_EXP_RAM_SELECTOR_UI
 #define SELECTOR_UI_RAM(name) __not_in_flash_func(name)
 #else
@@ -59,8 +83,14 @@
 #define SELECTOR_UI_APPLY_RAM(name) SELECTOR_UI_RAM(name)
 #endif
 
+#if NEOPICO_OSD_ROOT_MENU
+// Root menu hosts both leaf screens, so the selector UI no longer excludes
+// the selftest layout.
+#define NEOPICO_REBOOT_SELECTOR_UI (NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI)
+#else
 #define NEOPICO_REBOOT_SELECTOR_UI                                                                                     \
     (NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_ENABLE_SELFTEST && !NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI)
+#endif
 
 #define NEOPICO_STATIC_OSD_TOGGLE_ONLY (NEOPICO_EXP_STATIC_OSD_TOGGLE_ONLY && NEOPICO_REBOOT_SELECTOR_UI)
 #define NEOPICO_STATIC_OSD_SELECT_ONLY (NEOPICO_EXP_STATIC_OSD_SELECT_ONLY && NEOPICO_REBOOT_SELECTOR_UI)
@@ -81,7 +111,7 @@ extern volatile uint32_t video_frame_count;
 
 static bool s_btn_was_pressed = false;
 static uint32_t s_last_press_ms = 0;
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH || NEOPICO_OSD_ROOT_MENU
 static bool s_back_was_pressed = false;
 static uint32_t s_last_back_press_ms = 0;
 #if NEOPICO_REBOOT_SELECTOR_UI
@@ -213,6 +243,191 @@ static void SELECTOR_UI_APPLY_RAM(resolution_selector_apply)(void)
 }
 #endif
 
+#if NEOPICO_OSD_ROOT_MENU
+// ===========================================================================
+// Root OSD menu: two entries (Resolution / Self Test), each present only if
+// its feature is compiled in. BACK cycles, MENU enters; leaf screens return
+// to the root on MENU; the root auto-hides after 8 s of inactivity. All
+// logic and drawing run on the Core 1 background tick -- nothing here may
+// ever touch the capture path or the scratch_x/scratch_y sections (see
+// SCRATCHBOOK: code presence in those areas has caused sync drops).
+// ===========================================================================
+
+typedef enum {
+    MENU_SCREEN_HIDDEN = 0,
+    MENU_SCREEN_ROOT,
+    MENU_SCREEN_RESOLUTION,
+    MENU_SCREEN_SELFTEST,
+} menu_screen_t;
+
+#define ROOT_TITLE_ROW 1
+#define ROOT_FIRST_ENTRY_ROW 5
+#define ROOT_HINT_ROW 13
+#define ROOT_IDLE_HIDE_MS 8000U
+
+static menu_screen_t s_screen = MENU_SCREEN_HIDDEN;
+static uint8_t s_root_sel = 0;
+static uint32_t s_root_last_input_ms = 0;
+
+static const char *const s_root_entry_labels[] = {
+#if NEOPICO_REBOOT_SELECTOR_UI
+    "Resolution",
+#endif
+#if NEOPICO_ENABLE_SELFTEST
+    "Self Test",
+#endif
+};
+#define ROOT_ENTRY_COUNT (sizeof(s_root_entry_labels) / sizeof(s_root_entry_labels[0]))
+
+#if NEOPICO_REBOOT_SELECTOR_UI || NEOPICO_ENABLE_SELFTEST
+#else
+#error NEOPICO_OSD_ROOT_MENU needs at least one of NEOPICO_EXP_REBOOT_MODE_SWITCH / NEOPICO_ENABLE_SELFTEST
+#endif
+
+static menu_screen_t root_entry_screen(uint8_t idx)
+{
+    uint8_t i = 0;
+    (void)i;
+#if NEOPICO_REBOOT_SELECTOR_UI
+    if (idx == i++) {
+        return MENU_SCREEN_RESOLUTION;
+    }
+#endif
+#if NEOPICO_ENABLE_SELFTEST
+    if (idx == i++) {
+        return MENU_SCREEN_SELFTEST;
+    }
+#endif
+    return MENU_SCREEN_ROOT;
+}
+
+static void root_menu_render_entry(uint8_t idx)
+{
+    const bool selected = (s_root_sel == idx);
+    const uint8_t row = (uint8_t)(ROOT_FIRST_ENTRY_ROW + 2U * idx);
+    const uint16_t color = selected ? OSD_COLOR_YELLOW : OSD_COLOR_FG;
+    fast_osd_putc_color(row, 3, selected ? '>' : ' ', color);
+    fast_osd_puts_color(row, 5, s_root_entry_labels[idx], color);
+}
+
+static void root_menu_draw(void)
+{
+    fast_osd_clear();
+    fast_osd_puts_color(ROOT_TITLE_ROW, 2, "NeoPico-HD", OSD_COLOR_YELLOW);
+    for (uint8_t i = 0; i < (uint8_t)ROOT_ENTRY_COUNT; i++) {
+        root_menu_render_entry(i);
+    }
+    fast_osd_puts_color(ROOT_HINT_ROW, 2, "BACK move  MENU enter", OSD_COLOR_GRAY);
+}
+
+static void root_menu_enter_root(uint32_t now_ms)
+{
+    root_menu_draw();
+    s_screen = MENU_SCREEN_ROOT;
+    s_root_last_input_ms = now_ms;
+}
+
+static void root_menu_enter_leaf(void)
+{
+    const menu_screen_t leaf = root_entry_screen(s_root_sel);
+    switch (leaf) {
+#if NEOPICO_REBOOT_SELECTOR_UI
+        case MENU_SCREEN_RESOLUTION:
+            s_selected_mode = video_pipeline_reboot_requested_mode();
+            resolution_selector_render_full();
+            s_screen = MENU_SCREEN_RESOLUTION;
+            break;
+#endif
+#if NEOPICO_ENABLE_SELFTEST
+        case MENU_SCREEN_SELFTEST:
+            selftest_layout_reset();
+            s_last_update_frame = video_frame_count;
+            s_video_hi = 0;
+            s_video_lo = 0;
+            s_video_samples = 0;
+            s_audio_hi = 0;
+            s_audio_lo = 0;
+            s_audio_samples = 0;
+            s_shadow_hold_updates = 0;
+            s_screen = MENU_SCREEN_SELFTEST;
+            break;
+#endif
+        default:
+            break;
+    }
+}
+
+static void root_menu_buttons_tick(void)
+{
+    const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+    const bool menu_pressed = !gpio_get(PIN_OSD_BTN_MENU); // active low
+    const bool back_pressed = !gpio_get(PIN_OSD_BTN_BACK); // active low
+    const bool menu_edge = menu_pressed && !s_btn_was_pressed && (now_ms - s_last_press_ms) >= 200U;
+    const bool back_edge = back_pressed && !s_back_was_pressed && (now_ms - s_last_back_press_ms) >= 200U;
+    if (menu_edge) {
+        s_last_press_ms = now_ms;
+    }
+    if (back_edge) {
+        s_last_back_press_ms = now_ms;
+    }
+    s_btn_was_pressed = menu_pressed;
+    s_back_was_pressed = back_pressed;
+
+    switch (s_screen) {
+        case MENU_SCREEN_HIDDEN:
+            if (menu_edge) {
+                root_menu_enter_root(now_ms);
+                osd_show();
+            }
+            break;
+
+        case MENU_SCREEN_ROOT:
+            if (back_edge) {
+                const uint8_t prev = s_root_sel;
+                s_root_sel = (uint8_t)((s_root_sel + 1U) % ROOT_ENTRY_COUNT);
+                root_menu_render_entry(prev);
+                root_menu_render_entry(s_root_sel);
+                s_root_last_input_ms = now_ms;
+            } else if (menu_edge) {
+                root_menu_enter_leaf();
+            } else if ((now_ms - s_root_last_input_ms) >= ROOT_IDLE_HIDE_MS) {
+                osd_hide();
+                s_screen = MENU_SCREEN_HIDDEN;
+            }
+            break;
+
+#if NEOPICO_REBOOT_SELECTOR_UI
+        case MENU_SCREEN_RESOLUTION:
+            if (back_edge) {
+                const video_pipeline_reboot_mode_t previous_mode = s_selected_mode;
+                s_selected_mode = resolution_next(s_selected_mode);
+                resolution_selector_update_selection(previous_mode);
+            } else if (menu_edge) {
+                if (s_selected_mode == video_pipeline_reboot_requested_mode()) {
+                    root_menu_enter_root(now_ms);
+                } else {
+                    osd_hide();
+                    s_screen = MENU_SCREEN_HIDDEN;
+                    video_pipeline_request_reboot_mode(s_selected_mode);
+                }
+            }
+            break;
+#endif
+
+#if NEOPICO_ENABLE_SELFTEST
+        case MENU_SCREEN_SELFTEST:
+            if (menu_edge) {
+                root_menu_enter_root(now_ms);
+            }
+            break;
+#endif
+
+        default:
+            break;
+    }
+}
+#endif // NEOPICO_OSD_ROOT_MENU
+
 void menu_diag_experiment_init(void)
 {
     s_btn_was_pressed = false;
@@ -268,7 +483,11 @@ void menu_diag_experiment_on_menu_close(void)
 
 void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
 {
-#if NEOPICO_STATIC_OSD_TOGGLE_ONLY || NEOPICO_STATIC_OSD_SELECT_ONLY || NEOPICO_STATIC_OSD_APPLY
+#if NEOPICO_OSD_ROOT_MENU
+    root_menu_buttons_tick();
+#endif
+#if !NEOPICO_OSD_ROOT_MENU &&                                                                                          \
+    (NEOPICO_STATIC_OSD_TOGGLE_ONLY || NEOPICO_STATIC_OSD_SELECT_ONLY || NEOPICO_STATIC_OSD_APPLY)
     {
         const bool btn_pressed = !gpio_get(PIN_OSD_BTN_MENU); // active low
         if (!osd_visible) {
@@ -308,6 +527,7 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
     }
 #endif
 
+#if !NEOPICO_OSD_ROOT_MENU
 #if NEOPICO_REBOOT_SELECTOR_UI
     const bool btn_pressed = !gpio_get(PIN_OSD_BTN_MENU); // active low
     if (!osd_visible) {
@@ -383,9 +603,14 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
     }
     s_back_was_pressed = back_pressed;
 #endif
+#endif // !NEOPICO_OSD_ROOT_MENU
 
 #if NEOPICO_ENABLE_SELFTEST
-    if (osd_visible) {
+    if (osd_visible
+#if NEOPICO_OSD_ROOT_MENU
+        && s_screen == MENU_SCREEN_SELFTEST
+#endif
+    ) {
         uint32_t video_sample = 0;
         if (gpio_get(PIN_MVS_CSYNC)) {
             video_sample |= SELFTEST_BIT_CSYNC;
@@ -491,6 +716,9 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
         }
         // Full video + full audio diagnostics phase; no capture-path interaction.
         selftest_layout_update(video_frame_count, has_snapshot, toggled_bits);
+#if NEOPICO_EXP_PRECOMPOSED_HDMI
+        selftest_draw_resync_count();
+#endif
     }
 #endif
 }

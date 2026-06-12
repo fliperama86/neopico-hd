@@ -25,11 +25,14 @@ option(NEOPICO_VIDEO_720P "Build HDMI output in 1280x720 @ 60Hz mode (requires s
 # code that uses those is #ifdef'd out. Use as an A/B against the rt path
 # when chasing 720p stability.
 option(NEOPICO_USE_NONRT_HDMI "Use compile-time pico_hdmi path instead of runtime-mode" OFF)
+option(NEOPICO_COPY_TO_RAM "Copy the entire binary to SRAM at boot and execute from RAM (eliminates XIP flash-fetch timing at runtime; text+data must fit alongside bss)" OFF)
 option(NEOPICO_EXP_PRECOMPOSED_HDMI "EXPERIMENTAL: pico_hdmi 2.0 precomposed scanout + native-pixel pointer path (requires NEOPICO_USE_NONRT_HDMI; 480p only)" OFF)
 option(NEOPICO_VIDEO_DVI_ONLY "Disable HDMI Data Islands/audio output for video isolation tests" OFF)
 option(NEOPICO_VIDEO_TEST_PATTERN "Render a static Core 1 video test pattern instead of captured video" OFF)
 option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" OFF)
 option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD)" OFF)
+option(NEOPICO_OSD_ROOT_MENU "Root OSD menu with Resolution / Self Test entries (requires OSD and at least one entry feature)" OFF)
+set(NEOPICO_EXP_STRESS_CORE1_US "0" CACHE STRING "Diagnostics: busy-wait this many microseconds per Core 1 background tick to accelerate IRQ-timing repro (0 = off)")
 option(NEOPICO_ENABLE_DARK_SHADOW "Enable DARK/SHADOW LUT path in capture" OFF)
 option(NEOPICO_EXP_GENLOCK_STATIC "Enable static boot-time genlock sysclk target" OFF)
 set(NEOPICO_GENLOCK_TARGET_FPS_X100 "5920" CACHE STRING "Static genlock target FPS x100 (e.g. 5920 = 59.20)")
@@ -336,6 +339,24 @@ endif()
 
 if(NEOPICO_EXP_PRECOMPOSED_HDMI)
     target_compile_definitions(neopico_hd PRIVATE NEOPICO_EXP_PRECOMPOSED_HDMI=1)
+endif()
+
+if(NEOPICO_COPY_TO_RAM)
+    pico_set_binary_type(neopico_hd copy_to_ram)
+endif()
+
+if(NEOPICO_OSD_ROOT_MENU)
+    if(NOT NEOPICO_ENABLE_OSD)
+        message(FATAL_ERROR "NEOPICO_OSD_ROOT_MENU requires NEOPICO_ENABLE_OSD=ON")
+    endif()
+    if(NOT NEOPICO_ENABLE_SELFTEST AND NOT NEOPICO_EXP_REBOOT_MODE_SWITCH)
+        message(FATAL_ERROR "NEOPICO_OSD_ROOT_MENU needs at least one entry: NEOPICO_ENABLE_SELFTEST or NEOPICO_EXP_REBOOT_MODE_SWITCH")
+    endif()
+    target_compile_definitions(neopico_hd PRIVATE NEOPICO_OSD_ROOT_MENU=1)
+endif()
+
+if(NEOPICO_EXP_STRESS_CORE1_US GREATER 0)
+    target_compile_definitions(neopico_hd PRIVATE NEOPICO_EXP_STRESS_CORE1_US=${NEOPICO_EXP_STRESS_CORE1_US})
 endif()
 
 if(NEOPICO_EXP_RAM_DI_QUEUE_PUSH)

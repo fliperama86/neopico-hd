@@ -5,7 +5,7 @@ reality. Any agent or human picking up the project starts here. The
 append-only history stays in `SCRATCHBOOK.md`; architecture rules in
 `AGENTS.md`; protocol details in `docs/`.
 
-_Last updated: 2026-06-12 (morning; baseline established)._
+_Last updated: 2026-06-12 (afternoon; copy-to-RAM standardized, v0.7.1)._
 
 ## Current state
 
@@ -20,11 +20,9 @@ _Last updated: 2026-06-12 (morning; baseline established)._
     2x doubling), static color lines for letterbox/no-signal, OSD rows via
     native-width ping/pong scratch, audio islands patched by the library ISR
     (starvation-proof).
-- **Uncommitted work, parked as a patch**: root OSD menu (Resolution / Self
-  Test entries) + desync watchdog + RS counter —
-  `/tmp/neopico-rootmenu-watchdog.patch` (394 lines). Reverted from the tree
-  because its mere presence made the firmware glitch (see Layout
-  Sensitivity below). Re-introduce only after that mystery is understood.
+- Root OSD menu + desync watchdog + RS counter: EXONERATED (the glitch was
+  XIP, not the code) and committed alongside the copy-to-RAM fix. The
+  root menu (`NEOPICO_OSD_ROOT_MENU`) and watchdog ship with v0.7.1.
 - Build dirs: `build/` (480p RT, flags off), `build-720p-nonrt/`,
   `build-precomp/` (NONRT + PRECOMPOSED + OSD + SELFTEST — config of the
   current soak).
@@ -38,6 +36,8 @@ _Last updated: 2026-06-12 (morning; baseline established)._
 | 3 | earlier | 3d1cb91 state, PRECOMP+OSD+SELFTEST | **no** (probably warm boot, cables attached) | opened a few times, mostly closed | ~20–30 min | **sync drop, no recovery** |
 | 4 | 06-11 | same as #3, committed source only | yes | opened at least twice (early + late) | ~45-50 min | **sync drop** (press-correlation suspected at the time) |
 | 6 | 06-12 | PURE PHASE 2 baseline (sha 76c1233d, NONRT+PRECOMP, OSD/selftest OFF) | yes | impossible (not compiled) | ~8 h overnight (00:14 ->morning) | **CLEAN — pure phase 2 exonerated; OSD/selftest-compiled implicated (3/3 drops vs 0/1 over 8 h)** |
+| 8 | 06-12 | ORACLE: glitch-patch code + OSD+selftest + COPY_TO_RAM | yes | open for most of the run (RS visible) | 12:30 -> 15:06+, ongoing | **CLEAN, RS=0 — every previously fatal ingredient active, from RAM; XIP conviction CONFIRMED for thread 1** |
+| 7 | 06-12 | same OSD+selftest fw as #3-#5, EXPERIMENT 7 | yes | **NEVER (hands-off protocol)** | 11:27 -> ~12:28 | **sync drop with ZERO opens — Theory B (open-seeded snowball) REFUTED; Theory A (code presence / XIP layout) now PRIME** |
 | 5 | 06-12 | same fw, cold boot, OSD opened/closed ~20x AT START (mash test) | yes | heavily, at start only | ~30-60 min | **sync drop, long after the presses** — refutes INSTANT-trigger only; the snowball variant (one open seeds slow failure) remains live |
 
 ## Open threads
@@ -46,11 +46,14 @@ _Last updated: 2026-06-12 (morning; baseline established)._
    OSD-compiled builds with the OSD opened during the run; run #4's drop may
    have immediately followed a button press (user observation). Working
    hypothesis: the OSD-OPEN transition (or OSD-row compose while visible)
-   triggers the failure — the instant-trigger version is refuted by run #5
-   (mashing at start, drop much later), but the SNOWBALL variant (a single
-   open seeds a slow-developing failure) is consistent with all three drops
-   and remains untested. Discriminator: same OSD build, never press the
-   button. Current shape: 3 drops in 3 long runs of
+   triggers the failure — fully REFUTED by run #7 (zero opens, dropped
+   anyway). VERDICT: compiled PRESENCE of OSD+selftest code is sufficient
+   (4/4 drops; 0/1 over 8 h without). Prime theory: flash/XIP layout
+   sensitivity (merges with thread 2). Counterattack: copy-to-RAM
+   (pico_set_binary_type copy_to_ram) — text is only ~43 KB, fits SRAM
+   with ~120 KB spare, eliminates XIP at runtime BY CONSTRUCTION. Fast
+   oracle: the 394-line patch glitches INSTANTLY from flash; if it is calm
+   from RAM, the mechanism is proven in minutes. Current shape: 3 drops in 3 long runs of
    OSD+selftest-compiled precomposed builds, varied boot ritual and OSD
    usage; looks like a rare stochastic event (~once per 20-60 min). The
    no-OSD baseline is now the critical discriminator: if IT also drops,
@@ -60,15 +63,17 @@ _Last updated: 2026-06-12 (morning; baseline established)._
    logs rare desyncs too (its issue #1), auto-recovered by a watchdog there.
    Library-side suspect if real: the per-post 16/32-bit `al1_ctrl` swap in
    native pixel mode racing a late/coalesced DMA IRQ.
-2. **Layout sensitivity (REPRODUCED 2026-06-11)** — adding 394 lines of
-   benign flash-resident background-path code (zero scratch, zero capture
-   path) made the firmware immediately glitchy; reverting restored calm,
-   same bench, same session. Execution was ruled out (fixing a real bug in
-   the added watchdog changed nothing). Prime suspect: flash/XIP
-   placement/alignment shifts of hot non-scratch code. Reproducer: apply
-   the parked patch. Next probes: re-add in halves; forced alignment;
-   pin hot symbols to RAM; diff `.map` addresses calm-vs-glitchy.
-   This may also be the underlying mechanism of thread 1.
+2. **Layout sensitivity — SOLVED 2026-06-12: XIP CONVICTED.** The oracle
+   experiment: the exact instant-glitch code (394-line patch) built with
+   `copy_to_ram` (one CMake line; text ~47 KB fits SRAM easily since both
+   LUTs are runtime-built BSS) runs CALM. Flash-vs-RAM execution was the
+   only variable. Mechanism: XIP fetch stalls at timing-critical instants,
+   with per-build flash layout deciding where they land. This also explains
+   the historical "dead code perturbs sync" project folklore. STRUCTURAL
+   FIX: `NEOPICO_COPY_TO_RAM=ON` (new CMake option, wired via
+   pico_set_binary_type). Thread 1 presumed same mechanism — one confirming
+   long soak of the copy-to-RAM OSD build pending (running now, includes
+   watchdog + RS counter for instrumentation).
 3. **Watchdog (parked)** — rate-based formula required
    (`frames*100 > elapsed_ms*12`); a fixed count threshold false-fires
    because this Core 1 background loop legitimately stalls 100s of ms

@@ -945,3 +945,10 @@ Working implication for this board:
 
 ## 2026-06-12 morning — Run #6 (pure phase 2 baseline) PASSED ~8 h overnight
 - Precomposed render path exonerated; canonical baseline established (sha 76c1233d). OSD/selftest-compiled implicated (3/3 drops 20-60 min vs 0 drops in 8 h without). Next: experiment #7 (OSD compiled, never opened) to split presence-vs-opening. Details in STATE.md.
+
+## 2026-06-12 — XIP CONVICTED; copy-to-RAM is the structural fix
+- Oracle: instant-glitch code (394-line patch) + NEOPICO_COPY_TO_RAM=ON -> CALM. Only variable: flash vs RAM execution. XIP fetch-stall timing was the mechanism behind the layout sensitivity (and presumably the 20-60 min OSD-build drops; runs #3-#5,#7 all flash-XIP builds). Months of "dead code perturbs sync" folklore explained.
+- Oracle build still contains menu+watchdog code: now soaking as the confirming run with RS counter available. Production plan: make COPY_TO_RAM standard, un-park the root menu, commit option + patch code.
+
+## 2026-06-12 — copy-to-RAM standardized; menu/watchdog un-parked; v0.7.1
+- NEOPICO_COPY_TO_RAM committed and enabled for ALL CI firmware variants. Root menu + rate-based desync watchdog + RS counter committed (exonerated; the glitch was XIP). Default flag-off build verified byte-identical pre/post. Oracle soak (every formerly-fatal ingredient, from RAM): 2.5+ h clean and counting.

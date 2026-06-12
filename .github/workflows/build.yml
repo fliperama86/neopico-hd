@@ -37,14 +37,14 @@ jobs:
       run: |
         mkdir build
         cd build
-        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release
+        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_COPY_TO_RAM=ON
         make -j$(nproc)
 
     - name: Build NeoPico-HD (PCM1802 analog audio)
       run: |
         mkdir build-pcm1802
         cd build-pcm1802
-        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_AUDIO_PCM1802=ON
+        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_COPY_TO_RAM=ON -DNEOPICO_AUDIO_PCM1802=ON
         make -j$(nproc)
         # Rename to distinguish from default build
         cp src/neopico_hd.uf2 src/neopico_hd_pcm1802.uf2
@@ -54,7 +54,7 @@ jobs:
       run: |
         mkdir build-240p
         cd build-240p
-        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_VIDEO_240P=ON
+        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_COPY_TO_RAM=ON -DNEOPICO_VIDEO_240P=ON
         make -j$(nproc)
         # Rename to distinguish from default build
         cp src/neopico_hd.uf2 src/neopico_hd_240p.uf2
@@ -64,7 +64,7 @@ jobs:
       run: |
         mkdir build-720p-nonrt
         cd build-720p-nonrt
-        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_VIDEO_720P=ON -DNEOPICO_USE_NONRT_HDMI=ON
+        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_COPY_TO_RAM=ON -DNEOPICO_VIDEO_720P=ON -DNEOPICO_USE_NONRT_HDMI=ON
         make -j$(nproc)
         # Rename to distinguish from default build
         cp src/neopico_hd.uf2 src/neopico_hd_720p_nonrt.uf2
@@ -73,7 +73,7 @@ jobs:
       run: |
         mkdir -p build-precomp
         cd build-precomp
-        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_USE_NONRT_HDMI=ON -DNEOPICO_EXP_PRECOMPOSED_HDMI=ON
+        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_COPY_TO_RAM=ON -DNEOPICO_USE_NONRT_HDMI=ON -DNEOPICO_EXP_PRECOMPOSED_HDMI=ON
         make -j$(nproc)
         cp src/neopico_hd.uf2 src/neopico_hd_precomp.uf2
         cp src/neopico_hd.elf src/neopico_hd_720p_nonrt.elf
