@@ -691,7 +691,11 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
         s_audio_samples++;
     }
 
-    if (osd_visible && (video_frame_count - s_last_update_frame) >= 60U) {
+    if (osd_visible
+#if NEOPICO_OSD_ROOT_MENU
+        && s_screen == MENU_SCREEN_SELFTEST
+#endif
+        && (video_frame_count - s_last_update_frame) >= 60U) {
         s_last_update_frame = video_frame_count;
         uint32_t toggled_bits = 0;
         bool has_snapshot = false;
