@@ -8,7 +8,9 @@ on:
     branches: [ main ]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.sha }}
+  # Group by REF, not SHA: a tag push and a branch push at the same commit
+  # must not cancel each other (this repeatedly cancelled tag release runs).
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
