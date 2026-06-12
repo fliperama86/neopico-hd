@@ -101,9 +101,6 @@ jobs:
           - name: neopico-hd
             pcb: hardware/neopico-hd/neopico-hd.kicad_pcb
             sch: hardware/neopico-hd/neopico-hd.kicad_sch
-          - name: pico-retrodigital
-            pcb: hardware/pico-retrodigital/pico-retrodigital.kicad_pcb
-            sch: hardware/pico-retrodigital/pico-retrodigital.kicad_sch
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
