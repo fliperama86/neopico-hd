@@ -5,7 +5,7 @@ reality. Any agent or human picking up the project starts here. The
 append-only history stays in `SCRATCHBOOK.md`; architecture rules in
 `AGENTS.md`; protocol details in `docs/`.
 
-_Last updated: 2026-06-12 (afternoon; copy-to-RAM standardized, v0.7.1)._
+_Last updated: 2026-06-12 (evening; RT x copy-to-RAM toxic, v0.7.2 corrects)._
 
 ## Current state
 
@@ -97,6 +97,20 @@ hypothesis confirmed; focus on first-open effects: osd_visible_latched
 path, first ISR compose, fast_osd_clear burst, selftest sampling start).
 Drops anyway -> mere code PRESENCE is enough, merging this thread with
 the Layout Sensitivity thread (flash/XIP alignment becomes prime).
+
+## RT path × copy-to-RAM: TOXIC (2026-06-12 bisect)
+
+Rung-1 bisect: RT library path + COPY_TO_RAM alone (no OSD/menu/switch)
+drops sync within SECONDS. RT from flash is fine (run #2, 1 h). Working
+theory: with the whole binary in striped SRAM, Core 0 + background code
+fetches contend on the same banks the heavyweight RT copy-model ISR and
+its DMA feeds depend on; the RT per-line deadline has no margin for it.
+The precomposed (tiny-ISR) path is unaffected (hours clean from RAM).
+POLICY: copy_to_ram ONLY for precomposed/non-RT builds; RT variants stay
+on flash (with their historical XIP layout lottery — the strategic exit
+is migrating RT modes to the precomposed architecture). CI matrix
+corrected in v0.7.2; v0.7.1's default artifacts shipped broken (RT+RAM)
+and are superseded.
 
 ## Standing constraints (digest; full rules in AGENTS.md + SCRATCHBOOK)
 
