@@ -910,3 +910,38 @@ Working implication for this board:
 
 ## 2026-06-11 — Phase 2 hardware verdict
 - `build-precomp` flashed on MVS hardware: picture/OSD/audio stable ("stable enough" — user). Committing the flag-gated integration; flag remains OFF by default. Longer soak + sustained-tone audio check still recommended before making it the default 480p path.
+
+## 2026-06-11 — Root OSD menu (built, NOT committed, NOT hardware-tested)
+- New flag `NEOPICO_OSD_ROOT_MENU` (OFF default; requires OSD + at least one of SELFTEST / REBOOT_MODE_SWITCH). Root menu: "Resolution" (when reboot-switch compiled) + "Self Test" (when selftest compiled). BACK cycles, MENU enters; leafs return to root on MENU (Resolution applies+reboots on a changed selection, returns to root when selection==current); root auto-hides after 8 s idle.
+- Lifts the old selector⊕selftest exclusivity under the flag (NEOPICO_REBOOT_SELECTOR_UI loses the !SELFTEST clause when ROOT_MENU on); legacy single-screen behaviors fully preserved when flag off.
+- Layout-safety verified per house history: ALL new code in menu_diag_experiment.c (Core 1 background, flash); flag-off UF2 byte-identical (sha 95d15e6e); zero menu symbols in scratch sections; scratch_x 0x6c0 (precomp+selftest+menu) / 0x610 (rt+selector+selftest+menu), both < 0x800 boundary; capture path and scanline callbacks untouched.
+- Builds verified: build-precomp (precomposed + selftest + root menu) and rt-fullmenu (RT + 240p/480p/720p selector + selftest + root menu). NEXT: flash build-precomp first (menu w/ Self Test only), then the rt-fullmenu for the full two-entry experience; soak per usual.
+
+## 2026-06-11 — Precomposed soak FAILED: sync drop after ~20-30 min
+- `build-precomp` (precomposed + native pixel + selftest OSD) dropped sync after ~20-30 min. No auto-recovery (NeoPico does not wire `video_output_force_resync`; the lib has it).
+- CROSS-PROJECT SIGNAL: rp2350-doom (same lib mode) logs rare HSTX desyncs too — masked there by a frame-pacing watchdog ("brownouts", rp2350-doom issue #1). Two consumers, same rare failure → suspect the new mode itself. Prime candidate: the per-post 16/32-bit `al1_ctrl` swap in the precomposed/native ISR racing a late or coalesced DMA IRQ (one mis-sized post permanently desyncs the HSTX expander command stream).
+- Hardware caveat: this bench uses an OLDER PCB revision (user notes it could interfere, though unlikely).
+- BISECTION LADDER (user running step 1):
+  1. Known-good firmware, ≥1 h soak → establishes PCB/baseline health.
+  2. If clean: lib-2.0-bump-but-flag-OFF build (`build/` after 981efab), ≥1 h → isolates the lib upgrade itself (expected clean; flag-off paths unchanged).
+  3. If clean: precomposed again → failure confirms the new mode; then (a) port doom's frame-pacing watchdog + force_resync as mitigation, (b) fix the ctrl-swap race properly in pico_hdmi (e.g. eliminate per-IRQ transfer-size switching: dedicated channel config per post type, or derive size from DMA state not software flags).
+- OSD root-menu work is built+verified (layout-neutral) but parked until the sync question settles.
+
+## 2026-06-11 — Rung-3 instrumented firmware ready (not flashed)
+- `build-precomp` reconfigured: root menu OFF (match the failing config), precomposed + selftest + NEW frame-pacing watchdog (>12 vsyncs/100 ms -> video_output_force_resync, counter g_neopico_resync_count) + "RS n" readout on selftest row 15 (green 0 / yellow nonzero). Scratch_x unchanged 0x6c0.
+- New diag knob NEOPICO_EXP_STRESS_CORE1_US (CMake, default 0): busy-wait per Core 1 background tick to accelerate IRQ-timing repro; off in this build.
+- Plan: after rung 2 (lib-bump flag-off, soaking now) reports clean, flash this; RS counter turns hour-soaks into glance-readable event tallies. If RS ticks: stress build next to confirm rate scales with Core 1 load, then fix the 16/32-bit ctrl swap race in pico_hdmi properly.
+
+## 2026-06-11 22:42 — Bisection rungs 1+2 PASSED
+- Rung 1: v0.6.0 release fw, >1 h clean (PCB + bench exonerated).
+- Rung 2: lib-2.0-beta bump, all flags off, ~1 h clean (library upgrade exonerated).
+- Remaining suspect: precomposed/native mode. Flashing rung-3 instrumented build (watchdog + RS counter on selftest row 15).
+
+## 2026-06-11 — LAYOUT SENSITIVITY REPRODUCED with a controlled diff
+- Rung-3 instrumented build (watchdog + RS renderer + root-menu code, ~394 lines, ALL in flash/background path, ZERO scratch-section or capture-path changes) was "super glitchy" immediately; persisted after fixing a real watchdog rate bug. Reverting ONLY those 394 lines (back to commit 3d1cb91 state) restored calm on the same bench, same session.
+- Implication: the perturbation mechanism is NOT scratch occupancy and NOT the code's execution (watchdog fix changed behavior, glitch unchanged). Prime suspect: flash/XIP placement+alignment shifts of hot non-scratch code moved by the added 394 lines. Future experiments: re-add the code in halves; try forced alignment / pinning hot functions to RAM; diff .map hot-symbol addresses between calm and glitchy builds.
+- Patch preserved at /tmp/neopico-rootmenu-watchdog.patch (copy into repo notes if needed).
+- Current firmware on bench: commit 3d1cb91 state, flags NONRT+PRECOMPOSED+OSD+SELFTEST (the same source as the earlier "looked good" soak that dropped at ~20-30 min). Soak continues to characterize the original drop.
+
+## 2026-06-12 morning — Run #6 (pure phase 2 baseline) PASSED ~8 h overnight
+- Precomposed render path exonerated; canonical baseline established (sha 76c1233d). OSD/selftest-compiled implicated (3/3 drops 20-60 min vs 0 drops in 8 h without). Next: experiment #7 (OSD compiled, never opened) to split presence-vs-opening. Details in STATE.md.
