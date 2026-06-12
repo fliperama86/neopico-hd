@@ -5,7 +5,7 @@ reality. Any agent or human picking up the project starts here. The
 append-only history stays in `SCRATCHBOOK.md`; architecture rules in
 `AGENTS.md`; protocol details in `docs/`.
 
-_Last updated: 2026-06-12 (evening; RT x copy-to-RAM toxic, v0.7.2 corrects)._
+_Last updated: 2026-06-12 (evening; Scenario B ratified: precomposed into runtime-modes path)._
 
 ## Current state
 
@@ -111,6 +111,21 @@ on flash (with their historical XIP layout lottery — the strategic exit
 is migrating RT modes to the precomposed architecture). CI matrix
 corrected in v0.7.2; v0.7.1's default artifacts shipped broken (RT+RAM)
 and are superseded.
+
+## ARCHITECTURE DECISION (2026-06-12, user-ratified): Scenario B
+
+RT-with-features bisect ABANDONED: user context confirms only vanilla 480p
+was ever rock-solid pre-2.0 (even 720p dropped in a demo); RT+features is
+unconquered territory, not a regression. The destination is **rung 3: port
+the precomposed tiny-ISR architecture into the runtime-modes path** (one
+firmware, all resolutions, robust ISR; endgame deletes the copy-model ISR
+and converges the lib = pico_hdmi 2.1). Mode plan: 480p zero-copy (done),
+720p = 3x via pre-expanded line ring outside the ISR + hardware 2x,
+240p = 4x via pre-doubled ring + hardware 2x. The OSD composes at native
+resolution before any expansion (resolution-independent cost).
+Currently on bench: precomposed + root menu (Self Test entry) +
+copy-to-RAM — first execution of the menu code on the healthy
+architecture (build-precomp-menu/).
 
 ## Standing constraints (digest; full rules in AGENTS.md + SCRATCHBOOK)
 
