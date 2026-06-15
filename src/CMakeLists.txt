@@ -42,8 +42,12 @@ option(NEOPICO_EXP_VTOTAL_MATCH "Enable fixed-pixel-clock output with custom V t
 set(NEOPICO_EXP_VTOTAL_LINES "532" CACHE STRING "Custom V total lines when NEOPICO_EXP_VTOTAL_MATCH is ON")
 option(NEOPICO_EXP_GENLOCK_DYNAMIC "Enable dynamic VTOTAL genlock (runtime phase tracking)" OFF)
 option(NEOPICO_TRIPLE_ASM "Use hand-written M33 asm for the 3x/4x pixel-scale kernels (scale_pixels.S); boot self-test gates equivalence" OFF)
-option(NEOPICO_EXP_REBOOT_MODE_SWITCH "Enable experimental reboot-based 480p/240p HDMI mode switching via OSD Back button" OFF)
-option(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P "Allow the reboot-based HDMI mode switch experiment to cycle through 720p" OFF)
+# Baseline: the resolution selector (reboot-based 240p/480p/720p switching via
+# the OSD) is the default firmware. One build does all three modes; pass these
+# OFF for a fixed-resolution build (then select a single mode with VIDEO_240P /
+# VIDEO_720P, which are mutually exclusive with the selector).
+option(NEOPICO_EXP_REBOOT_MODE_SWITCH "Reboot-based 240p/480p/720p HDMI mode switching via the OSD resolution menu" ON)
+option(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P "Let the OSD resolution menu cycle through 720p" ON)
 option(NEOPICO_EXP_REBOOT_BUTTON_CYCLER "Enable bare BACK-button reboot-mode cycling without the OSD/menu module" OFF)
 option(NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI "Compile reboot-mode plumbing but disable the OSD resolution selector UI for timing isolation" OFF)
 option(NEOPICO_EXP_RAM_SELECTOR_UI "Place reboot selector UI/render helpers in SRAM for timing isolation" OFF)
@@ -288,18 +292,24 @@ if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P AND NOT NEOPICO_EXP_REBOOT_MODE_SWITCH)
     message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH_720P requires NEOPICO_EXP_REBOOT_MODE_SWITCH=ON")
 endif()
 
-# 720p drives sys_clk to 372 MHz (3x the flash clock of the 480p/126 MHz path).
-# At that overclock XIP flash reads corrupt (default RXDELAY samples too early)
-# -> the very next instruction fetch faults -> hard crash with no recovery.
-# The robust, flash-chip-independent fix is to execute from RAM, so flash is
-# only read once at the safe boot clock. Force COPY_TO_RAM on for ANY 720p
-# build so the crash can never return via a forgotten flag.
+# Overclock builds MUST execute from RAM. Above ~150 MHz sys_clk, XIP flash
+# reads corrupt (the boot-clock QMI timing samples too early) -> the next
+# instruction fetch faults -> hard crash with no recovery. copy_to_ram reads
+# flash once at the safe boot clock, then runs from RAM. Overclocked modes:
+#   - 720p:    372 MHz (VIDEO_720P, or the reboot-switch 720p mode)
+#   - RT 480p: 252 MHz (scanline-IRQ headroom; default 480p + the selector)
+set(_neopico_overclocked OFF)
 if(NEOPICO_VIDEO_720P OR NEOPICO_EXP_REBOOT_MODE_SWITCH_720P)
-    if(NOT NEOPICO_COPY_TO_RAM)
-        message(STATUS "720p (372 MHz overclock) selected: forcing NEOPICO_COPY_TO_RAM=ON to avoid XIP flash corruption")
-        set(NEOPICO_COPY_TO_RAM ON CACHE BOOL
-            "Copy the entire binary to SRAM at boot and execute from RAM" FORCE)
-    endif()
+    set(_neopico_overclocked ON)
+endif()
+if((NOT NEOPICO_USE_NONRT_HDMI) AND (NOT NEOPICO_VIDEO_240P) AND (NOT NEOPICO_VIDEO_720P))
+    # RT 480p (default build) and the runtime selector both run 480p at 252 MHz.
+    set(_neopico_overclocked ON)
+endif()
+if(_neopico_overclocked AND NOT NEOPICO_COPY_TO_RAM)
+    message(STATUS "Overclocked build (>150 MHz sys_clk) selected: forcing NEOPICO_COPY_TO_RAM=ON to avoid XIP flash corruption")
+    set(NEOPICO_COPY_TO_RAM ON CACHE BOOL
+        "Copy the entire binary to SRAM at boot and execute from RAM" FORCE)
 endif()
 
 if(NEOPICO_VIDEO_DVI_ONLY)
@@ -357,6 +367,13 @@ endif()
 
 if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P)
     target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_RT_RUNTIME_MODE_ATTRS=1)
+endif()
+
+# RT 480p runs at 252 MHz for scanline-IRQ headroom (see main.c SYS_CLK_480P_KHZ).
+# Halve the 480p HSTX clk divider in the library so the pixel clock stays
+# 25.2 MHz (252/(2*5)) and the 480p signal is byte-identical to the 126 MHz one.
+if(NOT NEOPICO_USE_NONRT_HDMI)
+    target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_480P_HSTX_CLK_DIV=2)
 endif()
 
 if(NEOPICO_EXP_ALIGN_HSTX_DI_BUFFERS)

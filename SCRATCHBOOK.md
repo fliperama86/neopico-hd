@@ -1041,3 +1041,19 @@ Working implication for this board:
 - Measured both 720p render paths: IDENTICAL output. Content 960px (320x3) centered, 160px pillars each side, 1280x720, VIC=4, pixel_rep=0, pos sync, 74.4 MHz. AVI InfoFrame byte-identical (hstx_packet shared). Timing identical (1650x750).
 - CONCLUSION: nothing in firmware differs in aspect between paths -> the Morph "wrong aspect on non-RT" is SINK-SIDE (its per-input/format auto-aspect), NOT a firmware bug. No non-RT firmware fix warranted. Caveat: DMA/DI command lists are built by different code; not 100% ruled out without an HDMI analyzer, but every standard param matches.
 - PLAN: converge everything to RT mode eventually. Glitch is NOT the RT path itself (rt-min clean) -> it's precomposed and/or genlock and/or OSD. Hunting one variable at a time from rt-min.
+
+## 2026-06-15 — RT 480p instability CONFIRMED = S2 DMA-swap hazard (not the selector)
+- Resolution selector (REBOOT_MODE_SWITCH + 720P, RT, OSD, copy_to_ram) works; 240p/720p stable, 480p unstable. Selector static review CLEAN (scratch_x 0x614 < 0x800; ISR branches per-line; copy_to_ram neutralizes the old XIP layout ghost).
+- Isolation: build-rt-480p (480p-only RT) = SAME instability as 480p-in-selector => inherent to RT-480p, NOT selector-specific.
+- ROOT CAUSE (code-confirmed): video_output_rt.c:1086 `ch->al1_ctrl = posting_active_data ? dma_ctrl16 : dma_ctrl32` swaps DMA transfer size every IRQ. 480p posts active as 16-bit (HSTX does 2x expand) -> swaps 16<->32 every line. 720p/240p post 32-bit pre-expanded -> never swap. The per-IRQ al1_ctrl write racing a late/coalesced DMA IRQ = the documented S2 desync. Likely also the cause of the old precomposed 480p 20-30min soak failures.
+- FIX = S2 (swap-free DMA). Options: (A) make 480p 32-bit pre-expanded like 720p/240p (app already double_pixels_fast; most contained, unifies all modes on the proven swap-free topology); (B) dedicated per-post DMA channels (STATE S2 rework). Lean (A). Library surgery on hot ISR -> scope before coding.
+- Selector firmware itself is GOOD; 480p just rides the broken path. S2 unblocks 480p everywhere.
+
+## 2026-06-15 — CORRECTION: 480p instability is ISR CYCLE BUDGET, not the DMA swap
+- PRIOR ENTRY WRONG: the al1_ctrl 16/32 swap (video_output_rt.c:1086) is inside `#if PICO_HDMI_PRECOMPOSED_ACTIVE_LINES` AND `if(native_pixel_mode)` -> PRECOMPOSED/native ONLY. The selector is NOT precomposed, so that block isn't compiled. 480p there already uses the plain 32-bit copy model, no swap. Approach A (swap-free DMA) does NOT apply.
+- REAL CAUSE (quantified): cycles per scanline-IRQ = sys_clk / line_rate.
+  480p: 126MHz / 31.5kHz = ~4000 cyc/IRQ (h_total 800, v_total 525, pixel 25.2MHz, line-doubled).
+  240p: 126MHz / 15.75kHz = ~8000 (h_total 1600, v_total 262).
+  720p: 372MHz / 45kHz = ~8250 (h_total 1650, v_total 750).
+  => 480p has HALF the per-line ISR budget; per-line work (DMA post + DI/audio tick + pixel-scale callback) occasionally overruns -> FIFO underrun -> desync. 240p/720p have ~2x headroom. Matches user: 480p unstable, 240p/720p stable.
+- PROPOSED FIX = run 480p at higher sys_clk (~252 MHz) with HSTX divider doubled (clk_div 1->2 or csr_clkdiv 5->10) so pixel stays 25.2 MHz (identical picture), doubling ISR budget to ~8000. Needs vreg 1.30V + copy_to_ram (already forced in selector). Touches main.c (sys_clk per mode) + library 480p mode dividers. Build 480p@252 to CONFIRM + likely fix in one shot before committing to the approach.

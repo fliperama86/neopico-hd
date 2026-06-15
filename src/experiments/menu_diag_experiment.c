@@ -1,6 +1,7 @@
 #include "menu_diag_experiment.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #if NEOPICO_ENABLE_OSD
 
@@ -144,27 +145,48 @@ static const char *SELECTOR_UI_RAM(resolution_label)(video_pipeline_reboot_mode_
     }
 }
 
-static video_pipeline_reboot_mode_t SELECTOR_UI_RAM(resolution_next)(video_pipeline_reboot_mode_t mode)
+// Shown for the hovered entry in the description row (where MENU/BACK hints were).
+static const char *SELECTOR_UI_RAM(resolution_description)(video_pipeline_reboot_mode_t mode)
 {
     switch (mode) {
-        case VIDEO_PIPELINE_REBOOT_MODE_480P:
-            return VIDEO_PIPELINE_REBOOT_MODE_240P;
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
         case VIDEO_PIPELINE_REBOOT_MODE_240P:
+            return "Direct Mode";
+        case VIDEO_PIPELINE_REBOOT_MODE_720P:
+            return "3x Integer Scaling";
+        default:
+            return "2x Integer Scaling";
+    }
+}
+
+static void SELECTOR_UI_RAM(resolution_selector_render_description)(void)
+{
+    // Clear the row (longest description is 18 chars) then draw the hovered one.
+    fast_osd_puts_color(RES_SELECTOR_HINT_ROW, 2, "                    ", OSD_COLOR_GRAY);
+    fast_osd_puts_color(RES_SELECTOR_HINT_ROW, 2, resolution_description(s_selected_mode), OSD_COLOR_GRAY);
+}
+
+static video_pipeline_reboot_mode_t SELECTOR_UI_RAM(resolution_next)(video_pipeline_reboot_mode_t mode)
+{
+    // Cycle in display order: 240p -> 480p -> 720p -> 240p.
+    switch (mode) {
+        case VIDEO_PIPELINE_REBOOT_MODE_240P:
+            return VIDEO_PIPELINE_REBOOT_MODE_480P;
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+        case VIDEO_PIPELINE_REBOOT_MODE_480P:
             return VIDEO_PIPELINE_REBOOT_MODE_720P;
 #endif
         default:
-            return VIDEO_PIPELINE_REBOOT_MODE_480P;
+            return VIDEO_PIPELINE_REBOOT_MODE_240P;
     }
 }
 
 static bool SELECTOR_UI_RAM(resolution_selector_option_row)(video_pipeline_reboot_mode_t mode, uint8_t *row)
 {
     switch (mode) {
-        case VIDEO_PIPELINE_REBOOT_MODE_480P:
+        case VIDEO_PIPELINE_REBOOT_MODE_240P:
             *row = RES_SELECTOR_FIRST_OPTION_ROW;
             return true;
-        case VIDEO_PIPELINE_REBOOT_MODE_240P:
+        case VIDEO_PIPELINE_REBOOT_MODE_480P:
             *row = RES_SELECTOR_FIRST_OPTION_ROW + 2;
             return true;
 #if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
@@ -182,10 +204,11 @@ static void SELECTOR_UI_RAM(resolution_selector_render_option)(uint8_t row, vide
     const bool selected = (s_selected_mode == mode);
     const bool current = (video_pipeline_reboot_requested_mode() == mode);
     const uint16_t color = selected ? OSD_COLOR_YELLOW : current ? OSD_COLOR_GREEN : OSD_COLOR_FG;
+    const char *label = resolution_label(mode);
     fast_osd_putc_color(row, 3, selected ? '>' : ' ', color);
-    fast_osd_puts_color(row, 5, resolution_label(mode), color);
+    fast_osd_puts_color(row, 5, label, color);
     if (current) {
-        fast_osd_puts_color(row, 11, "current", OSD_COLOR_GREEN);
+        fast_osd_putc_color(row, (uint8_t)(5 + strlen(label)), '*', color);
     }
 }
 
@@ -204,32 +227,21 @@ static void SELECTOR_UI_RAM(resolution_selector_update_selection)(video_pipeline
     }
     resolution_selector_render_option_mode(previous_mode);
     resolution_selector_render_option_mode(s_selected_mode);
+    resolution_selector_render_description();
 }
 
 static void SELECTOR_UI_RAM(resolution_selector_render_full)(void)
 {
     fast_osd_clear();
     fast_osd_puts_color(RES_SELECTOR_TITLE_ROW, 2, "NeoPico-HD Output", OSD_COLOR_YELLOW);
-    fast_osd_puts_color(RES_SELECTOR_CURRENT_ROW, 2, "Current:", OSD_COLOR_GRAY);
-    fast_osd_puts_color(RES_SELECTOR_CURRENT_ROW, 11, resolution_label(video_pipeline_reboot_requested_mode()),
-                        OSD_COLOR_GREEN);
     fast_osd_puts_color(RES_SELECTOR_FIRST_OPTION_ROW - 2, 2, "Resolution", OSD_COLOR_FG);
 
-    resolution_selector_render_option(RES_SELECTOR_FIRST_OPTION_ROW, VIDEO_PIPELINE_REBOOT_MODE_480P);
-    resolution_selector_render_option(RES_SELECTOR_FIRST_OPTION_ROW + 2, VIDEO_PIPELINE_REBOOT_MODE_240P);
+    resolution_selector_render_option(RES_SELECTOR_FIRST_OPTION_ROW, VIDEO_PIPELINE_REBOOT_MODE_240P);
+    resolution_selector_render_option(RES_SELECTOR_FIRST_OPTION_ROW + 2, VIDEO_PIPELINE_REBOOT_MODE_480P);
 #if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
     resolution_selector_render_option(RES_SELECTOR_FIRST_OPTION_ROW + 4, VIDEO_PIPELINE_REBOOT_MODE_720P);
 #endif
-
-#if NEOPICO_STATIC_OSD_APPLY
-    fast_osd_puts_color(RES_SELECTOR_HINT_ROW, 2, "MENU apply BACK move", OSD_COLOR_GRAY);
-#elif NEOPICO_STATIC_OSD_SELECT_ONLY
-    fast_osd_puts_color(RES_SELECTOR_HINT_ROW, 2, "MENU show/hide BACK move", OSD_COLOR_GRAY);
-#elif NEOPICO_STATIC_OSD_TOGGLE_ONLY
-    fast_osd_puts_color(RES_SELECTOR_HINT_ROW, 2, "MENU show/hide", OSD_COLOR_GRAY);
-#else
-    fast_osd_puts_color(RES_SELECTOR_HINT_ROW, 2, "MENU apply  BACK change", OSD_COLOR_GRAY);
-#endif
+    resolution_selector_render_description();
 }
 
 static void SELECTOR_UI_APPLY_RAM(resolution_selector_apply)(void)
@@ -364,7 +376,6 @@ static void genlock_screen_draw(void)
     fast_osd_puts_color(8, 2, "SLOTS", OSD_COLOR_GRAY);
     fast_osd_puts_color(10, 2, "VTOTAL", OSD_COLOR_GRAY);
     fast_osd_puts_color(12, 2, "UPTIME", OSD_COLOR_GRAY);
-    fast_osd_puts_color(14, 2, "MENU back", OSD_COLOR_GRAY);
     genlock_screen_update_values();
 }
 #endif
@@ -385,7 +396,6 @@ static void root_menu_draw(void)
     for (uint8_t i = 0; i < (uint8_t)ROOT_ENTRY_COUNT; i++) {
         root_menu_render_entry(i);
     }
-    fast_osd_puts_color(ROOT_HINT_ROW, 2, "BACK move  MENU enter", OSD_COLOR_GRAY);
 }
 
 static void root_menu_enter_root(uint32_t now_ms)

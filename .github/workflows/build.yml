@@ -35,43 +35,26 @@ jobs:
         cd $HOME/pico-sdk
         git submodule update --init
 
-    # Three firmware artifacts, identical flags, varying ONLY by resolution.
-    # The common config (RT path + OSD + self-test + root menu) is the project
-    # default, so each build passes only its resolution flag. 720p auto-forces
-    # COPY_TO_RAM (372 MHz overclock would corrupt XIP flash); see CMakeLists.
+    # Single baseline firmware: the resolution selector. One build switches
+    # between 240p / 480p / 720p live from the OSD menu (reboot-based). The
+    # selector is the project default, so the no-arg build is the selector;
+    # 480p runs at 252 MHz and 720p at 372 MHz, so COPY_TO_RAM auto-forces
+    # (the overclock would corrupt XIP flash); see CMakeLists.
 
-    - name: Build NeoPico-HD 480p
+    - name: Build NeoPico-HD
       run: |
-        cmake -S . -B build-480p -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release
-        cmake --build build-480p -j$(nproc)
-        cp build-480p/src/neopico_hd.uf2 neopico_hd_480p.uf2
-        cp build-480p/src/neopico_hd.elf neopico_hd_480p.elf
-
-    - name: Build NeoPico-HD 240p
-      run: |
-        cmake -S . -B build-240p -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_VIDEO_240P=ON
-        cmake --build build-240p -j$(nproc)
-        cp build-240p/src/neopico_hd.uf2 neopico_hd_240p.uf2
-        cp build-240p/src/neopico_hd.elf neopico_hd_240p.elf
-
-    - name: Build NeoPico-HD 720p
-      run: |
-        cmake -S . -B build-720p -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_VIDEO_720P=ON
-        cmake --build build-720p -j$(nproc)
-        cp build-720p/src/neopico_hd.uf2 neopico_hd_720p.uf2
-        cp build-720p/src/neopico_hd.elf neopico_hd_720p.elf
+        cmake -S . -B build -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release
+        cmake --build build -j$(nproc)
+        cp build/src/neopico_hd.uf2 neopico_hd.uf2
+        cp build/src/neopico_hd.elf neopico_hd.elf
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: neopico-hd-build
         path: |
-          neopico_hd_240p.uf2
-          neopico_hd_240p.elf
-          neopico_hd_480p.uf2
-          neopico_hd_480p.elf
-          neopico_hd_720p.uf2
-          neopico_hd_720p.elf
+          neopico_hd.uf2
+          neopico_hd.elf
 
   fabrication:
     runs-on: ubuntu-latest

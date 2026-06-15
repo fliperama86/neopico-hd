@@ -102,6 +102,12 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 
 #define SYS_CLK_60HZ_KHZ 126000U
 #define SYS_CLK_720P_KHZ 372000U
+// 480p is line-doubled (31.5 kHz scanline IRQ): at 126 MHz that is only ~4000
+// cyc/line and the per-line ISR occasionally underruns -> desync. Run 480p at
+// 252 MHz (~8000 cyc/line, matching the stable 240p/720p budgets). The HSTX
+// divider is doubled in video_mode_480_p so the pixel clock stays 25.2 MHz
+// (picture identical); requires VREG 1.30V and copy_to_ram (252 MHz overclock).
+#define SYS_CLK_480P_KHZ 252000U
 
 static inline uint32_t compute_sysclk_khz_for_fps_x100(uint32_t fps_x100)
 {
@@ -292,6 +298,20 @@ int main(void)
 #endif
     {
         uint32_t sys_clk_khz = SYS_CLK_60HZ_KHZ;
+        bool overclock_480p = false;
+#if NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_USE_NONRT_HDMI
+        // Selector: the 480p reboot mode runs at 252 MHz for scanline-IRQ
+        // headroom (240p/720p reboot modes keep their own clocks).
+        overclock_480p = (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_480P);
+#elif !NEOPICO_VIDEO_240P && !NEOPICO_USE_NONRT_HDMI
+        // Compile-time RT 480p: same headroom fix (non-RT keeps its own dividers).
+        overclock_480p = true;
+#endif
+        if (overclock_480p) {
+            sys_clk_khz = SYS_CLK_480P_KHZ;
+            vreg_set_voltage(VREG_VOLTAGE_1_30);
+            sleep_ms(10);
+        }
 #if NEOPICO_EXP_GENLOCK_STATIC && !NEOPICO_EXP_VTOTAL_MATCH
         sys_clk_khz = compute_sysclk_khz_for_fps_x100((uint32_t)NEOPICO_GENLOCK_TARGET_FPS_X100);
 #endif
