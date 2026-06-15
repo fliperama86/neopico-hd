@@ -1087,3 +1087,25 @@ Working implication for this board:
 - NEOPICO_SETTINGS_FLASH (default ON), links hardware_flash. copy_to_ram (forced by selector) makes the flash write safe (whole binary in RAM, XIP suspend stalls nothing).
 - HW: resolution survives cold power-cycle. "BEAUTIFUL" per user.
 - NOTE: post-tag v0.8.0 (b61c782 on main). Next release (v0.8.1?) would bundle this + the cold-boot audio fix (5688054).
+
+## 2026-06-15 — Clarified fake OSD blend concept
+- User asked if the proposed OSD blend means "faking" transparency by darkening the underlying game pixels.
+- Clarification: yes; safest concept is dim game pixels in the OSD panel region, then draw opaque OSD text/colors on top, avoiding true arbitrary alpha blending in the HSTX scanline ISR.
+
+## 2026-06-15 — Deferred OSD fake-blend experiment
+- User liked the fake translucent OSD idea: darken game pixels under the OSD rectangle, then draw opaque OSD text/colors on top.
+- Deferred until after the repo is converted into a "bare" one.
+- Future test shape: compile-time feature flag, off by default; fixed dim factor only; no arbitrary alpha; keep Core 1 scanline ISR branchless/loop-split and easy to rollback.
+
+## 2026-06-15 — Created translucent OSD worktree
+- User decided to use normal Git worktrees, not a bare-repo model.
+- Created sibling worktree `/Users/dudu/Projects/neogeo/neopico-hd-translucent-osd` on new branch `exp/translucent-osd` from `main` HEAD 46cd8f7.
+- Initialized `lib/pico_hdmi` submodule in the new worktree at recorded gitlink f8034c7. No implementation code changed yet.
+- Reminder for future experiment: fake translucent OSD = dim game pixels under OSD rectangle, then render opaque OSD text/colors; feature-flag off by default.
+
+## 2026-06-15 — Resolution-confirm safety net (MERGED 9c293c9)
+- TV-style "Keep this resolution?" 10s countdown after a res switch. MENU keeps, BACK/timeout reverts. Auto-recovers from picking a mode the display can't show (black screen -> timeout -> previous res). NEOPICO_OSD_RES_CONFIRM default ON.
+- GOTCHA (cost a debug cycle): the pending state must ride watchdog scratch[3] ONLY. The SDK's watchdog_reboot(0,0,..) ZEROES scratch[4] (and uses [4..7] for its boot vector). The existing reboot mode already owns scratch[0..2]. So only scratch[3] survives a plain reboot -> packed marker+previous-mode+check into that one register. First attempt used scratch[3..5] -> scratch[4] clobbered -> take_pending failed -> no prompt.
+- Order INVERSION (cost a debug cycle): originally persisted on CONFIRM (live flash erase, no reboot after) -> the interrupt-disabled erase stalled the HDMI ISR and dropped sync UNRECOVERABLY. Fixed: persist optimistically at SELECT (masked by that reboot); CONFIRM = pure dismiss (no flash); REVERT/timeout rolls flash back to previous + reboots. All flash writes now at reboot points.
+- Edge case (accepted): power-cut DURING the countdown persists the unconfirmed res (no boot-completed flag). Rare; bulletproofing = a boot-completed flag cleared on confirm.
+- Bonus: settings.c now includes pico.h not pico/platform.h (a linter reorder had broken clean builds since b61c782; this merge un-breaks main).
