@@ -1062,3 +1062,28 @@ Working implication for this board:
 - User asked whether SIMD/ASM tricks could make fast OSD bg <-> game-content pixel blending feasible.
 - Relevant constraints re-read: OSD is Core 1 overlay during scanline doubling DMA ISR; HSTX 480p line timing is exactly 800 cycles; inner loop must avoid per-pixel branches and minimize memory access; Core 0 must stay capture-only.
 - Initial answer direction: possible only in very constrained forms (mask/substitute or coarse/quantized blend LUTs), but true arbitrary alpha blending per OSD pixel is likely too expensive/risky in the ISR, especially 480p budget; any experiment should be compile-time flag-gated/off by default.
+
+## 2026-06-15 — Perf: Tier 1 banked; command-list scanout investigated + PARKED
+- Tier 1 (committed f8034c7 / neopico f8ef31e): perf-probe gated off, v_scanline modulo->compare, get_scanline_state boundary hoist. ~45-70 cyc/line off the ISR, all modes. The genuine free win.
+- DEEP investigation of rp2350-doom's no-per-line-ISR command-list scanout (see ~/Projects/rp2350-doom/src/pico/hstx_cmdlist.c + INVESTIGATION_PROGRESS.md). Findings:
+  - Root perf constraint = the PER-LINE ISR deadline (confirmed cross-project). doom eliminated it: 1 static DMA command list/frame, 2 chained channels (pixel CHAIN_TO command; command write-ring-4 into pixel al3), 1 IRQ/frame. Mode-agnostic.
+  - Command-list model absorbs FOR FREE: two-phase active line, the al1_ctrl 16/32 swap (baked into per-slot ctrl), blanking variety, v_scanline wrap.
+  - 480p horizontal 2x = 16-bit DMA bus-replication + HSTX expander -> ZERO software scaling, framebuffer stays 320-wide. (We have this as native_pixel_mode.)
+  - RAM caps: 480p native frame ~150KB fits (fully static list). 240p(4x)/720p(3x) full pre-expanded frame = 614KB+ -> DOESN'T fit 520KB; needs ring + periodic (per-segment, ~few/frame) pointer refresh, not per-line.
+  - Hard problems: (1) AUDIO Data Islands = doom's UNSOLVED part ("stable video, mute audio" on real sinks via cmdlist) -> the make-or-break risk; (2) genlock vtotal step vs static list (h-trim compatible, vtotal needs dual-list relink); (3) live-capture full-frame buffer.
+- The cheapest standalone win beyond Tier 1 = 480p hardware-2x (native pointer + 16-bit DMA) to kill the ~1000 cyc/line scale loop, BUT in the per-line model it reintroduces the al1_ctrl swap = the S2 desync race that dropped precomposed at 20-30 min. Clean only inside the full command-list model.
+- DECISION (user): not worth the risk. Tier 1 stays; 480p stays at 252 MHz OC (stable, harmless). Full command-list rewrite parked (audio-DI risk + rewrite cost). branch perf/doom-scanout deleted (was empty).
+
+## 2026-06-15 — Cold-boot scratchy audio FIXED via auto-reboot (shipped, default ON)
+- Symptom resurfaced: scratchy audio in loud games (SamSho, KOF98), not Metal Slug X. Same as project's early-days cold-boot scratchiness; manual reset fixes it. Game-dependence = loud voice content exposes a cold-boot STATE issue (MVS DAC settle / TV audio decoder latches DIs before TMDS lock), not content.
+- Fix: NEOPICO_EXP_FIRST_BOOT_REBOOT (default ON, commit 5688054). main.c: if cold boot (take_reboot_mode_boot_request==false), call video_pipeline_request_reboot_mode(default) + spin -> one auto-reboot. Warm boot proceeds (scratch magic). Replicates the manual reset (warm HDMI re-lock).
+- HW confirmed: CLEAN after the auto-reboot. Cost ~1-2s extra cold boot; warm/resolution reboots unaffected. Workaround, not root-cause fix.
+- NOTE: this landed AFTER tag v0.8.0 (5688054 is post-tag on main). v0.8.0 release does NOT include it; would need a v0.8.1 to ship the audio fix in a release.
+
+## 2026-06-15 — Flash-backed settings (resolution persists across power-off) — MERGED
+- Done in a worktree (worktree-flash-settings), validated on HW, ff-merged to main (b61c782), worktree+branch torn down.
+- src/settings.{c,h}: magic+version+CRC record in the LAST 4KB flash sector (16MB part; SETTINGS_FLASH_OFFSET = PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE). Payload = resolution + reserved[31] for growth. settings_load (read XIP), settings_save (__no_inline_not_in_flash_func; CRC before XIP suspend; erase+program under save_and_disable_interrupts). Reused MarkI- mechanics, simplified to single-sector (no journal — writes are rare + controlled).
+- Integration: request_reboot_mode() persists the new mode (blocking, before watchdog_reboot — brief ISR stall invisible since rebooting). Cold boot loads saved resolution as the boot target (warm reboots still use watchdog scratch). Was: resolution reset to 480p on every power-off.
+- NEOPICO_SETTINGS_FLASH (default ON), links hardware_flash. copy_to_ram (forced by selector) makes the flash write safe (whole binary in RAM, XIP suspend stalls nothing).
+- HW: resolution survives cold power-cycle. "BEAUTIFUL" per user.
+- NOTE: post-tag v0.8.0 (b61c782 on main). Next release (v0.8.1?) would bundle this + the cold-boot audio fix (5688054).
