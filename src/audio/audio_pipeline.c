@@ -17,6 +17,14 @@
 
 #include "audio_common.h"
 
+// Output volume (percent). Applied as a Q15 multiply on the final samples.
+// Attenuation only (<=100), so it can never overflow -> no clamp needed.
+// 100 = unity (the gain loop compiles out entirely, byte-identical output).
+#ifndef NEOPICO_AUDIO_VOLUME_PCT
+#define NEOPICO_AUDIO_VOLUME_PCT 100
+#endif
+#define NEOPICO_AUDIO_GAIN_Q15 (((NEOPICO_AUDIO_VOLUME_PCT) * 32768 + 50) / 100)
+
 // Processing buffer size (intermediate between stages)
 #define PROCESS_BUFFER_SIZE 64
 
@@ -114,6 +122,14 @@ void audio_pipeline_process(audio_pipeline_t *p, audio_output_fn output_fn, void
     // Apply sample rate conversion
     uint32_t in_consumed = 0;
     uint32_t out_count = src_process(&p->src, process_in, available, process_out, PROCESS_BUFFER_SIZE, &in_consumed);
+
+#if NEOPICO_AUDIO_VOLUME_PCT != 100
+    // Output volume attenuation (Q15, overflow-safe since gain <= 1.0).
+    for (uint32_t i = 0; i < out_count; i++) {
+        process_out[i].left = (int16_t)(((int32_t)process_out[i].left * NEOPICO_AUDIO_GAIN_Q15) >> 15);
+        process_out[i].right = (int16_t)(((int32_t)process_out[i].right * NEOPICO_AUDIO_GAIN_Q15) >> 15);
+    }
+#endif
 
     // Output processed samples
     if (out_count > 0) {

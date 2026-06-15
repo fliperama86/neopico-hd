@@ -1057,3 +1057,8 @@ Working implication for this board:
   720p: 372MHz / 45kHz = ~8250 (h_total 1650, v_total 750).
   => 480p has HALF the per-line ISR budget; per-line work (DMA post + DI/audio tick + pixel-scale callback) occasionally overruns -> FIFO underrun -> desync. 240p/720p have ~2x headroom. Matches user: 480p unstable, 240p/720p stable.
 - PROPOSED FIX = run 480p at higher sys_clk (~252 MHz) with HSTX divider doubled (clk_div 1->2 or csr_clkdiv 5->10) so pixel stays 25.2 MHz (identical picture), doubling ISR budget to ~8000. Needs vreg 1.30V + copy_to_ram (already forced in selector). Touches main.c (sys_clk per mode) + library 480p mode dividers. Build 480p@252 to CONFIRM + likely fix in one shot before committing to the approach.
+
+## 2026-06-15 — OSD background blending question
+- User asked whether SIMD/ASM tricks could make fast OSD bg <-> game-content pixel blending feasible.
+- Relevant constraints re-read: OSD is Core 1 overlay during scanline doubling DMA ISR; HSTX 480p line timing is exactly 800 cycles; inner loop must avoid per-pixel branches and minimize memory access; Core 0 must stay capture-only.
+- Initial answer direction: possible only in very constrained forms (mask/substitute or coarse/quantized blend LUTs), but true arbitrary alpha blending per OSD pixel is likely too expensive/risky in the ISR, especially 480p budget; any experiment should be compile-time flag-gated/off by default.
