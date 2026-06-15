@@ -16,6 +16,7 @@ add_executable(neopico_hd
     audio/lowpass.c
     audio/src.c
     video/scale_pixels.S
+    settings.c
 )
 
 # Compile-time feature flags (cache params for fast A/B testing)
@@ -49,6 +50,7 @@ option(NEOPICO_TRIPLE_ASM "Use hand-written M33 asm for the 3x/4x pixel-scale ke
 option(NEOPICO_EXP_REBOOT_MODE_SWITCH "Reboot-based 240p/480p/720p HDMI mode switching via the OSD resolution menu" ON)
 option(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P "Let the OSD resolution menu cycle through 720p" ON)
 option(NEOPICO_EXP_FIRST_BOOT_REBOOT "Auto-reboot once on cold power-on (cold-boot scratchy-audio workaround: re-establishes the HDMI link warm); requires the reboot-mode path. ~1-2s extra on cold boot." ON)
+option(NEOPICO_SETTINGS_FLASH "Persist settings (resolution) to flash so they survive power-off; loaded at cold boot, written at the reboot point" ON)
 option(NEOPICO_EXP_REBOOT_BUTTON_CYCLER "Enable bare BACK-button reboot-mode cycling without the OSD/menu module" OFF)
 option(NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI "Compile reboot-mode plumbing but disable the OSD resolution selector UI for timing isolation" OFF)
 option(NEOPICO_EXP_RAM_SELECTOR_UI "Place reboot selector UI/render helpers in SRAM for timing isolation" OFF)
@@ -410,6 +412,10 @@ if(NEOPICO_EXP_FIRST_BOOT_REBOOT)
     target_compile_definitions(neopico_hd PRIVATE NEOPICO_EXP_FIRST_BOOT_REBOOT=1)
 endif()
 
+if(NEOPICO_SETTINGS_FLASH)
+    target_compile_definitions(neopico_hd PRIVATE NEOPICO_SETTINGS_FLASH=1)
+endif()
+
 if(NEOPICO_EXP_STRESS_CORE1_US GREATER 0)
     target_compile_definitions(neopico_hd PRIVATE NEOPICO_EXP_STRESS_CORE1_US=${NEOPICO_EXP_STRESS_CORE1_US})
 endif()
@@ -441,6 +447,7 @@ target_link_libraries(neopico_hd
     hardware_dma
     hardware_irq
     hardware_gpio
+    hardware_flash
 )
 
 target_compile_definitions(neopico_hd PRIVATE

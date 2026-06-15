@@ -32,6 +32,9 @@
 #include "video/video_config.h"
 #include "video/video_pipeline.h"
 #include "video_capture.h"
+#if NEOPICO_SETTINGS_FLASH
+#include "settings.h"
+#endif
 
 // Line ring buffer (shared between Core 0 and Core 1)
 line_ring_t g_line_ring __attribute__((aligned(64)));
@@ -279,6 +282,18 @@ int main(void)
     video_pipeline_reboot_mode_t reboot_boot_mode =
         (NEOPICO_VIDEO_240P != 0) ? VIDEO_PIPELINE_REBOOT_MODE_240P : VIDEO_PIPELINE_REBOOT_MODE_480P;
     const bool warm_reboot = video_pipeline_take_reboot_mode_boot_request(&reboot_boot_mode);
+#if NEOPICO_SETTINGS_FLASH
+    // Cold boot (power-on): the warm-reboot scratch is gone, so recover the
+    // last-selected resolution from flash. A warm reboot already carries the
+    // chosen mode in the scratch, so only load on a cold boot.
+    if (!warm_reboot) {
+        neopico_settings_t persisted;
+        settings_load(&persisted);
+        if (persisted.resolution <= (uint8_t)VIDEO_PIPELINE_REBOOT_MODE_720P) {
+            reboot_boot_mode = (video_pipeline_reboot_mode_t)persisted.resolution;
+        }
+    }
+#endif
 #if NEOPICO_EXP_FIRST_BOOT_REBOOT
     // Quick-and-dirty cold-boot scratchy-audio workaround: on a cold (power-on)
     // boot, immediately reboot once into the default mode -- the same path the

@@ -12,6 +12,9 @@
 #include <string.h>
 
 #include "line_ring.h"
+#if NEOPICO_SETTINGS_FLASH
+#include "settings.h"
+#endif
 #if NEOPICO_ENABLE_OSD
 #include "osd/fast_osd.h"
 #endif
@@ -484,6 +487,17 @@ void VIDEO_PIPELINE_REBOOT_REQUEST_RAM(video_pipeline_request_reboot_mode)(video
         mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
     }
     reboot_requested_mode = mode;
+#if NEOPICO_SETTINGS_FLASH
+    // Persist the selected resolution so it survives power-off. Blocking write,
+    // completes before the watchdog fires. We're about to reboot, so the brief
+    // ISR stall during the flash erase is invisible (screen is going away).
+    {
+        neopico_settings_t persisted;
+        settings_load(&persisted); // keep other fields intact
+        persisted.resolution = (uint8_t)mode;
+        settings_save(&persisted);
+    }
+#endif
     watchdog_hw->scratch[0] = REBOOT_MODE_BOOT_MAGIC;
     watchdog_hw->scratch[1] = (uint32_t)mode;
     watchdog_hw->scratch[2] = reboot_mode_boot_check((uint32_t)mode);
