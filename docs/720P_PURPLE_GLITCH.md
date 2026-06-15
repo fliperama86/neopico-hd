@@ -1,6 +1,6 @@
 # 720p Purple-Scanline Glitch — Investigation Tracker
 
-**Status:** 🟡 Root cause identified (Core 0 capture activity) · mechanism = likely power/EMI · one firmware tiebreaker experiment still open
+**Status:** 🟡 Root cause identified (Core 0 capture activity into a marginal 720p eye) · sink-side: only exposed by **unbuffered/direct** receivers (TV Game Mode) · one firmware tiebreaker experiment still open
 **Last updated:** 2026-06-15
 **Owner:** dudu
 
@@ -10,7 +10,9 @@
 
 ## 1. Summary (current conclusion)
 
-At **720p only**, on a **Samsung Q80 4K TV connected directly**, a rare (every ~30 s–2 min) split-second burst of **purple/green scanline TMDS corruption** appears over the image. It is **caused by Core 0's active capture work**, not by the displayed content and not by a FIFO underrun. Leading mechanism: Core 0 burst current draw injecting power/ground noise into the marginal 720p resistor-DAC TMDS eye. **480p-direct is clean; 720p via Morph4K is clean.**
+At **720p only**, on a **Samsung Q80 4K TV connected directly in Game Mode**, a rare (every ~30 s–2 min) split-second burst of **purple/green scanline TMDS corruption** appears over the image. It is **caused by Core 0's active capture work** (not the displayed content, not a FIFO underrun) coupling into a marginal 720p resistor-DAC TMDS eye — and it is **only exposed by an unbuffered/direct sink path**. **It does NOT occur in the TV's Normal mode, nor via Morph4K/RT4K, nor at 480p.** Every clean case shares one trait: the sink **buffers/re-clocks** the signal (Normal-mode processing pipeline, or an external scaler), which rides over the brief error; Game Mode strips that buffering for low latency and shows it.
+
+**Confirmed sink-side (2026-06-15, user recalls hitting this before):** the variable is whether the receiver re-clocks. Game Mode (direct, low-latency) = glitch; Normal mode / Morph4K / RT4K (buffered) = clean. Note the irony: Game Mode is the desirable low-lag mode, so this matters precisely where it's least wanted.
 
 ---
 
@@ -23,13 +25,17 @@ At **720p only**, on a **Samsung Q80 4K TV connected directly**, a rare (every ~
 
 ## 3. Environment / repro
 
-| Factor | Glitches? |
-|---|---|
-| 720p, Samsung Q80, **direct** | ✅ yes |
-| 480p, Samsung Q80, direct | ❌ no |
-| 720p, via **Morph4K** | ❌ no |
-| 720p, RT path firmware | ✅ yes |
-| 720p, **non-RT** path firmware | ✅ yes (same) |
+| Factor | Glitches? | Sink re-clocks? |
+|---|---|---|
+| 720p, Samsung Q80 direct, **Game Mode** | ✅ yes | no (direct, low-latency) |
+| 720p, Samsung Q80 direct, **Normal mode** | ❌ no | yes (processing pipeline) |
+| 720p, via **Morph4K** | ❌ no | yes (scaler buffer) |
+| 720p, via **RT4K** | ❌ no | yes (scaler buffer) |
+| 480p, Samsung Q80 direct (any mode) | ❌ no | n/a — bigger eye |
+| 720p, RT path firmware | ✅ yes | (Game Mode) |
+| 720p, **non-RT** path firmware | ✅ yes (same) | (Game Mode) |
+
+> Pattern: glitches **iff** the sink consumes the stream **directly without re-clocking** (Game Mode). Any buffered/re-clocking path (Normal mode, Morph4K, RT4K) hides it — same as a buffered receiver riding over a marginal eye.
 
 ## 4. Board / signal facts
 
