@@ -282,6 +282,16 @@ int main(void)
     video_pipeline_reboot_mode_t reboot_boot_mode =
         (NEOPICO_VIDEO_240P != 0) ? VIDEO_PIPELINE_REBOOT_MODE_240P : VIDEO_PIPELINE_REBOOT_MODE_480P;
     const bool warm_reboot = video_pipeline_take_reboot_mode_boot_request(&reboot_boot_mode);
+#if NEOPICO_OSD_RES_CONFIRM && NEOPICO_ENABLE_OSD
+    // If this (warm) boot is a pending resolution change, arm the keep/revert
+    // countdown. reboot_boot_mode already holds the new mode from the scratch.
+    {
+        video_pipeline_reboot_mode_t res_confirm_previous;
+        if (video_pipeline_take_pending_confirmation(&res_confirm_previous)) {
+            menu_diag_experiment_arm_res_confirm(reboot_boot_mode, res_confirm_previous);
+        }
+    }
+#endif
 #if NEOPICO_SETTINGS_FLASH
     // Cold boot (power-on): the warm-reboot scratch is gone, so recover the
     // last-selected resolution from flash. A warm reboot already carries the

@@ -1,11 +1,11 @@
 #include "settings.h"
 
-#include "pico/platform.h"
-
 #include "hardware/flash.h"
 #include "hardware/sync.h"
 
 #include <string.h>
+
+#include "pico.h"
 
 // Last 4 KB sector of flash, reserved for settings. The firmware image is tiny
 // (~75 KB) vs 16 MB flash, so the top sector never collides with code/data.

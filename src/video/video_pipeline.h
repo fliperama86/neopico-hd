@@ -64,6 +64,15 @@ typedef enum {
 void video_pipeline_request_reboot_mode(video_pipeline_reboot_mode_t mode);
 video_pipeline_reboot_mode_t video_pipeline_reboot_requested_mode(void);
 bool video_pipeline_take_reboot_mode_boot_request(video_pipeline_reboot_mode_t *mode);
+
+// Resolution-change safety net: reboot into `mode` flagged PENDING confirmation,
+// carrying `previous` (the revert-to mode) across the reboot. Not persisted to
+// flash. take_pending_confirmation() consumes the marker at boot (returns true +
+// the previous mode if this boot is awaiting confirmation).
+void video_pipeline_request_reboot_mode_pending(video_pipeline_reboot_mode_t mode,
+                                                video_pipeline_reboot_mode_t previous);
+bool video_pipeline_take_pending_confirmation(video_pipeline_reboot_mode_t *previous_mode);
+
 void video_pipeline_request_reboot_240p(bool enabled);
 bool video_pipeline_reboot_requested_240p(void);
 bool video_pipeline_take_reboot_240p_boot_request(bool *enabled);

@@ -3,6 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#if NEOPICO_OSD_RES_CONFIRM
+#include "settings.h"
+#endif
+
 #if NEOPICO_ENABLE_OSD
 
 #include "pico/time.h"
@@ -272,6 +276,9 @@ typedef enum {
     MENU_SCREEN_ROOT,
     MENU_SCREEN_RESOLUTION,
     MENU_SCREEN_SELFTEST,
+#if NEOPICO_OSD_RES_CONFIRM
+    MENU_SCREEN_RES_CONFIRM,
+#endif
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
     MENU_SCREEN_GENLOCK,
 #endif
@@ -285,6 +292,20 @@ typedef enum {
 static menu_screen_t s_screen = MENU_SCREEN_HIDDEN;
 static uint8_t s_root_sel = 0;
 static uint32_t s_root_last_input_ms = 0;
+
+#if NEOPICO_OSD_RES_CONFIRM
+// Resolution-change safety net. Armed at boot (by main) when this boot is a
+// PENDING confirmation: show a countdown; MENU keeps (persists to flash), BACK
+// or timeout reverts (reboots to the previous mode). Re-add the MENU/BACK hint
+// here only (the global hints stay removed).
+#define RES_CONFIRM_TIMEOUT_MS 10000U
+#define RES_CONFIRM_HINT_ROW 13
+static bool s_res_confirm_armed = false;
+static video_pipeline_reboot_mode_t s_res_confirm_new;
+static video_pipeline_reboot_mode_t s_res_confirm_prev;
+static uint32_t s_res_confirm_deadline_ms;
+static int32_t s_res_confirm_last_secs = -1;
+#endif
 
 static const char *const s_root_entry_labels[] = {
 #if NEOPICO_REBOOT_SELECTOR_UI
@@ -383,7 +404,7 @@ static void genlock_screen_draw(void)
 static void root_menu_render_entry(uint8_t idx)
 {
     const bool selected = (s_root_sel == idx);
-    const uint8_t row = (uint8_t)(ROOT_FIRST_ENTRY_ROW + 2U * idx);
+    const uint8_t row = (uint8_t)(ROOT_FIRST_ENTRY_ROW + (2U * idx));
     const uint16_t color = selected ? OSD_COLOR_YELLOW : OSD_COLOR_FG;
     fast_osd_putc_color(row, 3, selected ? '>' : ' ', color);
     fast_osd_puts_color(row, 5, s_root_entry_labels[idx], color);
@@ -442,6 +463,67 @@ static void root_menu_enter_leaf(void)
     }
 }
 
+#if NEOPICO_OSD_RES_CONFIRM
+static void res_confirm_render_static(void)
+{
+    fast_osd_clear();
+    fast_osd_puts_color(1, 2, "Keep this resolution?", OSD_COLOR_YELLOW);
+    fast_osd_puts_color(4, 4, resolution_label(s_res_confirm_new), OSD_COLOR_GREEN);
+    fast_osd_puts_color(7, 2, "Reverting in   s", OSD_COLOR_FG);
+    fast_osd_puts_color(RES_CONFIRM_HINT_ROW, 2, "MENU keep   BACK revert", OSD_COLOR_GRAY);
+}
+
+// Draw the countdown digits at the "Reverting in __s" gap (no snprintf in the
+// Core 1 background path).
+static void res_confirm_render_secs(int32_t secs)
+{
+    const uint8_t col = 2 + 13; // after "Reverting in "
+    fast_osd_putc_color(7, col, (secs >= 10) ? (char)('0' + (secs / 10)) : ' ', OSD_COLOR_FG);
+    fast_osd_putc_color(7, (uint8_t)(col + 1), (char)('0' + (secs % 10)), OSD_COLOR_FG);
+}
+
+static void res_confirm_enter(uint32_t now_ms)
+{
+    s_screen = MENU_SCREEN_RES_CONFIRM;
+    s_res_confirm_deadline_ms = now_ms + RES_CONFIRM_TIMEOUT_MS;
+    s_res_confirm_last_secs = -1;
+    res_confirm_render_static();
+    osd_show();
+}
+
+static void res_confirm_keep(void)
+{
+    // The new mode was already persisted optimistically at select-time (at the
+    // reboot point, where the flash stall is masked). Keeping just dismisses the
+    // prompt -- NO live flash write, so the HDMI link is never stalled.
+    s_res_confirm_armed = false;
+    osd_hide();
+    s_screen = MENU_SCREEN_HIDDEN;
+}
+
+static void res_confirm_revert(void)
+{
+#if NEOPICO_SETTINGS_FLASH
+    // Roll back the optimistic save to the previous (confirmed) mode, then
+    // reboot into it. The flash write happens at the reboot point (masked).
+    neopico_settings_t persisted;
+    settings_load(&persisted);
+    persisted.resolution = (uint8_t)s_res_confirm_prev;
+    settings_save(&persisted);
+#endif
+    video_pipeline_request_reboot_mode(s_res_confirm_prev);
+}
+
+// Called by main at boot when this boot is a PENDING resolution confirmation.
+void menu_diag_experiment_arm_res_confirm(video_pipeline_reboot_mode_t new_mode,
+                                          video_pipeline_reboot_mode_t previous_mode)
+{
+    s_res_confirm_armed = true;
+    s_res_confirm_new = new_mode;
+    s_res_confirm_prev = previous_mode;
+}
+#endif // NEOPICO_OSD_RES_CONFIRM
+
 static void root_menu_buttons_tick(void)
 {
     const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
@@ -493,10 +575,55 @@ static void root_menu_buttons_tick(void)
                 } else {
                     osd_hide();
                     s_screen = MENU_SCREEN_HIDDEN;
+#if NEOPICO_OSD_RES_CONFIRM
+#if NEOPICO_SETTINGS_FLASH
+                    // Optimistically persist the new mode now (at the reboot
+                    // point, where the flash stall is masked). Confirm then just
+                    // dismisses; revert/timeout rolls flash back to the previous.
+                    {
+                        neopico_settings_t persisted;
+                        settings_load(&persisted);
+                        persisted.resolution = (uint8_t)s_selected_mode;
+                        settings_save(&persisted);
+                    }
+#endif
+                    // Reboot into the new mode PENDING confirmation, carrying the
+                    // previous (revert-to) mode across the reboot.
+                    video_pipeline_request_reboot_mode_pending(s_selected_mode, video_pipeline_reboot_requested_mode());
+#else
+#if NEOPICO_SETTINGS_FLASH
+                    {
+                        neopico_settings_t persisted;
+                        settings_load(&persisted);
+                        persisted.resolution = (uint8_t)s_selected_mode;
+                        settings_save(&persisted);
+                    }
+#endif
                     video_pipeline_request_reboot_mode(s_selected_mode);
+#endif
                 }
             }
             break;
+#endif
+
+#if NEOPICO_OSD_RES_CONFIRM
+        case MENU_SCREEN_RES_CONFIRM: {
+            if (menu_edge) {
+                res_confirm_keep();
+            } else if (back_edge || (int32_t)(now_ms - s_res_confirm_deadline_ms) >= 0) {
+                res_confirm_revert(); // reboots; does not return
+            } else {
+                int32_t secs = (int32_t)((s_res_confirm_deadline_ms - now_ms + 999U) / 1000U);
+                if (secs > 99) {
+                    secs = 99;
+                }
+                if (secs != s_res_confirm_last_secs) {
+                    s_res_confirm_last_secs = secs;
+                    res_confirm_render_secs(secs);
+                }
+            }
+            break;
+        }
 #endif
 
 #if NEOPICO_ENABLE_SELFTEST
@@ -548,6 +675,13 @@ void menu_diag_experiment_init(void)
     if (osd_visible) {
         menu_diag_experiment_on_menu_open();
     }
+#if NEOPICO_OSD_RES_CONFIRM
+    // This boot is awaiting resolution confirmation: open the countdown prompt.
+    if (s_res_confirm_armed) {
+        res_confirm_enter(to_ms_since_boot(get_absolute_time()));
+        return;
+    }
+#endif
 #if NEOPICO_OSD_BOOT_OPEN && NEOPICO_OSD_ROOT_MENU && NEOPICO_EXP_GENLOCK_DYNAMIC
     // Soak aid (NEOPICO_OSD_BOOT_OPEN): boot with the OSD open on the genlock
     // telemetry screen (leaf screens have no idle-hide, so it stays up until a

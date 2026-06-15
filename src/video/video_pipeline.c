@@ -88,6 +88,14 @@ static video_pipeline_reboot_mode_t reboot_requested_mode =
     (NEOPICO_VIDEO_240P != 0) ? VIDEO_PIPELINE_REBOOT_MODE_240P : VIDEO_PIPELINE_REBOOT_MODE_480P;
 #define REBOOT_MODE_BOOT_MAGIC 0x4e505253U
 #define REBOOT_MODE_BOOT_CHECK_XOR 0xa5a55a5aU
+// Resolution-change confirmation marker, packed into the SINGLE user-safe
+// scratch register that survives a plain watchdog_reboot. The SDK's
+// watchdog_reboot(0,0,..) clobbers scratch[4..7], and the existing reboot mode
+// already owns scratch[0..2], so only scratch[3] is left. Layout:
+//   [31:8] magic | [7:4] previous (revert-to) mode | [3:0] check (prev ^ 0xA)
+// The new mode is NOT persisted to flash until the user confirms; cancel/timeout
+// reboots to the previous mode (flash still holds the last confirmed resolution).
+#define REBOOT_PENDING_MAGIC 0x4e505000U // "NPP" in bits [31:8]
 #if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
 #define REBOOT_MODE_MAX VIDEO_PIPELINE_REBOOT_MODE_720P
 #else
@@ -487,25 +495,61 @@ void VIDEO_PIPELINE_REBOOT_REQUEST_RAM(video_pipeline_request_reboot_mode)(video
         mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
     }
     reboot_requested_mode = mode;
-#if NEOPICO_SETTINGS_FLASH
-    // Persist the selected resolution so it survives power-off. Blocking write,
-    // completes before the watchdog fires. We're about to reboot, so the brief
-    // ISR stall during the flash erase is invisible (screen is going away).
-    {
-        neopico_settings_t persisted;
-        settings_load(&persisted); // keep other fields intact
-        persisted.resolution = (uint8_t)mode;
-        settings_save(&persisted);
-    }
-#endif
+    // Persistence is NOT done here: a normal/confirmed/revert reboot must not
+    // write flash (only an explicit settings_save on confirm does). Clear any
+    // stale pending-confirmation marker so this boot is treated as confirmed.
     watchdog_hw->scratch[0] = REBOOT_MODE_BOOT_MAGIC;
     watchdog_hw->scratch[1] = (uint32_t)mode;
     watchdog_hw->scratch[2] = reboot_mode_boot_check((uint32_t)mode);
+    watchdog_hw->scratch[3] = 0;
+    watchdog_hw->scratch[4] = 0;
+    watchdog_hw->scratch[5] = 0;
     __dmb();
     watchdog_reboot(0, 0, 10);
     while (true) {
         tight_loop_contents();
     }
+}
+
+// Reboot into `mode` but flag it as PENDING confirmation, carrying the
+// `previous` (revert-to) mode across the reboot. Does NOT persist to flash.
+void VIDEO_PIPELINE_REBOOT_REQUEST_RAM(video_pipeline_request_reboot_mode_pending)(
+    video_pipeline_reboot_mode_t mode, video_pipeline_reboot_mode_t previous)
+{
+    if (mode > REBOOT_MODE_MAX) {
+        mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
+    }
+    if (previous > REBOOT_MODE_MAX) {
+        previous = VIDEO_PIPELINE_REBOOT_MODE_480P;
+    }
+    reboot_requested_mode = mode;
+    watchdog_hw->scratch[0] = REBOOT_MODE_BOOT_MAGIC;
+    watchdog_hw->scratch[1] = (uint32_t)mode;
+    watchdog_hw->scratch[2] = reboot_mode_boot_check((uint32_t)mode);
+    watchdog_hw->scratch[3] =
+        REBOOT_PENDING_MAGIC | (((uint32_t)previous & 0xFU) << 4) | (((uint32_t)previous ^ 0xAU) & 0xFU);
+    __dmb();
+    watchdog_reboot(0, 0, 10);
+    while (true) {
+        tight_loop_contents();
+    }
+}
+
+bool video_pipeline_take_pending_confirmation(video_pipeline_reboot_mode_t *previous_mode)
+{
+    const uint32_t packed = watchdog_hw->scratch[3];
+    watchdog_hw->scratch[3] = 0;
+
+    const uint32_t mode = (packed >> 4) & 0xFU;
+    const uint32_t check = packed & 0xFU;
+    if (((packed & 0xFFFFFF00U) != REBOOT_PENDING_MAGIC) || (mode > (uint32_t)REBOOT_MODE_MAX) ||
+        (check != ((mode ^ 0xAU) & 0xFU))) {
+        return false;
+    }
+    if (previous_mode) {
+        *previous_mode = (video_pipeline_reboot_mode_t)mode;
+    }
+    return true;
 }
 
 video_pipeline_reboot_mode_t video_pipeline_reboot_requested_mode(void)
