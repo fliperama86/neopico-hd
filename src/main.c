@@ -278,7 +278,22 @@ int main(void)
 #if NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_USE_NONRT_HDMI
     video_pipeline_reboot_mode_t reboot_boot_mode =
         (NEOPICO_VIDEO_240P != 0) ? VIDEO_PIPELINE_REBOOT_MODE_240P : VIDEO_PIPELINE_REBOOT_MODE_480P;
-    (void)video_pipeline_take_reboot_mode_boot_request(&reboot_boot_mode);
+    const bool warm_reboot = video_pipeline_take_reboot_mode_boot_request(&reboot_boot_mode);
+#if NEOPICO_EXP_FIRST_BOOT_REBOOT
+    // Quick-and-dirty cold-boot scratchy-audio workaround: on a cold (power-on)
+    // boot, immediately reboot once into the default mode -- the same path the
+    // OSD resolution-select uses. Replicates the manual reset that clears the
+    // cold-boot scratchiness (MVS audio DAC settle + the TV gets a warm HDMI
+    // re-lock so its audio decoder doesn't latch Data Islands before TMDS lock).
+    // The watchdog-scratch magic makes this fire exactly once (the warm boot
+    // sees warm_reboot==true and proceeds normally).
+    if (!warm_reboot) {
+        video_pipeline_request_reboot_mode(reboot_boot_mode); // sets scratch + arms watchdog
+        while (true) {
+            tight_loop_contents(); // wait for the watchdog reboot; run no init
+        }
+    }
+#endif
 #endif
 
     // Set system clock before starting video pipeline.

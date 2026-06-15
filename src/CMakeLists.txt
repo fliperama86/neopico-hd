@@ -48,6 +48,7 @@ option(NEOPICO_TRIPLE_ASM "Use hand-written M33 asm for the 3x/4x pixel-scale ke
 # VIDEO_720P, which are mutually exclusive with the selector).
 option(NEOPICO_EXP_REBOOT_MODE_SWITCH "Reboot-based 240p/480p/720p HDMI mode switching via the OSD resolution menu" ON)
 option(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P "Let the OSD resolution menu cycle through 720p" ON)
+option(NEOPICO_EXP_FIRST_BOOT_REBOOT "Auto-reboot once on cold power-on (cold-boot scratchy-audio workaround: re-establishes the HDMI link warm); requires the reboot-mode path. ~1-2s extra on cold boot." ON)
 option(NEOPICO_EXP_REBOOT_BUTTON_CYCLER "Enable bare BACK-button reboot-mode cycling without the OSD/menu module" OFF)
 option(NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI "Compile reboot-mode plumbing but disable the OSD resolution selector UI for timing isolation" OFF)
 option(NEOPICO_EXP_RAM_SELECTOR_UI "Place reboot selector UI/render helpers in SRAM for timing isolation" OFF)
@@ -400,6 +401,13 @@ endif()
 
 if(NEOPICO_OSD_BOOT_OPEN)
     target_compile_definitions(neopico_hd PRIVATE NEOPICO_OSD_BOOT_OPEN=1)
+endif()
+
+if(NEOPICO_EXP_FIRST_BOOT_REBOOT)
+    if(NEOPICO_USE_NONRT_HDMI OR NOT NEOPICO_EXP_REBOOT_MODE_SWITCH)
+        message(FATAL_ERROR "NEOPICO_EXP_FIRST_BOOT_REBOOT requires the runtime reboot-mode path (NEOPICO_EXP_REBOOT_MODE_SWITCH=ON, NEOPICO_USE_NONRT_HDMI=OFF)")
+    endif()
+    target_compile_definitions(neopico_hd PRIVATE NEOPICO_EXP_FIRST_BOOT_REBOOT=1)
 endif()
 
 if(NEOPICO_EXP_STRESS_CORE1_US GREATER 0)
