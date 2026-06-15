@@ -35,65 +35,43 @@ jobs:
         cd $HOME/pico-sdk
         git submodule update --init
 
-    - name: Build NeoPico-HD (MV1C digital audio)
-      run: |
-        mkdir build
-        cd build
-        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release
-        make -j$(nproc)
+    # Three firmware artifacts, identical flags, varying ONLY by resolution.
+    # The common config (RT path + OSD + self-test + root menu) is the project
+    # default, so each build passes only its resolution flag. 720p auto-forces
+    # COPY_TO_RAM (372 MHz overclock would corrupt XIP flash); see CMakeLists.
 
-    - name: Build NeoPico-HD (PCM1802 analog audio)
+    - name: Build NeoPico-HD 480p
       run: |
-        mkdir build-pcm1802
-        cd build-pcm1802
-        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_AUDIO_PCM1802=ON
-        make -j$(nproc)
-        # Rename to distinguish from default build
-        cp src/neopico_hd.uf2 src/neopico_hd_pcm1802.uf2
-        cp src/neopico_hd.elf src/neopico_hd_pcm1802.elf
+        cmake -S . -B build-480p -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release
+        cmake --build build-480p -j$(nproc)
+        cp build-480p/src/neopico_hd.uf2 neopico_hd_480p.uf2
+        cp build-480p/src/neopico_hd.elf neopico_hd_480p.elf
 
-    - name: Build NeoPico-HD (240p mode)
+    - name: Build NeoPico-HD 240p
       run: |
-        mkdir build-240p
-        cd build-240p
-        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_VIDEO_240P=ON
-        make -j$(nproc)
-        # Rename to distinguish from default build
-        cp src/neopico_hd.uf2 src/neopico_hd_240p.uf2
-        cp src/neopico_hd.elf src/neopico_hd_240p.elf
+        cmake -S . -B build-240p -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_VIDEO_240P=ON
+        cmake --build build-240p -j$(nproc)
+        cp build-240p/src/neopico_hd.uf2 neopico_hd_240p.uf2
+        cp build-240p/src/neopico_hd.elf neopico_hd_240p.elf
 
-    - name: Build NeoPico-HD (720p non-RT mode)
+    - name: Build NeoPico-HD 720p
       run: |
-        mkdir build-720p-nonrt
-        cd build-720p-nonrt
-        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_VIDEO_720P=ON -DNEOPICO_USE_NONRT_HDMI=ON
-        make -j$(nproc)
-        # Rename to distinguish from default build
-        cp src/neopico_hd.uf2 src/neopico_hd_720p_nonrt.uf2
-
-    - name: Build firmware (precomposed scanout baseline)
-      run: |
-        mkdir -p build-precomp
-        cd build-precomp
-        cmake .. -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_COPY_TO_RAM=ON -DNEOPICO_USE_NONRT_HDMI=ON -DNEOPICO_EXP_PRECOMPOSED_HDMI=ON
-        make -j$(nproc)
-        cp src/neopico_hd.uf2 src/neopico_hd_precomp.uf2
-        cp src/neopico_hd.elf src/neopico_hd_720p_nonrt.elf
+        cmake -S . -B build-720p -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_VIDEO_720P=ON
+        cmake --build build-720p -j$(nproc)
+        cp build-720p/src/neopico_hd.uf2 neopico_hd_720p.uf2
+        cp build-720p/src/neopico_hd.elf neopico_hd_720p.elf
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: neopico-hd-build
         path: |
-          build/src/*.uf2
-          build/src/*.elf
-          build-pcm1802/src/neopico_hd_pcm1802.uf2
-          build-pcm1802/src/neopico_hd_pcm1802.elf
-          build-240p/src/neopico_hd_240p.uf2
-          build-240p/src/neopico_hd_240p.elf
-          build-720p-nonrt/src/neopico_hd_720p_nonrt.uf2
-          build-precomp/src/neopico_hd_precomp.uf2
-          build-720p-nonrt/src/neopico_hd_720p_nonrt.elf
+          neopico_hd_240p.uf2
+          neopico_hd_240p.elf
+          neopico_hd_480p.uf2
+          neopico_hd_480p.elf
+          neopico_hd_720p.uf2
+          neopico_hd_720p.elf
 
   fabrication:
     runs-on: ubuntu-latest

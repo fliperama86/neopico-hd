@@ -1,6 +1,7 @@
 #include "selftest_layout.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 
 #include "fast_osd.h"
 

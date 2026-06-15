@@ -241,6 +241,9 @@ static void combined_background_task(void)
     // itself happens in the scanline ISR and cannot be starved from here.
     video_output_compose_service();
     precomposed_desync_watchdog();
+#if NEOPICO_VIDEO_720P
+    video_pipeline_precomp_background();
+#endif
 #endif
 #if NEOPICO_EXP_STRESS_CORE1_US > 0
     // Repro accelerator: simulate heavy Core 1 background bursts to raise

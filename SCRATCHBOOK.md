@@ -952,3 +952,92 @@ Working implication for this board:
 
 ## 2026-06-12 — copy-to-RAM standardized; menu/watchdog un-parked; v0.7.1
 - NEOPICO_COPY_TO_RAM committed and enabled for ALL CI firmware variants. Root menu + rate-based desync watchdog + RS counter committed (exonerated; the glitch was XIP). Default flag-off build verified byte-identical pre/post. Oracle soak (every formerly-fatal ingredient, from RAM): 2.5+ h clean and counting.
+
+## 2026-06-12 — 2.1 S1 built: precomposed on the runtime-modes path
+- pico_hdmi 2.1-dev (295f3dc..): precomposed machinery ported into video_output_rt.c (per-mode header ring, probe-discovered DI offsets for active AND blanking layouts, ISR island patching, pointer callback + native pixel mode, ring invalidation on apply_mode). Precomposed API factored into shared header video_output_precomposed.h (RT builds use video_output_rt.h, which lacked it). Scratch diet: ISR never calls line builders under precomposed (static nulls during ring build); builders demoted from scratch.
+- build-s1 = RT lib + PRECOMPOSED + OSD + SELFTEST + ROOT_MENU + COPY_TO_RAM: links clean, scratch_x 0x7f0 (16 B under the boundary — THIN, trim before adding anything), 420 KB RAM total.
+- This config is the architecture of record if it validates: tiny ISR + RAM execution + runtime-modes lib. Stages S2 (swap-free DMA), S3 (240p/720p pre-expanded rings), S4 (mode switching + Resolution menu) follow per pico_hdmi DESIGN-2.1.md.
+
+2026-06-12 23:43 -03 - Status check: read STATE.md/SCRATCHBOOK.md and git status only. Current state remains 720p S3 precomposed+dynamic-genlock build on bench; next action is second-display cable-swap test before more code. Working tree is dirty in app and pico_hdmi submodule; nothing committed.
+
+## 2026-06-14 — TRIPLE_ASM on the survivable S1 config (build-asm-s1, NOT flashed)
+- User wanted the asm variant with the best soak-survival odds. Chose S1 (run #9 architecture of record, RT + PRECOMPOSED + OSD + SELFTEST + ROOT_MENU + COPY_TO_RAM, 480p), NOT any 720p-S3 build (runs #10-21 all had gray-flash/jolt).
+- `build-asm-s1/` configured fresh: USE_NONRT_HDMI=OFF, PRECOMPOSED_HDMI=ON, COPY_TO_RAM=ON, ENABLE_OSD=ON, ENABLE_SELFTEST=ON, OSD_ROOT_MENU=ON, TRIPLE_ASM=ON. Links clean.
+- CMake guard `CMakeLists.txt:309` forbids PRECOMPOSED + REBOOT_MODE_SWITCH (S4 unwired) → root menu is Self-Test-only; no Resolution entry. So at 480p the 2x is hardware; the 3x(720p)/4x(240p) asm kernels are NOT exercised on the live path — only by the boot self-test. This soak proves: asm links/boots, self-test ASM:OK on real silicon, presence is sync-neutral on the proven config. Live 3x stress needs a follow-up 720p build.
+- Verified: kernels in .scratch_y (RAM, 90B/38B); scale_selftest + g_scale_asm_selftest_ok + fast_osd_puts_color present (ASM:OK/BAD renders); scratch_x 0x63c (<0x800, 452B headroom). UF2: build-asm-s1/src/neopico_hd.uf2.
+- The earlier build-720p-s3 dir (cache mtime 17:17) had TRIPLE_ASM=ON but a stripped config (VIDEO_720P/PRECOMP/OSD/GENLOCK all OFF) — not a valid test vehicle; left untouched.
+- NEXT: flash build-asm-s1 UF2, confirm ASM:OK on the Self Test screen, soak for sync stability.
+
+## 2026-06-14 — build-asm-s1 FLASHED + Morph4K signal lead
+- Flashed build-asm-s1/src/neopico_hd.uf2 (pi flash, device rebooted to app mode OK). Pending: confirm ASM:OK on Self Test row 12, then soak.
+- DIAGNOSTIC LEAD (user report): RT/precomposed builds display fine on RT4K and direct-to-monitor, but misbehave on the Morph4K. The OLD 720p "non-RT" build worked fine on Morph4K. So the Morph4K is likely NOT at fault — the RT/precomposed signal has some marginal trait (suspect: Data Island layout, blanking-region DI, sync timing/polarity, or ACR) that the Morph4K input is stricter about than RT4K/monitor. Old non-RT path didn't have it.
+- ACTION for asm soak: run on RT4K or direct monitor to avoid conflating the Morph4K signal issue with asm behavior.
+- Future: to convict the RT-vs-nonRT signal delta on Morph4K, A/B the non-RT 720p build vs an RT build on the SAME Morph4K input; diff DI/blanking/sync between the two library paths.
+
+## 2026-06-14 — build-720p-asm FLASHED (live 3x asm kernel)
+- Config: compile-time NEOPICO_VIDEO_720P=ON + USE_NONRT_HDMI=ON + TRIPLE_ASM=ON (= CI "720p non-RT" known-good path + asm). Fresh dir build-720p-asm/. Flashed OK (rebooted to app mode).
+- WHY this is the real asm test: the compile-time VIDEO_720P precomposed path calls video_pipeline_triple_pixels_fast LIVE at video_pipeline.c:322 & :326 (p720 ring prep, per line, every frame). The S1/480p build only ran the kernel in the boot self-test. This drives the 3x asm kernel under real load.
+- Verified: triple kernel = asm version in .scratch_y (0x5a/90B); scale_selftest + g_scale_asm_selftest_ok present (TRIPLE_ASM=1). VIDEO_720P:BOOL=ON in cache.
+- No OSD on this config (matches known-good CI build) -> no ASM:OK readout; visual correctness at 720p + the boot self-test are the proof. This is also the path the user says works on Morph4K (unlike RT/precomposed).
+- WATCH: 3x-expanded geometry/colors correct (no shimmer/tear/wrong-pixel), sync stability over soak.
+
+## 2026-06-14 — ASM EXONERATED on 720p; current-tree non-RT 720p is REGRESSED
+- build-720p-asm (VIDEO_720P + non-RT + TRIPLE_ASM) HARD-CRASHED (USB dead/unresettable = HardFault, not an HSTX underrun).
+- CONTROL build-720p-noasm (same config, TRIPLE_ASM=OFF) -> SAME hard crash. => asm is NOT the cause.
+- CONCLUSION: the current dirty tree's COMPILE-TIME 720p path (NEOPICO_VIDEO_720P + USE_NONRT_HDMI) hard-crashes on its own. User's "old 720p non-rt works" was an OLDER commit; the path rotted during RT/precomposed (S1/S3) development. CI only proves it COMPILES, not that it runs.
+- Open: this is a separate 720p regression hunt (NOT asm). The live 3x kernel call sites (video_pipeline.c:322/326) are only reachable on this broken compile-time path OR the RT reboot-switch path (line 933, the S3 build w/ its own jolt+Morph4K issues).
+- Recovery: reflashed build-asm-s1 (480p RT precomposed) = working path; also has the ASM:OK self-test readout (kernel correctness still to be visually confirmed).
+- NEXT options: (a) confirm ASM:OK on S1 to fully clear the kernels; (b) if live-3x soak desired, either bisect the non-RT 720p crash or test the RT/S3 720p path; (c) shelve asm (validated harmless) until a working 720p exists.
+
+## 2026-06-14 — 720p hard-crash: likely PCB REVISION, not code
+- User hypothesis: the 720p non-RT hard crash is the OLD PCB revision on the bench, not a code regression. The board that ran 720p when it was first introduced was given away; current bench board is a different OLD revision that may never have run 720p.
+- Fits: 720p = sys_clk 372 MHz @ 1.30V, stresses power/SI; an old rev would HardFault rather than no-sync. Matches prior STATE caveat ("older PCB revision could interfere").
+- Plan: user building a NEW board on the latest revision to retest 720p (incl. the live 3x asm kernel).
+- Cheap disambiguation (optional): flash the ORIGINAL old 720p UF2 onto this board — also crashes => PCB convicted; runs => code regressed (bisect). Skipped unless the old UF2 is available.
+- ASM STATUS: validated harmless (crash identical w/ and w/o asm). Live-3x soak deferred until working 720p hardware exists.
+
+## 2026-06-14 — ROOT CAUSE: 720p hard-crash = XIP flash corruption at 372 MHz overclock
+- build-720p-ram (VIDEO_720P + non-RT + COPY_TO_RAM=ON, no asm) -> 720p WORKS. Convicts XIP-flash-at-overclock as the crash cause.
+- Mechanism: main.c:282-284 raises VREG 1.30V then set_sys_clock_khz(372000) but NOTHING re-tunes the QSPI/QMI flash divider. set_sys_clock_khz does not touch it. So flash clock scales 3x with sys_clk; at 372 MHz the XIP reads exceed the WeAct module flash chip's tolerance -> corrupt fetch -> instant HardFault (USB dies, unresettable). 480p (126 MHz, main.c:103) stays in spec -> fine.
+- "Worked yesterday then both boards failed today, even old fw" = zero-margin XIP design tipping over (reflow/solder/thermal/aging nudge). NOT a damaged module: copy_to_ram proves the silicon is fine.
+- FIX (durable): 720p must run from RAM (COPY_TO_RAM) OR properly re-tune the QMI clock divider at 372 MHz so flash stays <=~100-133 MHz (better: fixes XIP builds too). Note project already standardized COPY_TO_RAM for RT/precomposed variants; the compile-time NEOPICO_VIDEO_720P path had it OFF -> that's the gap.
+- ASM now testable: build-720p-ram-asm (VIDEO_720P + non-RT + COPY_TO_RAM + TRIPLE_ASM) flashed. 3x kernel in .scratch_y; runs LIVE per-line at 720p from RAM. This is the original goal: live 3x asm soak vehicle.
+- ACTION items for repo (NOT committed): (a) make compile-time 720p default COPY_TO_RAM (or add QMI divider tune); (b) consider erroring/ warning if VIDEO_720P && !COPY_TO_RAM.
+
+## 2026-06-14 — Morph4K "squared" at 720p = sink aspect config, NOT firmware
+- At 720p the picture is squared on Morph4K but CORRECT on RT4K and direct monitor => signal is fine; Morph-side issue.
+- Firmware emits spec-correct 16:9: VIC=4, AVI InfoFrame byte2=0x28 (M=16:9, AFD=8 "same as frame"; hstx_packet.c:238). The 1280x720 frame is a true 16:9 raster with the 4:3 Neo Geo content pillarboxed (960px wide = 3x320, centered, 160px bars/side).
+- Mechanism: Morph's restored "original settings" are a retro 4:3-source profile. Fed a real 16:9 720p frame, it squishes horizontally to its 4:3 expectation => game looks squared. (User confirmed hunch: "treating the signal as if it was 4:3".)
+- FIX (sink-side, no firmware): set Morph aspect for this input to 16:9 / Source / Full (pass-through), not the 4:3 default.
+- Rejected firmware lever: AFD 0x28->0x29 (4:3-center) would risk changing RT4K/monitor (currently correct) to fix one mis-configured sink. Not worth it; keep 16:9 signal.
+
+## 2026-06-14 — 720p XIP-crash fix LANDED (copy_to_ram everywhere; QMI retune dropped)
+- Decision: "RAM is the future for this project" (user). The COPY_TO_RAM path is THE fix; the QMI flash-timing retune (XIP-only) was built, validated to compile as a RAM function, then REMOVED as dead weight.
+- neopico: src/CMakeLists.txt now FORCES NEOPICO_COPY_TO_RAM=ON whenever NEOPICO_VIDEO_720P or NEOPICO_EXP_REBOOT_MODE_SWITCH_720P is set (STATUS message on force). Verified: bare -DNEOPICO_VIDEO_720P=ON now auto-enables copy_to_ram; build links clean; main.c left untouched (the only neopico change is the CMake guard).
+- lib/pico_hdmi examples: bouncing_box_rt (always 720p) and bouncing_box (under BOUNCING_BOX_720P) now call pico_set_binary_type(... copy_to_ram). Verified bouncing_box_rt: main now in RAM (0x2000...), links clean. Example main.c files reverted to original (no QMI code).
+- QMI retune reference (if ever needed for a flash consumer): RXDELAY 1->3, keep CLKDIV=4 (93 MHz flash @ 372 MHz), via hw_write_masked(&qmi_hw->m[0].timing, ...) in a __no_inline_not_in_flash_func, called right after set_sys_clock_khz(372000). PicoDVI vista/main.c is the canonical pattern.
+- NOT committed (house rule). lib/pico_hdmi is the hand-synced submodule -> mirror examples to ~/Projects/pico_hdmi.
+
+## 2026-06-14 — pico_hdmi pushed upstream (origin/2.1-dev created)
+- ~/Projects/pico_hdmi is the canonical dev tree (branch 2.1-dev). origin had only main + 2.0-beta; 2.1-dev had NEVER been pushed. Published it (13 commits) to github.com/fliperama86/pico_hdmi.
+- Two new commits added before push: d54a4f0 (genlock: classify stretched-vtotal lines as blanking, not active video) + 2b43082 (examples: 720p copy_to_ram). Junk excluded (ANGETS.md typo, dist-2.0-beta/).
+- DRIFT FLAGGED (not reconciled): neopico submodule lib/pico_hdmi is detached at old tip 3fe15b8 with its OWN uncommitted WIP (video_output_rt.c/.h differ from canonical) + the now-redundant example copy_to_ram edits. To track the pushed tip, advance submodule to 2b43082 and reconcile the submodule-local WIP. Left as-is pending user decision.
+
+## 2026-06-14 — genlock WIP ported submodule->canonical and pushed (origin/2.1-dev 5e9e9e5)
+- Ported the submodule's run #11-21 genlock work into ~/Projects/pico_hdmi and pushed: bottom-anchored active_video (slack lands at frame bottom; SUPERSEDES the earlier simple d54a4f0 active_video fix), elastic-blanking htrim subsystem (video_output_set_vblank_htrim_px + uniform precomposed-DI trim), perf probe (video_output_perf_probe_read FIFO-min/IRQ-gap). New public API in video_output_rt.h.
+- pre-commit hooks (clang-format + clang-tidy) auto-normalized literal suffixes (u->U) + formatting on commit -> behavior-preserving. NOTE: this means canonical now differs COSMETICALLY from the submodule copy (submodule still lowercase-suffix). Exact parity would need syncing the hook-normalized files back to lib/pico_hdmi.
+- Caveat recorded in commit: bench-validated through S3-720p runs; residual ~8-20s jolt still open (second-TV test pending).
+
+## 2026-06-15 — OSD resumed: button-triggered instead of boot-open
+- User wanted the OSD enabled via button press, not booting open.
+- Root cause of boot-open: menu_diag_experiment.c ~541 unconditionally did genlock_screen_draw()+s_screen=GENLOCK+osd_show() under (OSD_ROOT_MENU && GENLOCK_DYNAMIC) as a soak aid. root_menu_buttons_tick() ALREADY opens the OSD from MENU_SCREEN_HIDDEN on MENU press; nothing else needed.
+- Change (flag-gated, default OFF): new CMake option NEOPICO_OSD_BOOT_OPEN. Boot-open block now `#if NEOPICO_OSD_BOOT_OPEN && NEOPICO_OSD_ROOT_MENU && NEOPICO_EXP_GENLOCK_DYNAMIC`. Default (flag OFF) => OSD starts hidden (s_screen=MENU_SCREEN_HIDDEN=0, osd_visible=false), MENU button opens root menu. Flag ON preserves the soak-aid boot-open.
+- Build build-720p-osdbtn (S3 genlock config: VIDEO_720P+PRECOMPOSED+GENLOCK_DYNAMIC+OSD+SELFTEST+ROOT_MENU+COPY_TO_RAM, BOOT_OPEN off). scratch_x 0x6d4 (<0x800). Flashed. Pending: confirm MENU press opens the menu on hardware.
+- Not committed (house rule).
+
+## 2026-06-15 — RT vs non-RT 720p are SIGNAL-IDENTICAL (Morph aspect is sink-side)
+- A/B (single var = library path): build-720p-guardtest (non-RT) vs build-720p-rt-min (RT), both VIDEO_720P + copy_to_ram, nothing else.
+- Result: rt-min = NO glitch + correct aspect on Morph; guardtest (non-RT) = no glitch but WRONG aspect on Morph.
+- Measured both 720p render paths: IDENTICAL output. Content 960px (320x3) centered, 160px pillars each side, 1280x720, VIC=4, pixel_rep=0, pos sync, 74.4 MHz. AVI InfoFrame byte-identical (hstx_packet shared). Timing identical (1650x750).
+- CONCLUSION: nothing in firmware differs in aspect between paths -> the Morph "wrong aspect on non-RT" is SINK-SIDE (its per-input/format auto-aspect), NOT a firmware bug. No non-RT firmware fix warranted. Caveat: DMA/DI command lists are built by different code; not 100% ruled out without an HDMI analyzer, but every standard param matches.
+- PLAN: converge everything to RT mode eventually. Glitch is NOT the RT path itself (rt-min clean) -> it's precomposed and/or genlock and/or OSD. Hunting one variable at a time from rt-min.

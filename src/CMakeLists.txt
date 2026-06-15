@@ -15,6 +15,7 @@ add_executable(neopico_hd
     audio/dc_filter.c
     audio/lowpass.c
     audio/src.c
+    video/scale_pixels.S
 )
 
 # Compile-time feature flags (cache params for fast A/B testing)
@@ -29,9 +30,10 @@ option(NEOPICO_COPY_TO_RAM "Copy the entire binary to SRAM at boot and execute f
 option(NEOPICO_EXP_PRECOMPOSED_HDMI "EXPERIMENTAL: pico_hdmi 2.0 precomposed scanout + native-pixel pointer path (requires NEOPICO_USE_NONRT_HDMI; 480p only)" OFF)
 option(NEOPICO_VIDEO_DVI_ONLY "Disable HDMI Data Islands/audio output for video isolation tests" OFF)
 option(NEOPICO_VIDEO_TEST_PATTERN "Render a static Core 1 video test pattern instead of captured video" OFF)
-option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" OFF)
-option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD)" OFF)
-option(NEOPICO_OSD_ROOT_MENU "Root OSD menu with Resolution / Self Test entries (requires OSD and at least one entry feature)" OFF)
+option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" ON)
+option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD)" ON)
+option(NEOPICO_OSD_ROOT_MENU "Root OSD menu with Resolution / Self Test entries (requires OSD and at least one entry feature)" ON)
+option(NEOPICO_OSD_BOOT_OPEN "Boot with the OSD open on the Genlock telemetry screen (soak aid); default OFF = OSD starts hidden, opened by the MENU button" OFF)
 set(NEOPICO_EXP_STRESS_CORE1_US "0" CACHE STRING "Diagnostics: busy-wait this many microseconds per Core 1 background tick to accelerate IRQ-timing repro (0 = off)")
 option(NEOPICO_ENABLE_DARK_SHADOW "Enable DARK/SHADOW LUT path in capture" OFF)
 option(NEOPICO_EXP_GENLOCK_STATIC "Enable static boot-time genlock sysclk target" OFF)
@@ -39,6 +41,7 @@ set(NEOPICO_GENLOCK_TARGET_FPS_X100 "5920" CACHE STRING "Static genlock target F
 option(NEOPICO_EXP_VTOTAL_MATCH "Enable fixed-pixel-clock output with custom V total for near-source frame rate" OFF)
 set(NEOPICO_EXP_VTOTAL_LINES "532" CACHE STRING "Custom V total lines when NEOPICO_EXP_VTOTAL_MATCH is ON")
 option(NEOPICO_EXP_GENLOCK_DYNAMIC "Enable dynamic VTOTAL genlock (runtime phase tracking)" OFF)
+option(NEOPICO_TRIPLE_ASM "Use hand-written M33 asm for the 3x/4x pixel-scale kernels (scale_pixels.S); boot self-test gates equivalence" OFF)
 option(NEOPICO_EXP_REBOOT_MODE_SWITCH "Enable experimental reboot-based 480p/240p HDMI mode switching via OSD Back button" OFF)
 option(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P "Allow the reboot-based HDMI mode switch experiment to cycle through 720p" OFF)
 option(NEOPICO_EXP_REBOOT_BUTTON_CYCLER "Enable bare BACK-button reboot-mode cycling without the OSD/menu module" OFF)
@@ -100,6 +103,12 @@ if(NEOPICO_EXP_GENLOCK_DYNAMIC)
     set(GENLOCK_DYNAMIC_VALUE 1)
 else()
     set(GENLOCK_DYNAMIC_VALUE 0)
+endif()
+
+if(NEOPICO_TRIPLE_ASM)
+    set(TRIPLE_ASM_VALUE 1)
+else()
+    set(TRIPLE_ASM_VALUE 0)
 endif()
 
 if(NEOPICO_EXP_RUNTIME_MODE_SWITCH)
@@ -279,6 +288,20 @@ if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P AND NOT NEOPICO_EXP_REBOOT_MODE_SWITCH)
     message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH_720P requires NEOPICO_EXP_REBOOT_MODE_SWITCH=ON")
 endif()
 
+# 720p drives sys_clk to 372 MHz (3x the flash clock of the 480p/126 MHz path).
+# At that overclock XIP flash reads corrupt (default RXDELAY samples too early)
+# -> the very next instruction fetch faults -> hard crash with no recovery.
+# The robust, flash-chip-independent fix is to execute from RAM, so flash is
+# only read once at the safe boot clock. Force COPY_TO_RAM on for ANY 720p
+# build so the crash can never return via a forgotten flag.
+if(NEOPICO_VIDEO_720P OR NEOPICO_EXP_REBOOT_MODE_SWITCH_720P)
+    if(NOT NEOPICO_COPY_TO_RAM)
+        message(STATUS "720p (372 MHz overclock) selected: forcing NEOPICO_COPY_TO_RAM=ON to avoid XIP flash corruption")
+        set(NEOPICO_COPY_TO_RAM ON CACHE BOOL
+            "Copy the entire binary to SRAM at boot and execute from RAM" FORCE)
+    endif()
+endif()
+
 if(NEOPICO_VIDEO_DVI_ONLY)
     set(VIDEO_DVI_ONLY_VALUE 1)
 else()
@@ -292,11 +315,14 @@ else()
 endif()
 
 if(NEOPICO_EXP_PRECOMPOSED_HDMI)
-    if(NOT NEOPICO_USE_NONRT_HDMI)
-        message(FATAL_ERROR "NEOPICO_EXP_PRECOMPOSED_HDMI requires NEOPICO_USE_NONRT_HDMI=ON (precomposed mode lives in the compile-time pico_hdmi path)")
+    # pico_hdmi 2.1: precomposed mode is supported on BOTH library paths.
+    # Still 480p-only on the app side (native pixel mode is a 2x doubler);
+    # runtime mode switching into 240p/720p is not yet precomposed-aware.
+    if (NEOPICO_VIDEO_240P)
+        message(FATAL_ERROR "NEOPICO_EXP_PRECOMPOSED_HDMI does not support 240p yet (S3b: pre-doubled ring)")
     endif()
-    if(NEOPICO_VIDEO_720P OR NEOPICO_VIDEO_240P)
-        message(FATAL_ERROR "NEOPICO_EXP_PRECOMPOSED_HDMI is 480p-only for now (native pixel mode is a 2x horizontal doubler)")
+    if(NEOPICO_EXP_REBOOT_MODE_SWITCH)
+        message(FATAL_ERROR "NEOPICO_EXP_PRECOMPOSED_HDMI + mode switching is stage S4 of the 2.1 plan; not wired yet")
     endif()
 endif()
 
@@ -355,6 +381,10 @@ if(NEOPICO_OSD_ROOT_MENU)
     target_compile_definitions(neopico_hd PRIVATE NEOPICO_OSD_ROOT_MENU=1)
 endif()
 
+if(NEOPICO_OSD_BOOT_OPEN)
+    target_compile_definitions(neopico_hd PRIVATE NEOPICO_OSD_BOOT_OPEN=1)
+endif()
+
 if(NEOPICO_EXP_STRESS_CORE1_US GREATER 0)
     target_compile_definitions(neopico_hd PRIVATE NEOPICO_EXP_STRESS_CORE1_US=${NEOPICO_EXP_STRESS_CORE1_US})
 endif()
@@ -402,6 +432,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_EXP_VTOTAL_MATCH=${VTOTAL_MATCH_VALUE}
     NEOPICO_EXP_VTOTAL_LINES=${NEOPICO_EXP_VTOTAL_LINES}
     NEOPICO_EXP_GENLOCK_DYNAMIC=${GENLOCK_DYNAMIC_VALUE}
+    NEOPICO_TRIPLE_ASM=${TRIPLE_ASM_VALUE}
     NEOPICO_EXP_REBOOT_MODE_SWITCH=${REBOOT_MODE_SWITCH_VALUE}
     NEOPICO_EXP_REBOOT_MODE_SWITCH_720P=${REBOOT_MODE_SWITCH_720P_VALUE}
     NEOPICO_EXP_REBOOT_BUTTON_CYCLER=${REBOOT_BUTTON_CYCLER_VALUE}

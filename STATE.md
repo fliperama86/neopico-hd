@@ -5,137 +5,276 @@ reality. Any agent or human picking up the project starts here. The
 append-only history stays in `SCRATCHBOOK.md`; architecture rules in
 `AGENTS.md`; protocol details in `docs/`.
 
-_Last updated: 2026-06-12 (evening; Scenario B ratified: precomposed into runtime-modes path)._
+_Last updated: 2026-06-12 (late evening; 720p precomposed genlock — signal
+measurably perfect, picky-sink suspected, second-TV test is the gate)._
 
-## Current state
+---
 
-- `main` HEAD includes:
-  - `981efab` — pico_hdmi upgraded to **2.0-beta** (`7fa6dd5`, branch
-    `2.0-beta` on fliperama86/pico_hdmi). Behaviorally inert: all new
-    mechanisms opt-in and OFF. Free fix included: audio underruns no longer
-    assert the IEC block-start flag.
-  - `3d1cb91` — **experimental precomposed/native scanout path** behind
-    `NEOPICO_EXP_PRECOMPOSED_HDMI` (OFF default; requires
-    `NEOPICO_USE_NONRT_HDMI=ON`, 480p only). Zero-copy video rows (hardware
-    2x doubling), static color lines for letterbox/no-signal, OSD rows via
-    native-width ping/pong scratch, audio islands patched by the library ISR
-    (starvation-proof).
-- Root OSD menu + desync watchdog + RS counter: EXONERATED (the glitch was
-  XIP, not the code) and committed alongside the copy-to-RAM fix. The
-  root menu (`NEOPICO_OSD_ROOT_MENU`) and watchdog ship with v0.7.1.
-- Build dirs: `build/` (480p RT, flags off), `build-720p-nonrt/`,
-  `build-precomp/` (NONRT + PRECOMPOSED + OSD + SELFTEST — config of the
-  current soak).
+## TL;DR — where we are right now
 
-## Run log (keep this updated; one line per soak)
+- **S1 (480p precomposed-on-RT) is VALIDATED** (run #9, ~1 h clean). The
+  runtime-modes RT library running the *precomposed tiny ISR* is the
+  architecture of record. The copy-model ISR is on death row.
+- **S3 (720p precomposed) is implemented and mostly working.** Picture is
+  correct (pillarboxed 4:3, 3x scale), audio works, RS=0 (no HDMI desync
+  ever), FIFO never underflows, ISR never runs late. Four real defects were
+  found and fixed today (see ledger). A **dynamic genlock** (locks output to
+  the MVS ~59.186 Hz via vtotal + sub-line elastic-blanking trim) was built
+  from scratch.
+- **One symptom remains:** once the genlock LOCKS, the sink shows a
+  whole-frame jolt (OSD + game jump together) every ~8–20 s. **Every on-chip
+  signal we can measure is constant through these jolts** (FIFO level, ISR
+  gap, vtotal, trim, audio-underrun count). The unlocked/drifting state is
+  always clean.
+- **Prime remaining suspect: the TV.** Locked output is non-CEA 720p (762
+  lines, 59.186 Hz, ~1.4% off standard). Same TV ran 480p (standard 525-line)
+  clean for an hour. **THE NEXT ACTION IS A ONE-CABLE TEST ON A SECOND
+  DISPLAY** — no code. It splits the world: second sink clean → ship as a
+  per-sink quirk; second sink also jolts → it's on the wire in a dimension we
+  haven't instrumented yet.
 
-| # | Date | Firmware (sha + flags) | Full cold-boot ritual | OSD opened | Duration | Outcome |
-|---|------|------------------------|----------------------|------------|----------|---------|
-| 1 | 06-11 | v0.6.0 GitHub release | yes | n/a | >1 h | clean |
-| 2 | 06-11 | 981efab+3d1cb91, all flags OFF (`build/`) | yes | n/a (no OSD) | ~1 h | clean |
-| 3 | earlier | 3d1cb91 state, PRECOMP+OSD+SELFTEST | **no** (probably warm boot, cables attached) | opened a few times, mostly closed | ~20–30 min | **sync drop, no recovery** |
-| 4 | 06-11 | same as #3, committed source only | yes | opened at least twice (early + late) | ~45-50 min | **sync drop** (press-correlation suspected at the time) |
-| 6 | 06-12 | PURE PHASE 2 baseline (sha 76c1233d, NONRT+PRECOMP, OSD/selftest OFF) | yes | impossible (not compiled) | ~8 h overnight (00:14 ->morning) | **CLEAN — pure phase 2 exonerated; OSD/selftest-compiled implicated (3/3 drops vs 0/1 over 8 h)** |
-| 8 | 06-12 | ORACLE: glitch-patch code + OSD+selftest + COPY_TO_RAM | yes | open for most of the run (RS visible) | 12:30 -> 15:06+, ongoing | **CLEAN, RS=0 — every previously fatal ingredient active, from RAM; XIP conviction CONFIRMED for thread 1** |
-| 7 | 06-12 | same OSD+selftest fw as #3-#5, EXPERIMENT 7 | yes | **NEVER (hands-off protocol)** | 11:27 -> ~12:28 | **sync drop with ZERO opens — Theory B (open-seeded snowball) REFUTED; Theory A (code presence / XIP layout) now PRIME** |
-| 5 | 06-12 | same fw, cold boot, OSD opened/closed ~20x AT START (mash test) | yes | heavily, at start only | ~30-60 min | **sync drop, long after the presses** — refutes INSTANT-trigger only; the snowball variant (one open seeds slow failure) remains live |
+**Live build (uncommitted, on the bench):** `build-720p-s3/`. Boots with the
+OSD open on a new **Genlock** telemetry screen. All work is in the working
+tree of BOTH repos — nothing committed yet (see "Uncommitted code" below).
 
-## Open threads
+---
 
-1. **Precomposed sync drops (runs #3 AND #4)** — both failures occurred in
-   OSD-compiled builds with the OSD opened during the run; run #4's drop may
-   have immediately followed a button press (user observation). Working
-   hypothesis: the OSD-OPEN transition (or OSD-row compose while visible)
-   triggers the failure — fully REFUTED by run #7 (zero opens, dropped
-   anyway). VERDICT: compiled PRESENCE of OSD+selftest code is sufficient
-   (4/4 drops; 0/1 over 8 h without). Prime theory: flash/XIP layout
-   sensitivity (merges with thread 2). Counterattack: copy-to-RAM
-   (pico_set_binary_type copy_to_ram) — text is only ~43 KB, fits SRAM
-   with ~120 KB spare, eliminates XIP at runtime BY CONSTRUCTION. Fast
-   oracle: the 394-line patch glitches INSTANTLY from flash; if it is calm
-   from RAM, the mechanism is proven in minutes. Current shape: 3 drops in 3 long runs of
-   OSD+selftest-compiled precomposed builds, varied boot ritual and OSD
-   usage; looks like a rare stochastic event (~once per 20-60 min). The
-   no-OSD baseline is now the critical discriminator: if IT also drops,
-   OSD/selftest are exonerated and the library mode (ctrl-swap race) is
-   prime; if it holds for hours, OSD/selftest-compiled is implicated
-   (code presence/layout, ISR compose, or background sampling). Cross-project note: rp2350-doom (same lib mode)
-   logs rare desyncs too (its issue #1), auto-recovered by a watchdog there.
-   Library-side suspect if real: the per-post 16/32-bit `al1_ctrl` swap in
-   native pixel mode racing a late/coalesced DMA IRQ.
-2. **Layout sensitivity — SOLVED 2026-06-12: XIP CONVICTED.** The oracle
-   experiment: the exact instant-glitch code (394-line patch) built with
-   `copy_to_ram` (one CMake line; text ~47 KB fits SRAM easily since both
-   LUTs are runtime-built BSS) runs CALM. Flash-vs-RAM execution was the
-   only variable. Mechanism: XIP fetch stalls at timing-critical instants,
-   with per-build flash layout deciding where they land. This also explains
-   the historical "dead code perturbs sync" project folklore. STRUCTURAL
-   FIX: `NEOPICO_COPY_TO_RAM=ON` (new CMake option, wired via
-   pico_set_binary_type). Thread 1 presumed same mechanism — one confirming
-   long soak of the copy-to-RAM OSD build pending (running now, includes
-   watchdog + RS counter for instrumentation).
-3. **Watchdog (parked)** — rate-based formula required
-   (`frames*100 > elapsed_ms*12`); a fixed count threshold false-fires
-   because this Core 1 background loop legitimately stalls 100s of ms
-   (audio SRC bursts). Re-enter via pico_hdmi itself, not app code.
+## Current bench build: `build-720p-s3/`
 
-## Canonical baseline (ESTABLISHED 2026-06-12)
+Flags: `NEOPICO_VIDEO_720P=ON NEOPICO_EXP_PRECOMPOSED_HDMI=ON
+NEOPICO_EXP_GENLOCK_DYNAMIC=ON NEOPICO_ENABLE_OSD=ON NEOPICO_ENABLE_SELFTEST=ON
+NEOPICO_OSD_ROOT_MENU=ON NEOPICO_COPY_TO_RAM=ON NEOPICO_VIDEO_DVI_ONLY=OFF`
+(`PICO_HDMI_RUNTIME_MODES=ON` — this is the **RT** path).
 
-**Pure Phase 2** passed an ~8 h overnight soak (run #6): commits
-`981efab`+`3d1cb91`, flags `NEOPICO_USE_NONRT_HDMI=ON
-NEOPICO_EXP_PRECOMPOSED_HDMI=ON NEOPICO_ENABLE_OSD=OFF`, UF2 sha
-`76c1233dc3b0a6f2e46ffa1bc6fef402d3c1c5de` (build dir
-`build-precomp-baseline/`; regenerable from commit+flags; keep its
-`.elf.map` for structural diffs). All future additions are measured
-against this: behaviorally (soak) and structurally (map symbol diffs).
+Flash: `pi flash build-720p-s3/src/neopico_hd.uf2` (auto reboot-to-bootloader;
+the board occasionally drops off USB and needs a cable reseat / BOOT-reset —
+this happened ~3x today, not a firmware issue).
 
-## Next experiment (#7): presence vs. opening
+### Genlock OSD screen (boots open; also root-menu entry "Genlock")
+Row layout (what to read on the bench):
+- `PHASE` — µs between MVS vsync and HDMI vsync. Setpoint target = 11000.
+  Healthy: parks near 11000 and wanders slowly within the deadband.
+- `TRIM` — applied elastic-blanking trim in pixel-clocks (negative = shorter
+  blanking = faster output). Equilibrium ≈ −5…−7 (was −17…−20 before the
+  uniform-trim fix). Constant for minutes at a time.
+- `SLOTS` — # of blanking-line RAW_REPEAT words being trimmed. Should be 10
+  (7 clean templates + 3 DI templates). If 0, the servo is a no-op.
+- `VTOTAL` — parked at 762 in steady state. 761/763 only flicker during
+  acquire.
+- `UPTIME` — seconds since boot (doubles as a glitch stopwatch).
+- bottom probe row `F.. G.. U.....`:
+  - `F` = min HSTX FIFO level seen in last 1 s (≈7, never dips at glitch).
+  - `G` = max inter-IRQ gap µs in last 1 s (≈23, never spikes at glitch).
+  - `U` = cumulative audio silence-packet insertions (climbs fast at boot to
+    ~24000 then frozen; no glitch correlation).
 
-OSD+selftest build (same as runs #3-#5), full ritual, **never press the
-button**. Clean for hours -> opening seeds the failure (user's snowball
-hypothesis confirmed; focus on first-open effects: osd_visible_latched
-path, first ISR compose, fast_osd_clear burst, selftest sampling start).
-Drops anyway -> mere code PRESENCE is enough, merging this thread with
-the Layout Sensitivity thread (flash/XIP alignment becomes prime).
+---
 
-## RT path × copy-to-RAM: TOXIC (2026-06-12 bisect)
+## 720p GENLOCK SAGA — investigation ledger (2026-06-12)
 
-Rung-1 bisect: RT library path + COPY_TO_RAM alone (no OSD/menu/switch)
-drops sync within SECONDS. RT from flash is fine (run #2, 1 h). Working
-theory: with the whole binary in striped SRAM, Core 0 + background code
-fetches contend on the same banks the heavyweight RT copy-model ISR and
-its DMA feeds depend on; the RT per-line deadline has no margin for it.
-The precomposed (tiny-ISR) path is unaffected (hours clean from RAM).
-POLICY: copy_to_ram ONLY for precomposed/non-RT builds; RT variants stay
-on flash (with their historical XIP layout lottery — the strategic exit
-is migrating RT modes to the precomposed architecture). CI matrix
-corrected in v0.7.2; v0.7.1's default artifacts shipped broken (RT+RAM)
-and are superseded.
+Goal: lock the 720p output frame rate to the MVS (~59.186 Hz) so the
+free-run beat doesn't cause periodic gray frames, AND do it without
+disturbing the sink. The MVS is the timing master; we slave HDMI to it.
 
-## ARCHITECTURE DECISION (2026-06-12, user-ratified): Scenario B
+**Defects found & fixed, in order (each had a distinct on-screen fingerprint):**
 
-RT-with-features bisect ABANDONED: user context confirms only vanilla 480p
-was ever rock-solid pre-2.0 (even 720p dropped in a demo); RT+features is
-unconquered territory, not a regression. The destination is **rung 3: port
-the precomposed tiny-ISR architecture into the runtime-modes path** (one
-firmware, all resolutions, robust ISR; endgame deletes the copy-model ISR
-and converges the lib = pico_hdmi 2.1). Mode plan: 480p zero-copy (done),
-720p = 3x via pre-expanded line ring outside the ISR + hardware 2x,
-240p = 4x via pre-doubled ring + hardware 2x. The OSD composes at native
-resolution before any expansion (resolution-independent cost).
-Currently on bench: precomposed + root menu (Self Test entry) +
-copy-to-RAM — first execution of the menu code on the healthy
-architecture (build-precomp-menu/).
+1. **Free-run beat → full gray frame ~1/s** (run #10). Output free-ran 60.00
+   Hz vs MVS 59.185; once per ~1.3 s beat the HDMI vsync sampled a capture
+   frame-base with zero lines committed → whole frame prepped as no-signal
+   gray. *Fix:* dynamic genlock (slave output rate to MVS).
+
+2. **Top-of-image disruption (3-4x band duplication)** — ring lapping. The
+   16-line pre-expanded ring holds ~1.07 ms of beam; the Core 1 background
+   task legitimately stalls 100s of ms (audio SRC bursts), so prep fell
+   behind and the beam wrapped onto stale entries. *Fix:* moved prep off the
+   background task onto a **hardware alarm IRQ on Core 1** (250 µs tick,
+   bounded ~6 lines/tick, preempts audio bursts; scanline DMA ISR still
+   preempts it). `video_pipeline_p720_alarm_cb`.
+
+3. **Frame-restart race** — vsync ISR reset the prep cursor while the alarm
+   IRQ was mid-prep; the post-increment landed after the reset → line 0
+   skipped → stale top slots. *Fix:* vsync only bumps `p720_frame_seq`; the
+   alarm context is the SOLE owner of the prep cursors and detects the new
+   frame itself (single writer).
+
+4. **Top garbage under stretched vtotal — LATENT RT LIBRARY BUG.**
+   `get_scanline_state()` classified active video as
+   `!vsync && !front_porch && !back_porch`, but `active_line` was computed as
+   `v_scanline - (v_total - v_active)`. When genlock stretches `v_total`, the
+   extra lines between back porch and active got classified active with a
+   huge/negative `active_line` → garbage scanout at the top. *Fix:* active
+   video is now PINNED right after the back porch
+   (`blank_head = v_fp + v_sync + v_bp`), so vsync-to-active distance never
+   depends on v_total and stretched lines land at the frame BOTTOM (invisible
+   blanking). **This bug affected every dynamic-genlock experiment ever run on
+   this lib, including 480p/532-line.** Fixed in lib + mirrored to 2.1-dev.
+
+5. **Gradual gray fills screen every ~4 s — wrong nominal.** 760-line nominal
+   was computed for the CEA 74.25 MHz pixel clock, but the hardware runs
+   **372 MHz / 5 = 74.4 MHz** (NOT 74.25). At 74.4 MHz, 760 lines = 59.33 Hz
+   (too fast) so the phase wrapped. *Fix:* `GENLOCK_NOMINAL_VTOTAL_720 = 762`
+   (74.4M / (1650·762) = 59.187 Hz, +2 µs/frame vs MVS — near-perfect),
+   plus a fast-acquire state.
+
+6. **Glitch cycle (6 s / 66 s, then 8 s / 23 s) with horizontal kicks — the
+   genlock CONTROLLER itself.** This was the long fight. Progression:
+   - vtotal bang-bang (762↔761) dithered the frame period a whole line
+     (~22 µs) every few frames → sink V-PLL hunts. **Finding: this sink
+     visibly reacts to vtotal steps.**
+   - → **Elastic blanking (sub-line trim):** keep vtotal CONSTANT, trim a few
+     pixels off the big RAW_REPEAT in blanking lines (~0.5 µs/frame per pixel,
+     44x finer than a line, below sink line-PLL perception). NEW 2.1 LIBRARY
+     FEATURE: `video_output_set_vblank_htrim_px()`. This is the genlock's
+     fine actuator.
+   - servo sign bug (positive feedback), then limit-cycling (trim/drift/phase
+     is a double integration), then a deadlock in the outlier rejection
+     (stale reference rejected every real sample → trim pinned at clamp).
+     Each fixed in turn: outlier reject w/ streak-accept, slew limit
+     1 px/frame, then a **slow integrator** (hold trim constant; step ±1 px
+     only past a ±400 µs deadband, rate-limited), then **derivative gating**
+     (only step when phase is not already returning — anti-windup + damping).
+   - **Bench finding that reframed everything:** trim sitting at the −30 clamp
+     (CONSTANT) → clean; trim at the servo equilibrium hunting ±1 px → glitch.
+     The sink reacts to trim ACTIVITY, not value.
+
+7. **Intra-vblank sawtooth — uniform trim fix.** We were trimming only ~7 of
+   the ~42 blanking lines (DI-carrying templates were excluded out of
+   caution). That imposed a line-to-line H-period sawtooth (1650 vs 1650+trim)
+   inside every vblank, which the sink tracked once |trim| > ~14 px (matches
+   "glitches start around −14"). *Fix:* register the DI vblank templates too
+   (`vblank_di_ping/pong/null`). False positives impossible: TERC4 payload
+   words always carry high bits, can't match a bare RAW_REPEAT in the
+   1200–1600 px window. Tripled authority → equilibrium trim −17 → ~−5.
+
+**After all 7 fixes: the residual jolt.** Locked = jolt every ~8–20 s,
+unlocked = clean, AT ANY SETPOINT (tested 8000 and 11000). Discriminators run:
+- OSD-jumps-with-picture test → **whole output frame**, not a capture slip.
+- FIFO min `F` + ISR-gap `G` probe → **constant through jolts** (output
+  delivery provably perfect; no underflow, no late ISR).
+- vtotal-spike debounce + raw-excursion counter `A` → `A` stuck at boot value
+  → **no measurement-spike-induced vtotal steps**.
+- audio silence-insert counter `U` → climbs at boot then frozen, **no glitch
+  correlation** → audio queue exonerated.
+- DVI-only discriminator → **INVALID / no signal**: precomposed templates
+  carry HDMI guard-band/preamble structure, can't be served as clean DVI.
+  (Lib gap to note for 2.1; do not retry as-is.)
+
+**Conclusion / current hypothesis:** every on-chip signal dimension is
+measurably CONSTANT while the sink jolts. The one thing unique to the locked
+state is a frozen, non-CEA timing (762 lines, 59.186 Hz, ~1.4% off standard).
+Leading theory: **the TV's format-detection / re-sync heuristic twitches on a
+near-but-not-standard timing it can't fully settle on.** Supporting: this same
+TV ran standard-timing 480p (525 lines) clean for an hour.
+
+### >>> NEXT ACTION (no code): test a SECOND display <<<
+One cable swap. `build-720p-s3` as-is.
+- Second sink clean at lock → genlock is correct; this TV dislikes near-CEA
+  timing. Treat as per-sink quirk (consider a future "standard-timing +
+  accept-the-beat" fallback mode, or true CEA 74.25 via a different
+  sysclk/divider).
+- Second sink jolts identically → it IS on the wire; instrument the last
+  un-probed dimensions (data-island TERC4 content / IEC channel-status
+  cadence / infoframe checksum timing under lock).
+
+---
+
+## Uncommitted code (BOTH repos dirty — nothing committed for the 720p work)
+
+**`~/Projects/neogeo/neopico-hd`** (working tree):
+- `src/video/video_pipeline.c` — 720p precomposed path (`p720_*` ring, alarm
+  IRQ prep, retry pass) + the entire genlock servo (`genlock_dynamic_update`,
+  elastic-trim integrator with deadband + derivative gating + slew limit +
+  vtotal-spike debounce). Constants: `GENLOCK_NOMINAL_VTOTAL_720=762`,
+  `GENLOCK_PHASE_SETPOINT_US=11000` (was 8000; an EXPERIMENT value — revisit),
+  `PULLBACK=14000`, `RESUME=4000`, `P720_PREP_INTERVAL_US=250`,
+  `P720_RING_LINES=16`. Publishes `g_genlock_phase_us`,
+  `g_genlock_outzone_count`.
+- `src/experiments/menu_diag_experiment.c` — new `MENU_SCREEN_GENLOCK` +
+  "Genlock" root entry; boots OSD open on it; 1 Hz value updates; probe row.
+- `src/osd/selftest_layout.c` — reverted the temporary debug line (clean).
+- `src/main.c`, `src/video/video_pipeline.h` — `video_pipeline_precomp_background`
+  hook + 720p decls.
+- `src/CMakeLists.txt` — precomposed 720p restriction relaxed (240p still
+  FATAL_ERROR: "S3b pre-doubled ring not done").
+- `src/video/scale_pixels.S` (NEW) + `NEOPICO_TRIPLE_ASM` flag (default OFF) —
+  hand-written M33 kernels for the 3x/4x pixel-scale (the alarm-IRQ hot path):
+  STM-batched stores + post-inc loads, ~1.8-2x vs C, in `.scratch_y` (RAM).
+  Boot `video_pipeline_scale_selftest()` compares asm vs C refs over several
+  counts (incl. odd/zero); verdict in `g_scale_asm_selftest_ok`, shown on the
+  Genlock OSD as `ASM:OK`/`ASM:BAD`. Host-simulated register-faithful (ALL
+  MATCH) + disassembly-verified; NOT yet run on device. `build-720p-s3/` is
+  currently configured with `NEOPICO_TRIPLE_ASM=ON` (built, not flashed).
+  NOTE: this is a prep-MARGIN win, NOT a fix for the locked-state jolt (that's
+  still the second-TV question). Flag-OFF is empty-object equivalent by
+  construction (`#if NEOPICO_TRIPLE_ASM` guards the whole .S; C bodies under
+  `#if !NEOPICO_TRIPLE_ASM`).
+- `lib/pico_hdmi` (submodule pointer M; the nested checkout is itself dirty).
+
+**`~/Projects/pico_hdmi`** (branch `2.1-dev`, `src/video_output_rt.c` dirty):
+- Elastic blanking: `video_output_set_vblank_htrim_px()` +
+  `_get_vblank_htrim_slots/px()` + `htrim_register_all()` (hooked after
+  `compose_ring_built`). **2.1 feature.**
+- Active-video pinned after back porch (defect #4 fix). **2.1 fix.**
+- Perf probe: `video_output_perf_probe_read()` (FIFO min + IRQ gap).
+- NOTE: the neopico nested `lib/pico_hdmi` copy and the standalone
+  `~/Projects/pico_hdmi` 2.1-dev tree must be kept in sync by hand; the
+  active-line fix is mirrored, but verify the htrim + probe code matches
+  before committing/pushing 2.1-dev.
+
+**Commit plan when the second-TV verdict is in:** (1) commit lib 2.1-dev
+(elastic blanking + active-pin fix + probe) and push branch; (2) commit
+neopico 720p path + genlock + Genlock OSD screen behind the existing flags
+(verify flag-OFF UF2 unchanged); (3) bump submodule pointer.
+
+---
+
+## Resolved foundation (earlier today — context for the above)
+
+- **Precomposed-on-RT (S1) works.** The exact RT+features path that dropped
+  sync in seconds as the *copy-model* ISR is rock-solid as the *precomposed
+  tiny ISR* (run #9). RS=0 all day across every 720p experiment confirms the
+  RT machinery itself never faulted.
+- **XIP layout sensitivity → SOLVED:** `NEOPICO_COPY_TO_RAM=ON`
+  (pico_set_binary_type) eliminates runtime XIP; this is why dead code used to
+  perturb sync. The precomposed tiny-ISR is the only ISR light enough to also
+  survive copy_to_ram (the heavyweight copy-model RT ISR + striped-SRAM fetch
+  contention was TOXIC — dropped in seconds).
+- **`__scratch_x("")` merges ALL functions into one section** → the linker
+  can never GC dead scratch code individually; #if-gate unused scratch
+  functions out (did this for the copy-model dispatcher; scratch_x 0x800→0x5c0).
+- Canonical 480p baseline: run #6, sha `76c1233d`,
+  `build-precomp-baseline/`. RT×copy_to_ram TOXIC policy stands. Scenario B
+  (precomposed → runtime-modes path = pico_hdmi 2.1) ratified and in progress.
+
+## Remaining 2.1 stages (DESIGN-2.1.md)
+- **S2** — swap-free DMA topology (eliminate the per-IRQ 16/32-bit `al1_ctrl`
+  swap). NOTE: 720p uses 32-bit pointer mode and never touches the swap, so
+  the S2 hazard is ABSENT at 720p; it's a 480p/native-mode concern.
+- **S3b** — 240p (4x = pre-doubled ring + hardware 2x). 720p (3x) done.
+- **S4** — runtime mode switching + wire the Resolution menu entry onto the
+  precomposed path (currently reboot-based).
+
+## Run log (one line per soak)
+
+| # | Date | Firmware (sha + flags) | Outcome |
+|---|------|------------------------|---------|
+| 1 | 06-11 | v0.6.0 release | clean >1 h |
+| 2 | 06-11 | 981efab+3d1cb91, flags OFF | clean ~1 h |
+| 3-5,7 | 06-11/12 | precomp+OSD+selftest, flash/XIP | sync drops (XIP, since fixed) |
+| 6 | 06-12 | pure phase-2 baseline 76c1233d | CLEAN ~8 h overnight |
+| 8 | 06-12 | oracle: glitch-patch + COPY_TO_RAM | CLEAN — XIP convicted |
+| 9 | 06-12 | **S1** RT+precomp+OSD+menu+copy_to_ram (`build-s1/`) | **CLEAN ~1 h — S1 validated** |
+| 10 | 06-12 | S3-720p first cut | gray flash ~1/s; RS=0 (free-run beat) |
+| 11-20 | 06-12 | S3-720p + genlock iterations (`build-720p-s3/`) | 7 defects found & fixed; see ledger |
+| 21 | 06-12 | S3-720p genlock final (setpoint 11000, uniform trim, probes) | locked picture clean EXCEPT whole-frame jolt ~8-20 s; all on-chip signals constant → **second-TV test pending** |
 
 ## Standing constraints (digest; full rules in AGENTS.md + SCRATCHBOOK)
-
-- scratch_x hard boundary 0x800; nothing new in scratch sections, ever,
-  without measuring (`grep -A1 '^\.scratch_x' src/neopico_hd.elf.map`).
-- Capture path: no additions, even dormant code.
-- OSD render pattern: full draw on screen entry, glyph-only updates, ~1 Hz.
-- No printf/blocking I/O on the Core 1 background path (rp2350-doom lesson:
-  one UART line = 7 ms stall = audible/visible artifacts).
-- Validate audio transports with a pure sine + spectrogram, not square
-  waves or SFX (they mask dropped-sample artifacts).
-- Flag-gate everything experimental, default OFF, verify flag-off UF2 is
-  byte-identical (it was, sha-verified, for both phase 2 and the menu).
+- scratch_x hard boundary 0x800; measure before adding anything to scratch
+  (`grep -A1 '^\.scratch_x' src/neopico_hd.elf.map`). Live build: ~0x6b0.
+- `__scratch_x("")` functions can't be GC'd individually — #if-gate dead ones.
+- No printf/blocking I/O on Core 1 background path (1 UART line = 7 ms stall).
+- OSD render pattern: full draw on entry, value-only ~1 Hz updates.
+- Flag-gate everything experimental, default OFF; verify flag-OFF UF2 byte-identical.
+- Validate audio with a pure sine + spectrogram (SFX/square waves mask drops).
+- The neopico `lib/pico_hdmi` checkout is intentionally a separate dirty tree;
+  keep it in sync with `~/Projects/pico_hdmi` 2.1-dev by hand.

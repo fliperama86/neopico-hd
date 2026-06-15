@@ -1,5 +1,7 @@
 #include "menu_diag_experiment.h"
 
+#include <stdio.h>
+
 #if NEOPICO_ENABLE_OSD
 
 #include "pico/time.h"
@@ -258,6 +260,9 @@ typedef enum {
     MENU_SCREEN_ROOT,
     MENU_SCREEN_RESOLUTION,
     MENU_SCREEN_SELFTEST,
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+    MENU_SCREEN_GENLOCK,
+#endif
 } menu_screen_t;
 
 #define ROOT_TITLE_ROW 1
@@ -275,6 +280,9 @@ static const char *const s_root_entry_labels[] = {
 #endif
 #if NEOPICO_ENABLE_SELFTEST
     "Self Test",
+#endif
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+    "Genlock",
 #endif
 };
 #define ROOT_ENTRY_COUNT (sizeof(s_root_entry_labels) / sizeof(s_root_entry_labels[0]))
@@ -298,8 +306,68 @@ static menu_screen_t root_entry_screen(uint8_t idx)
         return MENU_SCREEN_SELFTEST;
     }
 #endif
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+    if (idx == i++) {
+        return MENU_SCREEN_GENLOCK;
+    }
+#endif
     return MENU_SCREEN_ROOT;
 }
+
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+// Dedicated genlock telemetry screen (full draw on entry, value-only 1 Hz
+// updates, per the OSD render rules).
+static uint32_t s_genlock_update_frame;
+
+static void genlock_screen_update_values(void)
+{
+    extern volatile uint32_t g_genlock_phase_us;
+    extern uint16_t rt_v_total_lines;
+    int video_output_get_vblank_htrim_slots(void);
+    int video_output_get_vblank_htrim_px(void);
+    char buf[14];
+    snprintf(buf, sizeof buf, "%5lu us", (unsigned long)g_genlock_phase_us);
+    fast_osd_puts_color(4, 11, buf, OSD_COLOR_YELLOW);
+    snprintf(buf, sizeof buf, "%+4d px", video_output_get_vblank_htrim_px());
+    fast_osd_puts_color(6, 11, buf, OSD_COLOR_YELLOW);
+    snprintf(buf, sizeof buf, "%2d", video_output_get_vblank_htrim_slots());
+    fast_osd_puts_color(8, 11, buf, OSD_COLOR_YELLOW);
+    snprintf(buf, sizeof buf, "%3u", (unsigned)rt_v_total_lines);
+    fast_osd_puts_color(10, 11, buf, OSD_COLOR_YELLOW);
+    snprintf(buf, sizeof buf, "%6lu s", (unsigned long)(to_ms_since_boot(get_absolute_time()) / 1000U));
+    fast_osd_puts_color(12, 11, buf, OSD_COLOR_YELLOW);
+    {
+        void video_output_perf_probe_read(uint32_t *fifo_min, uint32_t *irq_gap_max_us);
+        uint32_t fifo_min, gap_max;
+        video_output_perf_probe_read(&fifo_min, &gap_max);
+        extern volatile uint32_t hstx_di_queue_silence_count;
+        char probe[24];
+        snprintf(probe, sizeof probe, "F%2lu G%3lu U%6lu", (unsigned long)(fifo_min > 99 ? 99 : fifo_min),
+                 (unsigned long)(gap_max > 999 ? 999 : gap_max), (unsigned long)hstx_di_queue_silence_count);
+        fast_osd_puts_color(13, 2, probe, OSD_COLOR_YELLOW);
+    }
+}
+
+static void genlock_screen_draw(void)
+{
+    fast_osd_clear();
+    fast_osd_puts_color(1, 2, "Genlock", OSD_COLOR_YELLOW);
+#if NEOPICO_TRIPLE_ASM
+    {
+        extern volatile bool g_scale_asm_selftest_ok;
+        fast_osd_puts_color(1, 12, g_scale_asm_selftest_ok ? "ASM:OK" : "ASM:BAD",
+                            g_scale_asm_selftest_ok ? OSD_COLOR_GREEN : OSD_COLOR_RED);
+    }
+#endif
+    fast_osd_puts_color(4, 2, "PHASE", OSD_COLOR_GRAY);
+    fast_osd_puts_color(6, 2, "TRIM", OSD_COLOR_GRAY);
+    fast_osd_puts_color(8, 2, "SLOTS", OSD_COLOR_GRAY);
+    fast_osd_puts_color(10, 2, "VTOTAL", OSD_COLOR_GRAY);
+    fast_osd_puts_color(12, 2, "UPTIME", OSD_COLOR_GRAY);
+    fast_osd_puts_color(14, 2, "MENU back", OSD_COLOR_GRAY);
+    genlock_screen_update_values();
+}
+#endif
 
 static void root_menu_render_entry(uint8_t idx)
 {
@@ -350,6 +418,13 @@ static void root_menu_enter_leaf(void)
             s_audio_samples = 0;
             s_shadow_hold_updates = 0;
             s_screen = MENU_SCREEN_SELFTEST;
+            break;
+#endif
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+        case MENU_SCREEN_GENLOCK:
+            genlock_screen_draw();
+            s_genlock_update_frame = video_frame_count;
+            s_screen = MENU_SCREEN_GENLOCK;
             break;
 #endif
         default:
@@ -422,6 +497,14 @@ static void root_menu_buttons_tick(void)
             break;
 #endif
 
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+        case MENU_SCREEN_GENLOCK:
+            if (menu_edge) {
+                root_menu_enter_root(now_ms);
+            }
+            break;
+#endif
+
         default:
             break;
     }
@@ -455,6 +538,16 @@ void menu_diag_experiment_init(void)
     if (osd_visible) {
         menu_diag_experiment_on_menu_open();
     }
+#if NEOPICO_OSD_BOOT_OPEN && NEOPICO_OSD_ROOT_MENU && NEOPICO_EXP_GENLOCK_DYNAMIC
+    // Soak aid (NEOPICO_OSD_BOOT_OPEN): boot with the OSD open on the genlock
+    // telemetry screen (leaf screens have no idle-hide, so it stays up until a
+    // button press). Default OFF: the OSD starts hidden and the MENU button
+    // opens the root menu (root_menu_buttons_tick, MENU_SCREEN_HIDDEN case).
+    genlock_screen_draw();
+    s_genlock_update_frame = video_frame_count;
+    s_screen = MENU_SCREEN_GENLOCK;
+    osd_show();
+#endif
 }
 
 void menu_diag_experiment_on_menu_open(void)
@@ -724,6 +817,13 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
         selftest_draw_resync_count();
 #endif
     }
+
+#if NEOPICO_OSD_ROOT_MENU && NEOPICO_EXP_GENLOCK_DYNAMIC
+    if (osd_visible && s_screen == MENU_SCREEN_GENLOCK && (video_frame_count - s_genlock_update_frame) >= 60U) {
+        s_genlock_update_frame = video_frame_count;
+        genlock_screen_update_values();
+    }
+#endif
 #endif
 }
 
