@@ -1,7 +1,14 @@
 # 720p Purple-Scanline Glitch — Investigation Tracker
 
-**Status:** 🟡 Root cause identified (Core 0 capture activity into a marginal 720p eye) · sink-side: only exposed by **unbuffered/direct** receivers (TV Game Mode) · one firmware tiebreaker experiment still open
+**Status:** 🟡 NOT concluded. Leading hypothesis (signal integrity exposed by direct/unbuffered sinks) fits the observations, but the supporting "clean" tests are statistically under-powered (see §0). Multiple mechanisms still open. Do not anchor.
 **Last updated:** 2026-06-15
+
+## 0. Confidence & caveats (read first)
+
+- **Under-powered "clean" results.** Each clean observation (bouncing box, checkerboard, capture-freeze) was watched for only **~2 min**, against a glitch whose period is itself **up to ~2 min**. A single 2-min clean window proves little — a condition that *does* glitch can pass it by luck. Treat every "clean" below as *suggestive, not decisive*. Re-run any load-bearing one for **≥15–20 min** before trusting it.
+- **"Not a FIFO underrun" is partial.** The probe samples once per scanline, so it only excludes *per-line-visible* underruns; a sub-line scanout/bus event would not show as FIFO<7 or a GAP spike.
+- **Competing hypotheses still alive** (none excluded): (a) Core 0 power/EMI coupling into the eye; (b) Core 0 perturbing HSTX *clock*/timing jitter (Game-Mode sinks are jitter-sensitive; we free-run 720p at a non-standard 60.11 Hz); (c) a sub-line bus/scanout event; (d) unframed.
+- **Sink-side fact is solid** (reproduced, user has seen it before): glitches only on a **direct/non-re-clocking** path (TV Game Mode); any buffered sink (Normal mode, Morph4K, RT4K) hides it. This constrains *where it shows*, not *what causes it* on our side.
 **Owner:** dudu
 
 > Living document. Append to the Investigation Log as new tests are run; update Status + Current Conclusion at the top when the picture changes.
@@ -10,9 +17,9 @@
 
 ## 1. Summary (current conclusion)
 
-At **720p only**, on a **Samsung Q80 4K TV connected directly in Game Mode**, a rare (every ~30 s–2 min) split-second burst of **purple/green scanline TMDS corruption** appears over the image. It is **caused by Core 0's active capture work** (not the displayed content, not a FIFO underrun) coupling into a marginal 720p resistor-DAC TMDS eye — and it is **only exposed by an unbuffered/direct sink path**. **It does NOT occur in the TV's Normal mode, nor via Morph4K/RT4K, nor at 480p.** Every clean case shares one trait: the sink **buffers/re-clocks** the signal (Normal-mode processing pipeline, or an external scaler), which rides over the brief error; Game Mode strips that buffering for low latency and shows it.
+At **720p only**, on a **Samsung Q80 4K TV connected directly in Game Mode**, a rare (every ~30 s–2 min) split-second burst of **purple/green scanline TMDS corruption** appears over the image. It does **not** occur in the TV's Normal mode, via Morph4K/RT4K, or at 480p.
 
-**Confirmed sink-side (2026-06-15, user recalls hitting this before):** the variable is whether the receiver re-clocks. Game Mode (direct, low-latency) = glitch; Normal mode / Morph4K / RT4K (buffered) = clean. Note the irony: Game Mode is the desirable low-lag mode, so this matters precisely where it's least wanted.
+Two things look reasonably firm: (1) **sink-side**, it only shows on a **direct/non-re-clocking** path (every clean case is a sink that buffers/re-clocks); (2) it **correlates with Core 0 running the capture pipeline** (frozen-frame test was clean over a short window). What we have **not** nailed is the **on-board mechanism** — power/EMI vs clock jitter vs a sub-line bus event are all still in play (see §0). Earlier framing of this as "root cause = Core 0 EMI, confirmed" was over-stated; the clean tests behind it were too short to be decisive.
 
 ---
 
@@ -68,29 +75,38 @@ Same busy content on screen (test 4 vs 5): frozen = clean, live = glitch ⇒ it 
 
 ---
 
-## 6. Ruled out
+## 6. Status of candidates (nothing is over-claimed)
 
-- ❌ RT-vs-non-RT signal path (both glitch identically).
-- ❌ HDMI output path itself (bouncing-box demo clean).
-- ❌ Displayed content / channel eye alone (frozen real busy frame clean).
-- ❌ FIFO underrun / scanout bus starvation (probe clean through glitches).
-- ❌ Audio/Data-Islands (demo has audio islands and is clean).
-- ❌ HSTX pad drive/slew (already maxed).
-- ❌ Bank-1 input pin switching alone (pins still electrically live during freeze, yet clean).
+Firmly ruled out:
+- ❌ RT-vs-non-RT signal path (both glitch identically — strong).
+- ❌ HSTX pad drive/slew as a *lever* (already at max; nothing to change).
 
-## 7. Current root cause + mechanism
+Weakly indicated only (rests on short ~2-min clean windows — re-test ≥15-20 min before trusting):
+- ➖ HDMI output path itself (bouncing-box demo *seemed* clean).
+- ➖ Displayed content / channel eye alone (frozen busy frame *seemed* clean).
+- ➖ Audio/Data-Islands (demo *seemed* clean; note audio kept running during the freeze test, so it's reasonably out — but still short-window).
+- ➖ Bank-1 input pin switching alone (pins live during freeze, *seemed* clean).
 
-**Root cause:** Core 0's active capture pipeline (PIO1 sampling + capture DMA + the interp0 **256 KB LUT** RGB conversion).
+Partial / not actually excluded:
+- ⚠️ FIFO underrun / scanout bus event — only *per-line-visible* underruns excluded; sub-line events not seen by the probe.
 
-**Leading mechanism:** since the scanout FIFO/timing stays clean, the corruption is downstream of the FIFO — most consistent with **Core 0 burst current draw → power-rail/ground noise → coupling into the already-marginal 720p TMDS eye**, occasionally tipping the strict Q80 receiver past its error threshold. 480p's larger eye absorbs the same noise; the Morph4K re-clocks its input.
+## 7. Working hypotheses (ranked, NONE confirmed)
+
+Two observations look firm: it correlates with **Core 0 capture running**, and it only shows on a **non-re-clocking sink**. The on-board mechanism is undecided:
+
+1. **Power/EMI** — Core 0 burst current (DMA + 256 KB LUT) → rail/ground noise → couples into the marginal 720p eye. Fits "FIFO clean," unproven.
+2. **Clock/timing jitter** — Core 0 perturbs HSTX clock/timing; a re-clocking sink hides it, Game Mode doesn't. The DMA-priority test would NOT address this.
+3. **Sub-line bus/scanout event** — a brief scanout stall the per-line probe can't see.
+4. **Unframed** — keep a slot open.
 
 ---
 
 ## 8. Open experiments / next steps
 
-- [ ] **HSTX scanout DMA `HIGH_PRIORITY` over capture DMA** — tiebreaker for sub-line bus micro-stall (which the per-line probe could miss) vs power/EMI. If it kills the glitch → firmware-fixable; if not → confirmed electrical. *(cheap, ~2 min)*
-- [ ] (If electrical) measure with a scope: HSTX output eye + 3V3 rail ripple, idle vs capturing.
-- [ ] (If power) try reducing Core 0 di/dt — spread DMA/LUT bursts, LUT placement. *(speculative)*
+- [ ] **FIRST: establish a trustworthy repro + baseline.** Watch live 720p Game Mode and log glitch timestamps for ~20-30 min to get a real rate; only then are "clean" comparisons meaningful. (All prior clean results are ~2-min and under-powered.)
+- [ ] **HSTX scanout DMA `HIGH_PRIORITY` over capture DMA** — tests hypothesis #3 (sub-line bus). Helps → bus; no change → weakly against #3 (needs the longer baseline to mean anything).
+- [ ] **Scope** (the real disambiguator): HSTX output eye + 3V3 rail ripple + clock jitter, Core-0-idle vs capturing. Separates #1 vs #2 directly.
+- [ ] (If #1) reduce Core 0 di/dt — spread DMA/LUT bursts, LUT placement. *(speculative)*
 
 ## 9. Mitigation options
 
