@@ -31,6 +31,7 @@ option(NEOPICO_COPY_TO_RAM "Copy the entire binary to SRAM at boot and execute f
 option(NEOPICO_EXP_PRECOMPOSED_HDMI "EXPERIMENTAL: pico_hdmi 2.0 precomposed scanout + native-pixel pointer path (requires NEOPICO_USE_NONRT_HDMI; 480p only)" OFF)
 option(NEOPICO_VIDEO_DVI_ONLY "Disable HDMI Data Islands/audio output for video isolation tests" OFF)
 option(NEOPICO_VIDEO_TEST_PATTERN "Render a static Core 1 video test pattern instead of captured video" OFF)
+option(NEOPICO_DIAG_COUNTERS "Capture-health counters dumped over USB-serial (720p glitch diagnosis)" OFF)
 option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" ON)
 option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD)" ON)
 option(NEOPICO_OSD_ROOT_MENU "Root OSD menu with Resolution / Self Test entries (requires OSD and at least one entry feature)" ON)
@@ -328,6 +329,12 @@ else()
     set(VIDEO_TEST_PATTERN_VALUE 0)
 endif()
 
+if(NEOPICO_DIAG_COUNTERS)
+    set(DIAG_COUNTERS_VALUE 1)
+else()
+    set(DIAG_COUNTERS_VALUE 0)
+endif()
+
 if(NEOPICO_EXP_PRECOMPOSED_HDMI)
     # pico_hdmi 2.1: precomposed mode is supported on BOTH library paths.
     # Still 480p-only on the app side (native pixel mode is a 2x doubler);
@@ -465,6 +472,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_USE_NONRT_HDMI=${USE_NONRT_HDMI_VALUE}
     NEOPICO_VIDEO_DVI_ONLY=${VIDEO_DVI_ONLY_VALUE}
     NEOPICO_VIDEO_TEST_PATTERN=${VIDEO_TEST_PATTERN_VALUE}
+    NEOPICO_DIAG_COUNTERS=${DIAG_COUNTERS_VALUE}
     NEOPICO_ENABLE_OSD=${ENABLE_OSD_VALUE}
     NEOPICO_ENABLE_SELFTEST=${ENABLE_SELFTEST_VALUE}
     ENABLE_DARK_SHADOW=${ENABLE_DARK_SHADOW_VALUE}

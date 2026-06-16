@@ -29,6 +29,42 @@
 #include "tusb.h"
 #include "video_capture.pio.h"
 
+#if NEOPICO_DIAG_COUNTERS
+#include <stdio.h>
+line_ring_diag_t g_line_ring_diag;
+
+// Non-blocking 1 Hz dump of capture-health counters over USB-CDC. Called from
+// the inter-frame gap on Core 0. Skips entirely if no host is reading (or the
+// CDC TX buffer is full) so it can never stall capture timing.
+static void video_capture_diag_tick(uint32_t input_frames)
+{
+    static uint32_t last_ms = 0;
+    static uint32_t l_in = 0, l_out = 0;
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+    if ((now - last_ms) < 1000U) {
+        return;
+    }
+    last_ms = now;
+    uint32_t out = g_line_ring_diag.out_frames;
+    // NOTWR/OVR/SYNCRST are printed CUMULATIVE (absolute) so any single line read
+    // gives the running totals — robust to dropped/stalled CDC lines. Baseline = 0,
+    // so any non-zero means events have occurred since boot.
+    char buf[120];
+    int n = snprintf(buf, sizeof buf, "[%lu] in=%lu(+%lu) out=%lu(+%lu) NOTWR=%lu OVR=%lu SYNCRST=%lu\r\n",
+                     (unsigned long)now, (unsigned long)input_frames, (unsigned long)(input_frames - l_in),
+                     (unsigned long)out, (unsigned long)(out - l_out), (unsigned long)g_line_ring_diag.not_written,
+                     (unsigned long)g_line_ring_diag.overrun, (unsigned long)g_line_ring_diag.sync_resets);
+    // Gate ONLY on TX buffer room (non-blocking) — NOT on tud_cdc_connected(), whose
+    // DTR state is unreliable with macOS cu.* devices and stalls the stream.
+    if (n > 0 && (int)tud_cdc_write_available() >= n) {
+        tud_cdc_write(buf, (uint32_t)n);
+        tud_cdc_write_flush();
+    }
+    l_in = input_frames;
+    l_out = out;
+}
+#endif
+
 // =============================================================================
 // Feature Flags
 // =============================================================================
@@ -441,6 +477,9 @@ void video_capture_run(void)
         g_frame_count++;
 
         if (!sem_acquire_timeout_ms(&g_vsync_sem, MVS_NO_SIGNAL_TIMEOUT_MS)) {
+#if NEOPICO_DIAG_COUNTERS
+            g_line_ring_diag.sync_resets++;
+#endif
             video_capture_reset_hardware();
             tud_task();
             continue;
@@ -517,6 +556,10 @@ void video_capture_run(void)
             tud_task();
             tight_loop_contents();
         }
+#endif
+
+#if NEOPICO_DIAG_COUNTERS
+        video_capture_diag_tick(g_frame_count);
 #endif
     }
 }

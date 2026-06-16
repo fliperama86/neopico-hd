@@ -1109,3 +1109,18 @@ Working implication for this board:
 - Order INVERSION (cost a debug cycle): originally persisted on CONFIRM (live flash erase, no reboot after) -> the interrupt-disabled erase stalled the HDMI ISR and dropped sync UNRECOVERABLY. Fixed: persist optimistically at SELECT (masked by that reboot); CONFIRM = pure dismiss (no flash); REVERT/timeout rolls flash back to previous + reboots. All flash writes now at reboot points.
 - Edge case (accepted): power-cut DURING the countdown persists the unconfirmed res (no boot-completed flag). Rare; bulletproofing = a boot-completed flag cleared on confirm.
 - Bonus: settings.c now includes pico.h not pico/platform.h (a linter reorder had broken clean builds since b61c782; this merge un-breaks main).
+
+## 2026-06-15 — Reviewed 720p purple-glitch tracker skeptically
+- User asked for opinion on `docs/720P_PURPLE_GLITCH.md` and warned to take it with a grain of salt.
+- Read tracker + older `docs/720P_SAMSUNG_GAME_MODE_INVESTIGATION.md` + relevant 720p clock/HSTX/capture paths. No code/build/hardware commands run.
+- Current read: strongest fact is output-side/global corruption if black bars + OSD are truly affected; that argues against captured pixel data/content and toward marginal TMDS eye disturbed by live capture workload.
+- Caveats: many clean cases were short (~2 min), static-pattern-with-live-capture from older note conflicts with “capture workload alone,” FIFO probe only samples per-line, and exact mechanism (power/EMI vs HSTX/PLL jitter vs rare sub-line bus event) remains unproven without scope or longer A/B logs.
+- Recommended next: establish 20–30 min baseline timestamps, repeat key clean controls, then scope 3V3/core rails + TMDS/clock while toggling capture/freezing; keep firmware experiments flag-gated/off by default.
+
+## 2026-06-16 — 720p purple-glitch: capture-timing ruled out; labeled experimental
+- Big correction this session: earlier "Core 0 capture activity / power-EMI" conclusion was WRONG. **test-pattern + FULL live capture = CLEAN** (same Core 0 load, no glitch) ⇒ the differentiator is **Core 1 rendering LIVE captured video**, not capture workload/power/clock.
+- Added flag-gated `NEOPICO_DIAG_COUNTERS` (off by default): line-ring NOTWR/OVR, capture SYNCRST, in/out frame rates, dumped over USB-CDC. Across two clean windows (~160s + ~145s) of glitchy play with confirmed glitches: **ALL FLAT** ⇒ capture-timing/readiness/sync/handoff very likely NOT the cause (lines delivered on-time + ready through glitches).
+- USB-CDC at 372MHz OC stalls streaming after ~2.5min (counters keep accumulating in firmware though). Don't peek mid-capture (abrupt host close wedges TinyUSB CDC TX).
+- Localization (content-only vs global incl black bars/OSD) UNRESOLVED — flip-flopped on TV photos; even high-fps frame-steps conflicted. Don't conclude mechanism from photos.
+- Open fork (counters can't see either): (a) wrong DATA in an on-time line (capture sampling: PCLK phase/RGB-bus) vs (b) output-side (scaler/HSTX). Next discriminator: solid high-contrast local band over live capture, frame-step a glitch.
+- DECISION: label 720p "Experimental (3x)" in the resolution OSD; ship as experimental. Full tracker: docs/720P_PURPLE_GLITCH.md (+ older docs/720P_SAMSUNG_GAME_MODE_INVESTIGATION.md; should be merged).

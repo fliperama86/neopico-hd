@@ -1,14 +1,36 @@
 # 720p Purple-Scanline Glitch — Investigation Tracker
 
-**Status:** 🟡 NOT concluded. Leading hypothesis (signal integrity exposed by direct/unbuffered sinks) fits the observations, but the supporting "clean" tests are statistically under-powered (see §0). Multiple mechanisms still open. Do not anchor.
+> ⚠️ **2026-06-15 CORRECTION — this doc over-claimed and partially duplicated [`720P_SAMSUNG_GAME_MODE_INVESTIGATION.md`](720P_SAMSUNG_GAME_MODE_INVESTIGATION.md) (which predates it and was better calibrated). Read that one too; these should be merged.** The decisive new/old result: **test pattern + full live capture = CLEAN.** Same Core 0 load as live firmware, no glitch ⇒ **Core-0-load power/clock noise is largely refuted.** The real differentiator is **Core 1 rendering *live* captured MVS video** (reading the live line-ring while Core 0 writes it). The glitch is also **content/event-dependent** (button presses, gameplay transitions per the prior doc) — earlier "content-independent" conflated *trigger* with *effect*.
+
+**Status:** 🟠 NOT solved — direction only, "strongly suggests." Differentiator = rendering live captured video (not Core 0 load alone). Leading: **capture-side timing/handoff disturbance** (CSYNC/PCLK, or in-progress line-ring read race) amplified at 720p, exposed by Game Mode. Power/clock signal-integrity **demoted** (test-pattern refutes). Need: long timestamped baseline + event correlation, then scope **CSYNC/PCLK** + capture-health counters.
 **Last updated:** 2026-06-15
+
+> ⚠️ **Localization UNRESOLVED (2026-06-15).** Eyeballing a split-second glitch's spatial extent is unreliable. Observations conflicted within a single run (sometimes content-only, sometimes bars too), so we CANNOT yet say content-side vs global. Both stay open. **To resolve: film a glitch in slow-mo and inspect the frame** — bars affected? and is the corruption a horizontal *tear* (→ ring race) vs uniform *noise/color-shift* (→ bad captured line / CSYNC-PCLK)?
+>
+> **⚠️ Photo-reading is unreliable — DO NOT conclude mechanism from TV photos.**
+> Across high-fps paused frames (2026-06-15) the assistant flip-flopped content↔global 3-4x; #3 was misread as "OSD clean" then corrected to **entire frame incl. OSD glitched**; camera moiré can mimic "diagonal hatching." Spatial extent (content-only vs global) is **UNRESOLVED** and not trustworthy from photos.
+>
+> **The ONE hard, controlled constraint (not photo-based):** the glitch requires **Core 1 rendering LIVE captured video**. bouncing-box / checkerboard / capture-freeze / full-capture-with-static-test-pattern = clean; only live-video render glitches. Both "captured-data wrong" and "live-render triggers an output-composition disturbance" fit this; photos can't separate them.
+
+> **Capture-health counters (NEOPICO_DIAG_COUNTERS, USB-serial, 2026-06-15):** instrumented line-ring readiness (NOTWR), overrun (OVR), capture sync-loss (SYNCRST), and in/out frame rates. Across two clean windows (~160 s + ~145 s) of glitchy play with confirmed glitches: **ALL FLAT** (NOTWR frozen at startup value, OVR=0, SYNCRST=0, no frame drops). ⇒ **capture-timing / line-ring readiness / sync-loss / handoff is very likely NOT the cause** — lines are delivered on-time and "ready" through glitches. (Caveat: limited glitch sample/window; USB-CDC stalls at ~2.5 min at the 372 MHz OC. Counters keep accumulating in firmware regardless.)
+>
+> **Remaining fork (neither visible to these counters):**
+> (a) **Wrong DATA in an on-time line** — capture *sampling* error (PCLK phase / RGB-bus) → wrong bits → LUT emits wrong colors, line delivered normally. Would NOT trip SYNCRST (no full signal loss).
+> (b) **Output-side** — scaler/HSTX corrupts after the ring.
+> Next discriminator: a high-contrast **solid local reference block** overlaid on live capture, frame-stepped during a glitch — if the *local* block corrupts → output-side (b); if only the captured area → data-side (a). (Cleaner than the OSD text, which was misread.)
+>
+> **Line-ring torn-read race:** note ARM 32-bit aligned writes are atomic → a torn read mixes whole valid pixels of near-identical frames (near-invisible), so it's a weak fit for wrong-*color* garbage — but not formally excluded.
+>
+> **Path forward must be instrumented, not visual:** capture-health counters (sync resets, line-readiness, ring state, frame timing) correlated to glitches; controlled long-window experiments; scope CSYNC/PCLK + RGB input bus + output. Stop ranking from images.
 
 ## 0. Confidence & caveats (read first)
 
-- **Under-powered "clean" results.** Each clean observation (bouncing box, checkerboard, capture-freeze) was watched for only **~2 min**, against a glitch whose period is itself **up to ~2 min**. A single 2-min clean window proves little — a condition that *does* glitch can pass it by luck. Treat every "clean" below as *suggestive, not decisive*. Re-run any load-bearing one for **≥15–20 min** before trusting it.
+- **Baseline rate (2026-06-15): ~1 glitch/min** on live 720p Game Mode. This makes comparisons easier to judge: a 2-min clean window expects ~2 events, so seeing zero is *reasonably* meaningful (not decisive — a 10-min confirm is better). It also retro-strengthens the Core-0-correlation tests (freeze/demo/checkerboard clean).
+- **Still: under-power earlier "clean" results.** Each was watched only ~2 min. Suggestive, not proof; re-run load-bearing ones for ≥10-20 min before fully trusting.
 - **"Not a FIFO underrun" is partial.** The probe samples once per scanline, so it only excludes *per-line-visible* underruns; a sub-line scanout/bus event would not show as FIFO<7 or a GAP spike.
 - **Competing hypotheses still alive** (none excluded): (a) Core 0 power/EMI coupling into the eye; (b) Core 0 perturbing HSTX *clock*/timing jitter (Game-Mode sinks are jitter-sensitive; we free-run 720p at a non-standard 60.11 Hz); (c) a sub-line bus/scanout event; (d) unframed.
 - **Sink-side fact is solid** (reproduced, user has seen it before): glitches only on a **direct/non-re-clocking** path (TV Game Mode); any buffered sink (Normal mode, Morph4K, RT4K) hides it. This constrains *where it shows*, not *what causes it* on our side.
+- **Output-side confirmed (2026-06-15, direct observation — not under-powered):** with the OSD open, the glitch corrupts the **whole frame including the black pillarbox bars** (pure locally-generated constant black, zero captured data, lowest-transition content). ⇒ capture-data corruption is OUT, and content/ISI is OUT (black is the *easiest* pattern to transmit, yet it corrupts). It is a **content-independent global transient** on the TMDS output.
 **Owner:** dudu
 
 > Living document. Append to the Investigation Log as new tests are run; update Status + Current Conclusion at the top when the picture changes.
@@ -80,6 +102,9 @@ Same busy content on screen (test 4 vs 5): frozen = clean, live = glitch ⇒ it 
 Firmly ruled out:
 - ❌ RT-vs-non-RT signal path (both glitch identically — strong).
 - ❌ HSTX pad drive/slew as a *lever* (already at max; nothing to change).
+- ❌ **Capture-data corruption** — the glitch hits black bars + OSD glyphs (no captured data). Output-side.
+- ❌ **Content / ISI** — black bars (lowest-transition content) corrupt too. Content-independent.
+- ❌ **Sub-line bus contention (#3)** — scanout DMA `HIGH_PRIORITY` had no effect.
 
 Weakly indicated only (rests on short ~2-min clean windows — re-test ≥15-20 min before trusting):
 - ➖ HDMI output path itself (bouncing-box demo *seemed* clean).
@@ -92,19 +117,21 @@ Partial / not actually excluded:
 
 ## 7. Working hypotheses (ranked, NONE confirmed)
 
-Two observations look firm: it correlates with **Core 0 capture running**, and it only shows on a **non-re-clocking sink**. The on-board mechanism is undecided:
+Firm now: it's a **content-independent global TMDS transient** (black bars corrupt), it correlates with **Core 0 capture running**, and it only shows on a **non-re-clocking sink**. The on-board mechanism is undecided — but both survivors are *global* disturbances, which fits "even black corrupts":
 
 1. **Power/EMI** — Core 0 burst current (DMA + 256 KB LUT) → rail/ground noise → couples into the marginal 720p eye. Fits "FIFO clean," unproven.
 2. **Clock/timing jitter** — Core 0 perturbs HSTX clock/timing; a re-clocking sink hides it, Game Mode doesn't. The DMA-priority test would NOT address this.
-3. **Sub-line bus/scanout event** — a brief scanout stall the per-line probe can't see.
+3. ~~**Sub-line bus/scanout event**~~ — **DISFAVORED (2026-06-15):** marking scanout DMA `HIGH_PRIORITY` over capture DMA had **no effect** (glitch unchanged at ~1/min). If capture DMA were starving scanout, priority would have helped. Effectively out.
 4. **Unframed** — keep a slot open.
+
+⇒ Leading candidates are now **#1 (power/EMI)** and **#2 (clock jitter)** — both electrical, both need a **scope** to separate, neither cleanly firmware-fixable.
 
 ---
 
 ## 8. Open experiments / next steps
 
 - [ ] **FIRST: establish a trustworthy repro + baseline.** Watch live 720p Game Mode and log glitch timestamps for ~20-30 min to get a real rate; only then are "clean" comparisons meaningful. (All prior clean results are ~2-min and under-powered.)
-- [ ] **HSTX scanout DMA `HIGH_PRIORITY` over capture DMA** — tests hypothesis #3 (sub-line bus). Helps → bus; no change → weakly against #3 (needs the longer baseline to mean anything).
+- [x] **HSTX scanout DMA `HIGH_PRIORITY` over capture DMA** — DONE 2026-06-15: **no effect** (glitch unchanged ~1/min, no new capture artifacts). ⇒ #3 out. *(change is local/uncommitted in `video_output_rt.c`; revert when done — see below.)*
 - [ ] **Scope** (the real disambiguator): HSTX output eye + 3V3 rail ripple + clock jitter, Core-0-idle vs capturing. Separates #1 vs #2 directly.
 - [ ] (If #1) reduce Core 0 di/dt — spread DMA/LUT bursts, LUT placement. *(speculative)*
 

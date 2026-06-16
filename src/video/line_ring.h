@@ -36,6 +36,24 @@ typedef struct {
 extern line_ring_t g_line_ring;
 
 // ============================================================================
+// Diagnostic counters (NEOPICO_DIAG_COUNTERS, default OFF) — capture-health
+// instrumentation for the 720p glitch investigation. Dumped over USB-serial.
+// ============================================================================
+#ifndef NEOPICO_DIAG_COUNTERS
+#define NEOPICO_DIAG_COUNTERS 0
+#endif
+
+#if NEOPICO_DIAG_COUNTERS
+typedef struct {
+    volatile uint32_t not_written; // Core 1 wanted a line the producer hadn't written yet
+    volatile uint32_t overrun;     // Core 1 wanted a line already overwritten (ring wrap)
+    volatile uint32_t out_frames;  // Core 1 output VSYNCs
+    volatile uint32_t sync_resets; // Core 0 capture hardware resets (MVS signal loss)
+} line_ring_diag_t;
+extern line_ring_diag_t g_line_ring_diag;
+#endif
+
+// ============================================================================
 // Core 0 API (Producer) - Input capture side
 // ============================================================================
 
@@ -84,6 +102,9 @@ static inline void line_ring_output_vsync(void)
     // Sync to current input frame
     g_line_ring.read_frame_start = g_line_ring.frame_base_idx;
     __dmb();
+#if NEOPICO_DIAG_COUNTERS
+    g_line_ring_diag.out_frames++;
+#endif
 }
 
 // Check if line is ready and still in buffer
@@ -94,11 +115,17 @@ static inline bool line_ring_ready(uint16_t line)
 
     // Line must have been written
     if (target_idx >= write_pos) {
+#if NEOPICO_DIAG_COUNTERS
+        g_line_ring_diag.not_written++;
+#endif
         return false; // Not written yet
     }
 
     // Line must still be in buffer (not overwritten)
     if (write_pos - target_idx > LINE_RING_SIZE) {
+#if NEOPICO_DIAG_COUNTERS
+        g_line_ring_diag.overrun++;
+#endif
         return false; // Buffer overrun - data was overwritten
     }
 

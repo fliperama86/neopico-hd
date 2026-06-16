@@ -156,7 +156,7 @@ static const char *SELECTOR_UI_RAM(resolution_description)(video_pipeline_reboot
         case VIDEO_PIPELINE_REBOOT_MODE_240P:
             return "Direct Mode";
         case VIDEO_PIPELINE_REBOOT_MODE_720P:
-            return "3x Integer Scaling";
+            return "Experimental (3x)"; // 720p has a rare Game-Mode glitch; see docs/720P_PURPLE_GLITCH.md
         default:
             return "2x Integer Scaling";
     }
@@ -682,14 +682,28 @@ void menu_diag_experiment_init(void)
         return;
     }
 #endif
-#if NEOPICO_OSD_BOOT_OPEN && NEOPICO_OSD_ROOT_MENU && NEOPICO_EXP_GENLOCK_DYNAMIC
-    // Soak aid (NEOPICO_OSD_BOOT_OPEN): boot with the OSD open on the genlock
-    // telemetry screen (leaf screens have no idle-hide, so it stays up until a
-    // button press). Default OFF: the OSD starts hidden and the MENU button
-    // opens the root menu (root_menu_buttons_tick, MENU_SCREEN_HIDDEN case).
+#if NEOPICO_OSD_BOOT_OPEN && NEOPICO_OSD_ROOT_MENU
+    // Soak aid (NEOPICO_OSD_BOOT_OPEN): boot with the OSD open on a leaf screen
+    // (no idle-hide, stays up until a button press). Default OFF: the OSD starts
+    // hidden and the MENU button opens the root menu.
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
     genlock_screen_draw();
     s_genlock_update_frame = video_frame_count;
     s_screen = MENU_SCREEN_GENLOCK;
+#elif NEOPICO_ENABLE_SELFTEST
+    // No genlock: open Self Test (high-contrast locally-drawn text overlay —
+    // doubles as the capture-vs-output glitch reference).
+    selftest_layout_reset();
+    s_last_update_frame = video_frame_count;
+    s_video_hi = 0;
+    s_video_lo = 0;
+    s_video_samples = 0;
+    s_audio_hi = 0;
+    s_audio_lo = 0;
+    s_audio_samples = 0;
+    s_shadow_hold_updates = 0;
+    s_screen = MENU_SCREEN_SELFTEST;
+#endif
     osd_show();
 #endif
 }
