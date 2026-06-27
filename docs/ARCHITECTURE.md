@@ -20,8 +20,8 @@ The workload is strictly partitioned between the two cores to ensure determinist
 *   **Pixel Processing**:
     *   Detects `SHADOW` and `DARK` bits.
     *   Default build uses a pre-computed 32K LUT for corrected RGB555 -> RGB565 conversion.
-    *   Optional mode (`NEOPICO_ENABLE_DARK_SHADOW=ON`) uses a 64K LUT indexed by RGB555+SHADOW.
-    *   In optional mode, SHADOW uses legacy main-branch dimming math (halve channels, then apply fixed dark offset); DARK is still captured for diagnostics but is not part of LUT indexing.
+    *   Optional mode (`NEOPICO_ENABLE_DARK_SHADOW=ON`) uses a 128KB quantized LUT path: normal RGB555 is exact; DARK/SHADOW effects use 14-bit color indices.
+    *   In optional mode, DARK applies the fixed dark offset; SHADOW halves channels before expansion and forces DARK active.
     *   Converts raw MVS data into standard RGB565.
 *   **Frame Management**: Writes to a ping-pong buffer in RAM.
 

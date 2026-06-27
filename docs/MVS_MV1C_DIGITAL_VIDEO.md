@@ -40,9 +40,9 @@ The Neo Geo uses two special signals, **DARK** and **SHADOW**, to modify pixel b
     -   A 32K-entry LUT (64KB) converts corrected RGB555 -> RGB565.
     -   SHADOW/DARK bits are captured but ignored in pixel conversion.
 2.  **Optional Build** (`NEOPICO_ENABLE_DARK_SHADOW=ON`):
-    -   A 64K-entry LUT (128KB) is indexed by RGB555+SHADOW.
-    -   SHADOW path applies legacy main-branch dimming math (halve channels, then fixed dark offset).
-    -   DARK is still captured for diagnostics, but is not part of LUT indexing in this path.
+    -   A 128KB quantized LUT path keeps normal RGB555 exact and uses 14-bit color indices for DARK/SHADOW effects.
+    -   DARK-only applies the fixed dark offset in expanded color space.
+    -   SHADOW halves channels before expansion and forces DARK active.
 3.  **Capture Width**:
     -   Capture uses 19 bits (RGB555 + SHADOW + DARK).
 

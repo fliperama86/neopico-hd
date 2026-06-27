@@ -5,9 +5,9 @@
 NeoPico-HD currently runs a performance-first conversion path:
 
 - Default build (`NEOPICO_ENABLE_DARK_SHADOW=OFF`) uses RGB-only conversion.
-- Optional build (`NEOPICO_ENABLE_DARK_SHADOW=ON`) uses a 64K LUT indexed by RGB555+SHADOW.
-- In that optional mode, SHADOW applies legacy dimming math (halve channels, then fixed dark offset).
-- DARK is captured and visible in diagnostics/self-test, but DARK is not currently used as a conversion input.
+- Optional build (`NEOPICO_ENABLE_DARK_SHADOW=ON`) uses a 128KB quantized LUT path: normal RGB555 is exact; DARK/SHADOW effects use 14-bit color indices.
+- In that optional mode, DARK applies the fixed dark offset.
+- SHADOW halves channels before expansion and forces DARK active.
 
 The sections below describe the reference behavior of Neo Geo effects.
 
@@ -75,7 +75,7 @@ After DARK (-4):       R:11, G:11, B:11  (darker gray)
 
 **Result:** Roughly **60% darker** than the original.
 
-Current staged firmware note: output conversion is keyed by SHADOW in the optional LUT mode; DARK does not currently change output pixel values.
+Current staged firmware note: output conversion is keyed by both SHADOW and DARK in the optional LUT mode.
 
 ---
 

@@ -70,8 +70,8 @@ static void video_capture_diag_tick(uint32_t input_frames)
 // =============================================================================
 
 // DARK/SHADOW processing.
-// When enabled, uses a 64KB capture-domain LUT indexed by RGB555 + SHADOW.
-// DARK pin capture remains mapped in hardware, but algorithm follows main-branch behavior.
+// When enabled, uses an exact normal RGB555 LUT plus quantized DARK/SHADOW LUTs.
+// SHADOW is applied before expansion and also forces DARK active, matching Neo Geo reference behavior.
 #ifndef ENABLE_DARK_SHADOW
 #define ENABLE_DARK_SHADOW 0
 #endif
@@ -181,54 +181,135 @@ static inline uint16_t mvs_pack_rgb565(uint32_t r5, uint32_t g5, uint32_t b5)
     return (uint16_t)((r5 << 11) | (g5 << 6) | (g5 >> 4) | b5);
 }
 
-#if ENABLE_DARK_SHADOW
-static inline uint16_t mvs_pack_shadow_dark_rgb565(uint32_t r5, uint32_t g5, uint32_t b5)
+static inline uint32_t mvs_expand_5_to_8(uint32_t x)
 {
-    // SHADOW path matches main branch behavior: halve channels first, then apply DARK in 8-bit space.
-    r5 >>= 1U;
-    g5 >>= 1U;
-    b5 >>= 1U;
+    return (x << 3U) | (x >> 2U);
+}
 
-    uint32_t r8 = (r5 << 3) | (r5 >> 2);
-    uint32_t g8 = (g5 << 3) | (g5 >> 2);
-    uint32_t b8 = (b5 << 3) | (b5 >> 2);
+static inline uint32_t mvs_apply_dark_8(uint32_t x)
+{
+    return (x > 4U) ? (x - 4U) : 0U;
+}
 
-    r8 = (r8 > 4U) ? (r8 - 4U) : 0U;
-    g8 = (g8 > 4U) ? (g8 - 4U) : 0U;
-    b8 = (b8 > 4U) ? (b8 - 4U) : 0U;
-
+static inline uint16_t mvs_pack_rgb888_to_rgb565(uint32_t r8, uint32_t g8, uint32_t b8)
+{
     return (uint16_t)(((r8 >> 3U) << 11) | ((g8 >> 2U) << 5) | (b8 >> 3U));
 }
 
-// 64K capture LUT: index is raw capture bits [17:2] => [15:SHADOW][14:0:RGB555].
-// This removes all per-pixel branching/correction from the hot capture loop.
-static uint16_t g_capture_lut[65536] __attribute__((aligned(4)));
+#if ENABLE_DARK_SHADOW
+static inline uint16_t mvs_pack_shadow_dark_rgb565(uint32_t r5, uint32_t g5, uint32_t b5, bool shadow, bool dark)
+{
+    if (shadow) {
+        r5 >>= 1U;
+        g5 >>= 1U;
+        b5 >>= 1U;
+    }
+
+    uint32_t r8 = mvs_expand_5_to_8(r5);
+    uint32_t g8 = mvs_expand_5_to_8(g5);
+    uint32_t b8 = mvs_expand_5_to_8(b5);
+
+    // On Neo Geo, SHADOW implies the DARK stage too.
+    if (dark || shadow) {
+        r8 = mvs_apply_dark_8(r8);
+        g8 = mvs_apply_dark_8(g8);
+        b8 = mvs_apply_dark_8(b8);
+    }
+
+    return mvs_pack_rgb888_to_rgb565(r8, g8, b8);
+}
+
+#define MVS_CAPTURE_COLOR_BITS 15U
+#define MVS_CAPTURE_COLOR_SIZE (1U << MVS_CAPTURE_COLOR_BITS)
+#define MVS_CAPTURE_COLOR_MASK (MVS_CAPTURE_COLOR_SIZE - 1U)
+#define MVS_EFFECT_QUANT_COLOR_BITS 14U
+#define MVS_EFFECT_QUANT_COLOR_SIZE (1U << MVS_EFFECT_QUANT_COLOR_BITS)
+#define MVS_EFFECT_QUANT_COLOR_MASK (MVS_EFFECT_QUANT_COLOR_SIZE - 1U)
+#if MVS_REVERSE_B
+#define MVS_EFFECT_QUANT_DROP_BIT 4U // raw B0, corrected blue LSB when B bits are reversed
+#else
+#define MVS_EFFECT_QUANT_DROP_BIT 0U // corrected blue LSB when B bits are already ordered
+#endif
+#define MVS_EFFECT_QUANT_DROP_MASK (1U << MVS_EFFECT_QUANT_DROP_BIT)
+
+// Exact normal RGB LUT plus quantized effect LUTs. DARK/SHADOW lose only the corrected blue LSB.
+static uint16_t g_capture_lut_normal[MVS_CAPTURE_COLOR_SIZE] __attribute__((aligned(4)));
+static uint16_t g_capture_lut_dark[MVS_EFFECT_QUANT_COLOR_SIZE] __attribute__((aligned(4)));
+static uint16_t g_capture_lut_shadow[MVS_EFFECT_QUANT_COLOR_SIZE] __attribute__((aligned(4)));
+
+static inline uint32_t mvs_effect_quant_index(uint32_t color_idx)
+{
+    const uint32_t low = color_idx & (MVS_EFFECT_QUANT_DROP_MASK - 1U);
+    const uint32_t high = (color_idx >> 1U) & ~(MVS_EFFECT_QUANT_DROP_MASK - 1U);
+    return (low | high) & MVS_EFFECT_QUANT_COLOR_MASK;
+}
+
+static inline uint32_t mvs_effect_dequant_color_idx(uint32_t quant_idx)
+{
+    const uint32_t low = quant_idx & (MVS_EFFECT_QUANT_DROP_MASK - 1U);
+    const uint32_t high = (quant_idx & ~(MVS_EFFECT_QUANT_DROP_MASK - 1U)) << 1U;
+    return (low | high) & MVS_CAPTURE_COLOR_MASK;
+}
+
+static inline void mvs_correct_color_idx(uint32_t color_idx, uint32_t *r5, uint32_t *g5, uint32_t *b5)
+{
+    uint32_t color15 = color_idx ^ (MVS_RAW_COLOR_MASK & 0x7FFFU);
+#if MVS_REVERSE_15BIT
+    color15 = mvs_reverse_15(color15);
+#endif
+
+    *r5 = mvs_correct_5bit((color15 >> 10) & 0x1F, MVS_INVERT_R, MVS_REVERSE_R);
+    *g5 = mvs_correct_5bit((color15 >> 5) & 0x1F, MVS_INVERT_G, MVS_REVERSE_G);
+    *b5 = mvs_correct_5bit(color15 & 0x1F, MVS_INVERT_B, MVS_REVERSE_B);
+}
+
+static inline bool mvs_is_clamped_black(uint32_t r5, uint32_t g5, uint32_t b5)
+{
+    return MVS_BLACK_LEVEL_CLAMP > 0 && r5 <= MVS_BLACK_LEVEL_CLAMP && g5 <= MVS_BLACK_LEVEL_CLAMP &&
+           b5 <= MVS_BLACK_LEVEL_CLAMP;
+}
 
 static void generate_capture_lut(void)
 {
-    const uint32_t raw_mask = (MVS_RAW_COLOR_MASK & 0x7FFFU);
-
-    for (uint32_t idx = 0; idx < 65536U; idx++) {
-        const uint32_t shadow = (idx >> 15U) & 1U;
-        uint32_t color15 = (idx & 0x7FFFU) ^ raw_mask;
-#if MVS_REVERSE_15BIT
-        color15 = mvs_reverse_15(color15);
-#endif
-
-        uint32_t r5 = mvs_correct_5bit((color15 >> 10) & 0x1F, MVS_INVERT_R, MVS_REVERSE_R);
-        uint32_t g5 = mvs_correct_5bit((color15 >> 5) & 0x1F, MVS_INVERT_G, MVS_REVERSE_G);
-        uint32_t b5 = mvs_correct_5bit(color15 & 0x1F, MVS_INVERT_B, MVS_REVERSE_B);
-
-        if (shadow) {
-            g_capture_lut[idx] = mvs_pack_shadow_dark_rgb565(r5, g5, b5);
-        } else if (MVS_BLACK_LEVEL_CLAMP > 0 && r5 <= MVS_BLACK_LEVEL_CLAMP && g5 <= MVS_BLACK_LEVEL_CLAMP &&
-                   b5 <= MVS_BLACK_LEVEL_CLAMP) {
+    for (uint32_t color_idx = 0; color_idx < MVS_CAPTURE_COLOR_SIZE; color_idx++) {
+        uint32_t r5;
+        uint32_t g5;
+        uint32_t b5;
+        mvs_correct_color_idx(color_idx, &r5, &g5, &b5);
+        if (mvs_is_clamped_black(r5, g5, b5)) {
             // Black-level clamp: MVS often has a slight pedestal so "black" is a few LSB above 0.
-            g_capture_lut[idx] = 0;
+            g_capture_lut_normal[color_idx] = 0;
         } else {
-            g_capture_lut[idx] = mvs_pack_rgb565(r5, g5, b5);
+            g_capture_lut_normal[color_idx] = mvs_pack_shadow_dark_rgb565(r5, g5, b5, false, false);
         }
     }
+
+    for (uint32_t quant_idx = 0; quant_idx < MVS_EFFECT_QUANT_COLOR_SIZE; quant_idx++) {
+        uint32_t r5;
+        uint32_t g5;
+        uint32_t b5;
+        mvs_correct_color_idx(mvs_effect_dequant_color_idx(quant_idx), &r5, &g5, &b5);
+        if (mvs_is_clamped_black(r5, g5, b5)) {
+            g_capture_lut_dark[quant_idx] = 0;
+            g_capture_lut_shadow[quant_idx] = 0;
+        } else {
+            g_capture_lut_dark[quant_idx] = mvs_pack_shadow_dark_rgb565(r5, g5, b5, false, true);
+            g_capture_lut_shadow[quant_idx] = mvs_pack_shadow_dark_rgb565(r5, g5, b5, true, true);
+        }
+    }
+}
+
+static inline uint16_t mvs_capture_lut_lookup(uint32_t raw)
+{
+    const uint32_t color_idx = (raw >> 2U) & MVS_CAPTURE_COLOR_MASK;
+    const uint32_t flags = (raw >> 17U) & 0x3U; // bit 0 = SHADOW, bit 1 = DARK
+    if ((flags & 1U) != 0U) {
+        return g_capture_lut_shadow[mvs_effect_quant_index(color_idx)];
+    }
+    if ((flags & 2U) != 0U) {
+        return g_capture_lut_dark[mvs_effect_quant_index(color_idx)];
+    }
+    return g_capture_lut_normal[color_idx];
 }
 #else
 // 32K LUT: corrected RGB555 -> RGB565 (DARK/SHADOW disabled build)
@@ -252,11 +333,11 @@ static void generate_color_correct_lut(void)
 
 // Direct conversion: RGB555 (from PIO) -> RGB565 (for HDMI)
 // PIO capture layout: [18:DARK][17:SHADOW][16-12:R][11-7:G][6-2:B][1:PCLK][0:CSYNC]
-// Hot path in DARK/SHADOW mode is a single LUT lookup.
+// DARK/SHADOW mode keeps normal pixels exact and uses quantized effect LUTs.
 static inline uint16_t convert_pixel(uint32_t raw)
 {
 #if ENABLE_DARK_SHADOW
-    return g_capture_lut[(raw >> 2) & 0xFFFFU];
+    return mvs_capture_lut_lookup(raw);
 #else
     uint32_t color15 = ((raw >> 2) & 0x7FFF) ^ (MVS_RAW_COLOR_MASK & 0x7FFF);
 #if MVS_REVERSE_15BIT
@@ -269,19 +350,18 @@ static inline uint16_t convert_pixel(uint32_t raw)
 static inline void convert_active_pixels(uint16_t *dst, const uint32_t *src, int count)
 {
 #if ENABLE_DARK_SHADOW
-    const uint16_t *lut = g_capture_lut;
     int remaining = count;
     while (remaining >= 4) {
-        dst[0] = lut[(src[0] >> 2) & 0xFFFFU];
-        dst[1] = lut[(src[1] >> 2) & 0xFFFFU];
-        dst[2] = lut[(src[2] >> 2) & 0xFFFFU];
-        dst[3] = lut[(src[3] >> 2) & 0xFFFFU];
+        dst[0] = mvs_capture_lut_lookup(src[0]);
+        dst[1] = mvs_capture_lut_lookup(src[1]);
+        dst[2] = mvs_capture_lut_lookup(src[2]);
+        dst[3] = mvs_capture_lut_lookup(src[3]);
         dst += 4;
         src += 4;
         remaining -= 4;
     }
     while (remaining-- > 0) {
-        *dst++ = lut[(*src++ >> 2) & 0xFFFFU];
+        *dst++ = mvs_capture_lut_lookup(*src++);
     }
 #else
     for (int i = 0; i < count; i++) {

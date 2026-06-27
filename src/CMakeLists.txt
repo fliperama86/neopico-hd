@@ -37,7 +37,7 @@ option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD
 option(NEOPICO_OSD_ROOT_MENU "Root OSD menu with Resolution / Self Test entries (requires OSD and at least one entry feature)" ON)
 option(NEOPICO_OSD_BOOT_OPEN "Boot with the OSD open on the Genlock telemetry screen (soak aid); default OFF = OSD starts hidden, opened by the MENU button" OFF)
 set(NEOPICO_EXP_STRESS_CORE1_US "0" CACHE STRING "Diagnostics: busy-wait this many microseconds per Core 1 background tick to accelerate IRQ-timing repro (0 = off)")
-option(NEOPICO_ENABLE_DARK_SHADOW "Enable DARK/SHADOW LUT path in capture" OFF)
+option(NEOPICO_ENABLE_DARK_SHADOW "Enable true DARK/SHADOW LUT path in capture (128KB quantized LUT)" OFF)
 option(NEOPICO_EXP_GENLOCK_STATIC "Enable static boot-time genlock sysclk target" OFF)
 set(NEOPICO_GENLOCK_TARGET_FPS_X100 "5920" CACHE STRING "Static genlock target FPS x100 (e.g. 5920 = 59.20)")
 option(NEOPICO_EXP_VTOTAL_MATCH "Enable fixed-pixel-clock output with custom V total for near-source frame rate" OFF)
