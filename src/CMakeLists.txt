@@ -70,6 +70,10 @@ option(NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE "Encode HDMI audio packets but suppress
 option(NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK "Limit Core 1 audio background processing to one chunk per pass" OFF)
 option(NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS "Limit Core 1 audio output to one HDMI packet per background pass" OFF)
 option(NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE "Push a pre-encoded static silent HDMI audio packet for timing isolation" OFF)
+option(NEOPICO_EXP_AUDIO_STARTUP_REARM "After initial muted audio warmup, stop/restart I2S PIO/DMA once and re-sync before unmuting (scratchy-boot alignment workaround)" ON)
+option(NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE "Audio-only re-arm after MVS video/sync loss and reacquire (flashcart reset distortion fix)" ON)
+option(NEOPICO_EXP_AUDIO_FRAME_RESYNC "Use I2S PIO capture that re-syncs to WS every stereo frame, preventing persistent mis-framing after brief audio-clock glitches" ON)
+option(NEOPICO_EXP_AUDIO_MANUAL_REARM "Temporary debug: hold BACK to audio-only re-arm I2S PIO/DMA" OFF)
 option(NEOPICO_EXP_LEGACY_240P_AVI_INFOFRAME "Use v0.1.5-style 240p AVI InfoFrame metadata for compatibility isolation" OFF)
 option(NEOPICO_EXP_ALIGN_HSTX_DI_BUFFERS "Align runtime HSTX Data Island command-list buffers for timing isolation" OFF)
 option(NEOPICO_EXP_RAM_DI_QUEUE_PUSH "Place hstx_di_queue_push in SRAM for timing isolation" OFF)
@@ -237,6 +241,30 @@ if(NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE)
     set(AUDIO_PUSH_STATIC_SILENCE_VALUE 1)
 else()
     set(AUDIO_PUSH_STATIC_SILENCE_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_AUDIO_STARTUP_REARM)
+    set(AUDIO_STARTUP_REARM_VALUE 1)
+else()
+    set(AUDIO_STARTUP_REARM_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE)
+    set(AUDIO_REARM_ON_VIDEO_REACQUIRE_VALUE 1)
+else()
+    set(AUDIO_REARM_ON_VIDEO_REACQUIRE_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_AUDIO_FRAME_RESYNC)
+    set(AUDIO_FRAME_RESYNC_VALUE 1)
+else()
+    set(AUDIO_FRAME_RESYNC_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_AUDIO_MANUAL_REARM)
+    set(AUDIO_MANUAL_REARM_VALUE 1)
+else()
+    set(AUDIO_MANUAL_REARM_VALUE 0)
 endif()
 
 if(NEOPICO_AUDIO_PCM1802)
@@ -501,6 +529,10 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK=${AUDIO_LIMIT_BACKGROUND_WORK_VALUE}
     NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS=${AUDIO_LIMIT_OUTPUT_PACKETS_VALUE}
     NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE=${AUDIO_PUSH_STATIC_SILENCE_VALUE}
+    NEOPICO_EXP_AUDIO_STARTUP_REARM=${AUDIO_STARTUP_REARM_VALUE}
+    NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE=${AUDIO_REARM_ON_VIDEO_REACQUIRE_VALUE}
+    NEOPICO_EXP_AUDIO_FRAME_RESYNC=${AUDIO_FRAME_RESYNC_VALUE}
+    NEOPICO_EXP_AUDIO_MANUAL_REARM=${AUDIO_MANUAL_REARM_VALUE}
     NEOPICO_AUDIO_PCM1802=${AUDIO_PCM1802_VALUE}
     NEOPICO_CAPTURE_FREEZE_AFTER_FRAME=${CAPTURE_FREEZE_AFTER_FRAME_VALUE}
     NEOPICO_LINE_RING_SIZE=${NEOPICO_LINE_RING_SIZE}

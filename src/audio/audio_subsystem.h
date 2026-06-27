@@ -26,6 +26,13 @@ void audio_subsystem_stop(void);
 void audio_subsystem_set_muted(bool muted);
 
 /**
+ * Request an audio-only capture re-arm from another core.
+ * The actual PIO/DMA stop/start is performed later by the Core 1 audio
+ * background task, so callers do not touch audio hardware directly.
+ */
+void audio_subsystem_request_rearm(void);
+
+/**
  * Background task for audio subsystem (call from Core 1 only).
  */
 void audio_subsystem_background_task(void);

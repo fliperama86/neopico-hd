@@ -18,6 +18,10 @@
 
 #include "i2s_capture.pio.h"
 
+#ifndef NEOPICO_EXP_AUDIO_FRAME_RESYNC
+#define NEOPICO_EXP_AUDIO_FRAME_RESYNC 0
+#endif
+
 // DMA buffer must be large enough to hold samples between polls
 // At 55.5 kHz and 60 fps: ~1850 words/frame. Use 4096 for ~2 frames of
 // headroom.
@@ -68,6 +72,11 @@ bool i2s_capture_init(i2s_capture_t *cap, const i2s_capture_config_t *config, ap
     uint offset = pio_add_program(config->pio, &i2s_capture_pcm1802_program);
     cap->pio_offset = offset;
     i2s_capture_pcm1802_program_init(config->pio, config->sm, offset, config->pin_dat, config->pin_ws, config->pin_bck);
+#elif NEOPICO_EXP_AUDIO_FRAME_RESYNC
+    uint offset = pio_add_program(config->pio, &i2s_capture_frame_resync_program);
+    cap->pio_offset = offset;
+    i2s_capture_frame_resync_program_init(config->pio, config->sm, offset, config->pin_dat, config->pin_ws,
+                                          config->pin_bck);
 #else
     uint offset = pio_add_program(config->pio, &i2s_capture_program);
     cap->pio_offset = offset;

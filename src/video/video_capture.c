@@ -80,6 +80,10 @@ static void video_capture_diag_tick(uint32_t input_frames)
 #define NEOPICO_CAPTURE_FREEZE_AFTER_FRAME 0
 #endif
 
+#ifndef NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE
+#define NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE 0
+#endif
+
 // =============================================================================
 // MVS Timing Constants
 // =============================================================================
@@ -468,6 +472,8 @@ void video_capture_init(uint mvs_height)
 
 void video_capture_run(void)
 {
+    bool audio_rearm_on_next_signal = false;
+
     // One-time: wait for first vsync (IRQ-driven) then drain FIFO for clean phase
     if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
         drain_sync_fifo(g_pio_mvs, g_sm_sync);
@@ -480,10 +486,20 @@ void video_capture_run(void)
 #if NEOPICO_DIAG_COUNTERS
             g_line_ring_diag.sync_resets++;
 #endif
+#if NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE
+            audio_rearm_on_next_signal = true;
+#endif
             video_capture_reset_hardware();
             tud_task();
             continue;
         }
+
+#if NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE
+        if (audio_rearm_on_next_signal) {
+            audio_subsystem_request_rearm();
+            audio_rearm_on_next_signal = false;
+        }
+#endif
 
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
         g_mvs_vsync_timestamp = timer_hw->timerawl;

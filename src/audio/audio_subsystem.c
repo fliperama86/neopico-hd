@@ -10,6 +10,7 @@
 
 #include "pico/time.h"
 
+#include "hardware/gpio.h"
 #include "hardware/pio.h"
 
 #include <stdio.h>
@@ -61,6 +62,18 @@ static uint32_t audio_output_packet_budget = 0;
 #define NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE 0
 #endif
 
+#ifndef NEOPICO_EXP_AUDIO_STARTUP_REARM
+#define NEOPICO_EXP_AUDIO_STARTUP_REARM 0
+#endif
+
+#ifndef NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE
+#define NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE 0
+#endif
+
+#ifndef NEOPICO_EXP_AUDIO_MANUAL_REARM
+#define NEOPICO_EXP_AUDIO_MANUAL_REARM 0
+#endif
+
 static inline bool audio_di_hsync_active(void)
 {
 #if NEOPICO_USE_NONRT_HDMI
@@ -72,6 +85,7 @@ static inline bool audio_di_hsync_active(void)
 
 // When true, push silence to HDMI instead of captured samples (CPS2_DIGAV-style: no garbage on power-on/timeout)
 static volatile bool audio_output_muted = true;
+static volatile bool audio_rearm_requested = false;
 
 static const audio_sample_t audio_silence[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
 
@@ -95,6 +109,63 @@ void audio_subsystem_set_muted(bool muted)
 {
     audio_output_muted = muted;
 }
+
+void audio_subsystem_request_rearm(void)
+{
+    audio_rearm_requested = true;
+}
+
+static void audio_subsystem_flush_processing_state(void)
+{
+    ap_ring_init(&audio_pipeline.capture_ring);
+    audio_collect_count = 0;
+    audio_frame_counter = 0;
+    audio_pipeline.src.accumulator = 0;
+    audio_pipeline.src.phase = 0;
+    audio_pipeline.src.have_prev = false;
+}
+
+static void audio_subsystem_rearm_capture(void)
+{
+    audio_pipeline_stop(&audio_pipeline);
+    audio_subsystem_flush_processing_state();
+    audio_pipeline_start(&audio_pipeline);
+}
+
+#if NEOPICO_EXP_AUDIO_MANUAL_REARM && NEOPICO_ENABLE_OSD
+static bool audio_manual_rearm_requested(void)
+{
+    enum {
+        MANUAL_REARM_HOLD_FRAMES = 30,    // ~0.5s at 60fps
+        MANUAL_REARM_RELEASE_FRAMES = 30, // require release before another trigger
+    };
+    static uint32_t held_frames = 0;
+    static uint32_t release_frames = MANUAL_REARM_RELEASE_FRAMES;
+    static bool armed = true;
+
+    const bool back_pressed = !gpio_get(PIN_OSD_BTN_BACK);
+    if (back_pressed) {
+        release_frames = 0;
+        if (held_frames < MANUAL_REARM_HOLD_FRAMES) {
+            held_frames++;
+        }
+    } else {
+        held_frames = 0;
+        if (release_frames < MANUAL_REARM_RELEASE_FRAMES) {
+            release_frames++;
+        }
+        if (release_frames >= MANUAL_REARM_RELEASE_FRAMES) {
+            armed = true;
+        }
+    }
+
+    if (armed && held_frames >= MANUAL_REARM_HOLD_FRAMES) {
+        armed = false;
+        return true;
+    }
+    return false;
+}
+#endif
 
 static void audio_output_callback(const audio_sample_t *samples, uint32_t count, void *ctx)
 {
@@ -250,12 +321,14 @@ static void audio_background_task(void)
 #endif
 
 // Audio startup state machine — runs from Core 1 background task
-// Minimal: wait for HSTX → init + start → brief warmup (muted) → unmute → run
-// No restart cycle (avoids APB writes while HSTX DMA active).
+// Minimal: wait for HSTX, init + start, brief warmup muted, optional capture
+// re-arm, then unmute and run.
 enum {
     AUDIO_STATE_WAIT_HSTX, // Wait for HSTX to stabilize
     AUDIO_STATE_INIT,      // Initialize GPIO + PIO + DMA + start capture
     AUDIO_STATE_WARM,      // Capture running muted, discard MVS garbage
+    AUDIO_STATE_REARM,     // Hard restart I2S PIO/DMA after clocks settle
+    AUDIO_STATE_REWARM,    // Capture running muted after re-sync
     AUDIO_STATE_RUNNING,   // Normal operation
 };
 
@@ -265,8 +338,33 @@ enum {
 static int audio_state = AUDIO_STATE_WAIT_HSTX;
 static uint32_t audio_state_enter_frame = 0;
 
+static bool audio_subsystem_begin_rearm_if_requested(void)
+{
+    if (!audio_rearm_requested || audio_state != AUDIO_STATE_RUNNING) {
+        return false;
+    }
+
+    audio_rearm_requested = false;
+    audio_subsystem_set_muted(true);
+    audio_subsystem_rearm_capture();
+    audio_state_enter_frame = video_frame_count;
+    audio_state = AUDIO_STATE_REWARM;
+    return true;
+}
+
 void audio_subsystem_background_task(void)
 {
+    if (audio_subsystem_begin_rearm_if_requested()) {
+        return;
+    }
+
+#if NEOPICO_EXP_AUDIO_MANUAL_REARM && NEOPICO_ENABLE_OSD
+    if (audio_state == AUDIO_STATE_RUNNING && audio_manual_rearm_requested()) {
+        audio_subsystem_request_rearm();
+        return;
+    }
+#endif
+
     switch (audio_state) {
         case AUDIO_STATE_WAIT_HSTX:
             if (video_frame_count >= AUDIO_HSTX_SETTLE_FRAMES) {
@@ -296,9 +394,30 @@ void audio_subsystem_background_task(void)
             // (filters are disabled in minimal path).
             audio_background_task();
             if (video_frame_count - audio_state_enter_frame >= AUDIO_WARM_FRAMES) {
-                // Flush ring buffer to discard stale warmup samples
-                ap_ring_init(&audio_pipeline.capture_ring);
-                audio_collect_count = 0;
+#if NEOPICO_EXP_AUDIO_STARTUP_REARM
+                audio_state = AUDIO_STATE_REARM;
+#else
+                audio_subsystem_flush_processing_state();
+                audio_subsystem_set_muted(false);
+                audio_state = AUDIO_STATE_RUNNING;
+#endif
+            }
+            break;
+
+        case AUDIO_STATE_REARM:
+            // One-shot hard relock after the MVS/flashcart audio clocks should
+            // be stable. This clears any bad PIO/DMA/I2S framing captured
+            // during boot, without rebooting the HDMI/video path.
+            audio_subsystem_set_muted(true);
+            audio_subsystem_rearm_capture();
+            audio_state_enter_frame = video_frame_count;
+            audio_state = AUDIO_STATE_REWARM;
+            break;
+
+        case AUDIO_STATE_REWARM:
+            audio_background_task();
+            if (video_frame_count - audio_state_enter_frame >= AUDIO_WARM_FRAMES) {
+                audio_subsystem_flush_processing_state();
                 audio_subsystem_set_muted(false);
                 audio_state = AUDIO_STATE_RUNNING;
             }
@@ -337,10 +456,7 @@ void audio_subsystem_stop(void)
     audio_pipeline_stop(&audio_pipeline);
 
     // Flush all buffers and reset processing state
-    ap_ring_init(&audio_pipeline.capture_ring);
-    audio_pipeline.src.accumulator = 0;
-    audio_collect_count = 0;
-    audio_frame_counter = 0;
+    audio_subsystem_flush_processing_state();
 }
 
 // ============================================================================
@@ -386,13 +502,7 @@ void audio_subsystem_core0_poll(void)
     // This mirrors the "press Pico reset after power-on" recovery, but only for
     // the audio block (no HSTX/ISR impact).
     if (!core0_relock_done && (now - core0_start_time >= CORE0_WARMUP_US)) {
-        audio_pipeline_stop(&audio_pipeline);
-        ap_ring_init(&audio_pipeline.capture_ring);
-        audio_collect_count = 0;
-        audio_pipeline.src.accumulator = 0;
-        audio_pipeline.src.phase = 0;
-        audio_pipeline.src.have_prev = false;
-        audio_pipeline_start(&audio_pipeline);
+        audio_subsystem_rearm_capture();
         core0_relock_done = true;
         core0_relock_time = now;
         return;
@@ -400,11 +510,7 @@ void audio_subsystem_core0_poll(void)
 
     // Keep muted briefly after relock, then unmute with clean state.
     if (core0_relock_done && !core0_audio_unmuted && (now - core0_relock_time >= CORE0_RELOCK_SETTLE_US)) {
-        ap_ring_init(&audio_pipeline.capture_ring);
-        audio_collect_count = 0;
-        audio_pipeline.src.accumulator = 0;
-        audio_pipeline.src.phase = 0;
-        audio_pipeline.src.have_prev = false;
+        audio_subsystem_flush_processing_state();
         audio_subsystem_set_muted(false);
         core0_audio_unmuted = true;
     }
