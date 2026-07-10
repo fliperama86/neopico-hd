@@ -1,10 +1,25 @@
 # =============================================================================
 # NeoPico-HD Main Firmware (MVS capture + HSTX output)
 # =============================================================================
+set(NEOPICO_CAPTURE_TARGET "MVS" CACHE STRING "Capture target: MVS or SNES")
+set_property(CACHE NEOPICO_CAPTURE_TARGET PROPERTY STRINGS MVS SNES)
+string(TOUPPER "${NEOPICO_CAPTURE_TARGET}" NEOPICO_CAPTURE_TARGET_UPPER)
+if(NEOPICO_CAPTURE_TARGET_UPPER STREQUAL "MVS")
+    set(CAPTURE_TARGET_VALUE 0)
+    set(NEOPICO_CAPTURE_SOURCE video/video_capture_mvs.c)
+    set(NEOPICO_CAPTURE_PIO video/video_capture_mvs.pio)
+elseif(NEOPICO_CAPTURE_TARGET_UPPER STREQUAL "SNES")
+    set(CAPTURE_TARGET_VALUE 1)
+    set(NEOPICO_CAPTURE_SOURCE video/video_capture_snes.c)
+    set(NEOPICO_CAPTURE_PIO video/video_capture_snes.pio)
+else()
+    message(FATAL_ERROR "NEOPICO_CAPTURE_TARGET must be MVS or SNES")
+endif()
+
 add_executable(neopico_hd
     main.c
     experiments/menu_diag_experiment.c
-    video/video_capture.c
+    ${NEOPICO_CAPTURE_SOURCE}
     video/video_pipeline.c
     osd/fast_osd.c
     osd/selftest_layout.c
@@ -472,7 +487,7 @@ if(NEOPICO_EXP_LEGACY_240P_AVI_INFOFRAME)
     target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_LEGACY_240P_AVI_INFOFRAME=1)
 endif()
 
-pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/video/video_capture.pio)
+pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/${NEOPICO_CAPTURE_PIO})
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio)
 
 target_include_directories(neopico_hd PRIVATE
@@ -495,6 +510,7 @@ target_link_libraries(neopico_hd
 )
 
 target_compile_definitions(neopico_hd PRIVATE
+    NEOPICO_CAPTURE_TARGET=${CAPTURE_TARGET_VALUE}
     NEOPICO_VIDEO_240P=${VIDEO_240P_VALUE}
     NEOPICO_VIDEO_720P=${VIDEO_720P_VALUE}
     NEOPICO_USE_NONRT_HDMI=${USE_NONRT_HDMI_VALUE}

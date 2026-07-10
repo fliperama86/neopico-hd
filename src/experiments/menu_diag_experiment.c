@@ -13,7 +13,7 @@
 
 #include "hardware/gpio.h"
 
-#include "mvs_pins.h"
+#include "capture_pins.h"
 #include "osd/fast_osd.h"
 #include "video_pipeline.h"
 #if NEOPICO_ENABLE_SELFTEST
@@ -863,6 +863,7 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
 #endif
     ) {
         uint32_t video_sample = 0;
+#if NEOPICO_CAPTURE_TARGET == NEOPICO_CAPTURE_TARGET_MVS
         if (gpio_get(PIN_MVS_CSYNC)) {
             video_sample |= SELFTEST_BIT_CSYNC;
         }
@@ -923,6 +924,7 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
         if (gpio_get(PIN_MVS_B4)) {
             video_sample |= SELFTEST_BIT_B4;
         }
+#endif
         s_video_hi |= video_sample;
         s_video_lo |= ~video_sample;
         s_video_samples++;

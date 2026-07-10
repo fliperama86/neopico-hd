@@ -1,0 +1,43 @@
+; SNES Hard Sync Capture (with horizontal offset)
+; Optimized for RP2350.
+;
+; IN_BASE = GP27 (VBLANK, pin index 11 with GPIOBASE=16).
+; C code sets pinctrl so that:
+;   pin 0  = GP27 (VBLANK)
+;   pin 1  = GP28 (PCLK)
+;   pin 17 = GP44 (HBLANK)
+
+.program snes_hard_sync
+
+    ; One-time init: C code pushes (CAPTURE_ACTIVE_WIDTH - 1)
+    pull block
+    mov y, osr
+
+.wrap_target
+    ; Wait for C code trigger at top of frame.
+    wait 1 irq 4
+
+line_loop:
+    ; Wait for active line start (HBLANK falling edge).
+    wait 1 pin 17
+    wait 0 pin 17
+
+    ; Back porch + PPU pipeline delay. This is the known-good SuperPico value.
+    set x, 19
+skip_loop:
+    wait 0 pin 1
+    wait 1 pin 1
+    jmp x-- skip_loop
+
+    ; Capture 256 active pixels.
+    mov x, y
+pixel_loop:
+    wait 0 pin 1
+    wait 1 pin 1
+    nop
+    nop
+    in pins, 18
+    jmp x-- pixel_loop
+
+    jmp line_loop
+.wrap

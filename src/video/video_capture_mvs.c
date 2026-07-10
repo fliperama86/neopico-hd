@@ -5,8 +5,6 @@
  * Streaming architecture: captures lines directly to ring buffer
  */
 
-#include "video_capture.h"
-
 #include "pico/stdlib.h"
 #include "pico/sync.h"
 
@@ -14,6 +12,8 @@
 #include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "hardware/pio.h"
+
+#include "video_capture.h"
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
 #include "hardware/timer.h"
 #endif
@@ -27,7 +27,7 @@
 #include "mvs_pins.h"
 #include "pico.h"
 #include "tusb.h"
-#include "video_capture.pio.h"
+#include "video_capture_mvs.pio.h"
 
 #if NEOPICO_DIAG_COUNTERS
 #include <stdio.h>

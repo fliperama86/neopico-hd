@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "audio_common.h"
+#include "capture_profile.h"
 
 // Output volume (percent). Applied as a Q15 multiply on the final samples.
 // Attenuation only (<=100), so it can never overflow -> no clamp needed.
@@ -27,10 +28,17 @@
 
 // Processing buffer size (intermediate between stages)
 #define PROCESS_BUFFER_SIZE 64
+#define PROCESS_OUTPUT_BUFFER_SIZE (PROCESS_BUFFER_SIZE * 2)
+
+#if NEOPICO_CAPTURE_TARGET == NEOPICO_CAPTURE_TARGET_SNES
+#define AUDIO_SRC_DEFAULT_MODE SRC_MODE_LINEAR
+#else
+#define AUDIO_SRC_DEFAULT_MODE SRC_MODE_DROP
+#endif
 
 // Static buffers for processing
 static audio_sample_t process_in[PROCESS_BUFFER_SIZE];
-static audio_sample_t process_out[PROCESS_BUFFER_SIZE];
+static audio_sample_t process_out[PROCESS_OUTPUT_BUFFER_SIZE];
 
 bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *config)
 {
@@ -59,9 +67,9 @@ bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *con
     lowpass_init(&p->lowpass);
     p->lowpass.enabled = false;
 
-    // Initialize SRC (DROP mode by default - proper decimation)
+    // Initialize SRC. MVS decimates 55.5k -> 48k; SNES upsamples ~32k -> 48k.
     src_init(&p->src, SRC_INPUT_RATE_DEFAULT, SRC_OUTPUT_RATE_DEFAULT);
-    p->src.mode = SRC_MODE_DROP;
+    src_set_mode(&p->src, AUDIO_SRC_DEFAULT_MODE);
 
     // Initialize button state
     p->btn1_last_state = true; // Pull-up means idle high
@@ -121,7 +129,8 @@ void audio_pipeline_process(audio_pipeline_t *p, audio_output_fn output_fn, void
 
     // Apply sample rate conversion
     uint32_t in_consumed = 0;
-    uint32_t out_count = src_process(&p->src, process_in, available, process_out, PROCESS_BUFFER_SIZE, &in_consumed);
+    uint32_t out_count =
+        src_process(&p->src, process_in, available, process_out, PROCESS_OUTPUT_BUFFER_SIZE, &in_consumed);
 
 #if NEOPICO_AUDIO_VOLUME_PCT != 100
     // Output volume attenuation (Q15, overflow-safe since gain <= 1.0).

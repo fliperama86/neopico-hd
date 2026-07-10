@@ -7,11 +7,11 @@
 #include <stdint.h>
 
 /**
- * Initialize MVS video capture
+ * Initialize target-specific video capture.
  *
- * @param mvs_height Active video lines from MVS (e.g., 224)
+ * @param active_height Active video lines from the selected capture target.
  */
-void video_capture_init(uint mvs_height);
+void video_capture_init(uint active_height);
 
 /**
  * Run the video capture loop (never returns)

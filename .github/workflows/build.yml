@@ -16,6 +16,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [mvs, snes]
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
@@ -43,18 +46,18 @@ jobs:
 
     - name: Build NeoPico-HD
       run: |
-        cmake -S . -B build -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release
+        cmake -S . -B build -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_CAPTURE_TARGET=${{ matrix.target }}
         cmake --build build -j$(nproc)
-        cp build/src/neopico_hd.uf2 neopico_hd.uf2
-        cp build/src/neopico_hd.elf neopico_hd.elf
+        cp build/src/neopico_hd.uf2 neopico_hd_${{ matrix.target }}.uf2
+        cp build/src/neopico_hd.elf neopico_hd_${{ matrix.target }}.elf
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: neopico-hd-build
+        name: neopico-hd-${{ matrix.target }}-build
         path: |
-          neopico_hd.uf2
-          neopico_hd.elf
+          neopico_hd_${{ matrix.target }}.uf2
+          neopico_hd_${{ matrix.target }}.elf
 
   fabrication:
     runs-on: ubuntu-latest
@@ -101,8 +104,9 @@ jobs:
     - name: Download Build Artifacts
       uses: actions/download-artifact@v4
       with:
-        name: neopico-hd-build
+        pattern: 'neopico-hd-*-build'
         path: build-artifacts
+        merge-multiple: true
 
     - name: Download Fabrication Artifacts
       uses: actions/download-artifact@v4

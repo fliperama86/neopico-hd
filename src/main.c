@@ -23,7 +23,7 @@
 #include <string.h>
 
 #include "audio_subsystem.h"
-#include "mvs_pins.h"
+#include "capture_pins.h"
 #if NEOPICO_ENABLE_OSD
 #include "experiments/menu_diag_experiment.h"
 #include "osd/fast_osd.h"
@@ -415,7 +415,7 @@ int main(void)
 #endif
 
     // Initialize video capture
-    video_capture_init(MVS_HEIGHT);
+    video_capture_init(SOURCE_HEIGHT);
     sleep_ms(200);
     stdio_flush();
 

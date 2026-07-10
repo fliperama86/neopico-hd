@@ -16,10 +16,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "capture_profile.h"
 #include "i2s_capture.pio.h"
 
 #ifndef NEOPICO_EXP_AUDIO_FRAME_RESYNC
 #define NEOPICO_EXP_AUDIO_FRAME_RESYNC 0
+#endif
+
+#ifndef NEOPICO_AUDIO_INACTIVITY_RESTART
+#define NEOPICO_AUDIO_INACTIVITY_RESTART CAPTURE_AUDIO_INACTIVITY_RESTART_DEFAULT
 #endif
 
 // DMA buffer must be large enough to hold samples between polls
@@ -195,7 +200,9 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap)
                 cap->overflows++;
             }
         }
-    } else {
+    }
+#if NEOPICO_AUDIO_INACTIVITY_RESTART
+    else {
         // No activity: only reset after sustained silence (avoids scratchiness from brief dropouts).
         // 200 ms = ~11k samples at 55.5 kHz; IRQ-driven video doesn't rely on this for sync.
         if (now - cap->last_activity_time > 200000) {
@@ -205,6 +212,7 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap)
             return 0;
         }
     }
+#endif
 
     // Update sample rate measurement silently
     uint64_t elapsed = now - cap->last_measure_time;

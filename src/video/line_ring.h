@@ -6,6 +6,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "capture_profile.h"
+
 // Line buffer configuration
 #ifndef NEOPICO_LINE_RING_SIZE
 #define NEOPICO_LINE_RING_SIZE 256
@@ -16,8 +18,8 @@
 #endif
 
 #define LINE_RING_SIZE NEOPICO_LINE_RING_SIZE
-#define LINE_WIDTH 320
-#define LINES_PER_FRAME 224 // MVS active lines
+#define LINE_WIDTH CAPTURE_FRAME_WIDTH
+#define LINES_PER_FRAME CAPTURE_ACTIVE_HEIGHT
 
 typedef struct {
     uint16_t lines[LINE_RING_SIZE][LINE_WIDTH]; // ~25KB line buffer

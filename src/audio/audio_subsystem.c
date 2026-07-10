@@ -16,7 +16,8 @@
 #include <stdio.h>
 
 #include "audio_pipeline.h"
-#include "mvs_pins.h"
+#include "capture_pins.h"
+#include "capture_profile.h"
 
 // Audio pipeline instance
 static audio_pipeline_t audio_pipeline;
@@ -289,11 +290,10 @@ static void audio_background_task_control(void)
             new_rate -= 10;
         }
 
-        // Clamp to sane MVS limits (55.5kHz +/- 5%)
-        if (new_rate < 53000)
-            new_rate = 53000;
-        if (new_rate > 58000)
-            new_rate = 58000;
+        if (new_rate < CAPTURE_AUDIO_RATE_MIN)
+            new_rate = CAPTURE_AUDIO_RATE_MIN;
+        if (new_rate > CAPTURE_AUDIO_RATE_MAX)
+            new_rate = CAPTURE_AUDIO_RATE_MAX;
 
         if (new_rate != current_rate) {
             audio_pipeline.src.input_rate = new_rate;

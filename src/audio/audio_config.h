@@ -6,6 +6,8 @@
 #ifndef AUDIO_CONFIG_H
 #define AUDIO_CONFIG_H
 
+#include "capture_profile.h"
+
 // =============================================================================
 // Audio Buffer Configuration
 // =============================================================================
@@ -19,8 +21,7 @@
 // PCM1802 ADC with 12.288 MHz crystal: 12288000 / 256 = 48000 Hz exactly
 #define AUDIO_INPUT_RATE 48000
 #else
-// MVS I2S input: 8MHz / 144 = 55,555.555... Hz (55556 minimizes rounding error)
-#define AUDIO_INPUT_RATE 55556
+#define AUDIO_INPUT_RATE CAPTURE_AUDIO_INPUT_RATE
 #endif
 #define AUDIO_OUTPUT_RATE 48000 // HSTX audio output rate
 
