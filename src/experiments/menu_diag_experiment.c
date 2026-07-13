@@ -976,6 +976,14 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
 #if NEOPICO_EXP_PRECOMPOSED_HDMI
         selftest_draw_resync_count();
 #endif
+#if NEOPICO_DIAG_AUDIO_OSD
+        {
+            extern volatile uint32_t hstx_di_queue_silence_count;
+            char buf[10];
+            snprintf(buf, sizeof buf, "AU%6lu", (unsigned long)hstx_di_queue_silence_count);
+            fast_osd_puts_color(14, 2, buf, OSD_COLOR_YELLOW);
+        }
+#endif
     }
 
 #if NEOPICO_OSD_ROOT_MENU && NEOPICO_EXP_GENLOCK_DYNAMIC

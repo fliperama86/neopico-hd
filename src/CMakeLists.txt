@@ -94,6 +94,7 @@ option(NEOPICO_EXP_ALIGN_HSTX_DI_BUFFERS "Align runtime HSTX Data Island command
 option(NEOPICO_EXP_RAM_DI_QUEUE_PUSH "Place hstx_di_queue_push in SRAM for timing isolation" OFF)
 option(NEOPICO_EXP_RUNTIME_MODE_SWITCH "Deprecated alias for NEOPICO_EXP_REBOOT_MODE_SWITCH" OFF)
 option(NEOPICO_AUDIO_PCM1802 "Use PCM1802 ADC for analog audio capture (AES/non-MV1C boards)" OFF)
+option(NEOPICO_DIAG_AUDIO_OSD "Show HDMI audio underrun (silence splice) counter on the selftest OSD screen" OFF)
 option(NEOPICO_CAPTURE_FREEZE_AFTER_FRAME "Capture one MVS frame then stop capture writes for video isolation tests" OFF)
 set(NEOPICO_LINE_RING_SIZE "256" CACHE STRING "Number of 320px lines in the capture/display ring")
 
@@ -286,6 +287,12 @@ if(NEOPICO_AUDIO_PCM1802)
     set(AUDIO_PCM1802_VALUE 1)
 else()
     set(AUDIO_PCM1802_VALUE 0)
+endif()
+
+if(NEOPICO_DIAG_AUDIO_OSD)
+    set(DIAG_AUDIO_OSD_VALUE 1)
+else()
+    set(DIAG_AUDIO_OSD_VALUE 0)
 endif()
 
 if(NEOPICO_CAPTURE_FREEZE_AFTER_FRAME)
@@ -550,6 +557,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_EXP_AUDIO_FRAME_RESYNC=${AUDIO_FRAME_RESYNC_VALUE}
     NEOPICO_EXP_AUDIO_MANUAL_REARM=${AUDIO_MANUAL_REARM_VALUE}
     NEOPICO_AUDIO_PCM1802=${AUDIO_PCM1802_VALUE}
+    NEOPICO_DIAG_AUDIO_OSD=${DIAG_AUDIO_OSD_VALUE}
     NEOPICO_CAPTURE_FREEZE_AFTER_FRAME=${CAPTURE_FREEZE_AFTER_FRAME_VALUE}
     NEOPICO_LINE_RING_SIZE=${NEOPICO_LINE_RING_SIZE}
 )
