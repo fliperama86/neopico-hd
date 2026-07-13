@@ -1,54 +1,3 @@
-.program i2s_capture
-
-; Pins: OUT_BASE = DAT, so pin 0=DAT, 1=WS, 2=BCK (C code sets OUT_BASE to pin_dat)
-
-    ; Robust sync: verify I2S bus is active before starting capture.
-    ; Prevents locking onto power-up glitches when MVS clocks aren't stable yet.
-
-    ; Step 1: Stall until BCK is toggling (bus alive)
-    wait 0 pin 2                ; BCK Low  (pin 2 = BCK)
-    wait 1 pin 2                ; BCK High — bus is clocking
-
-    ; Step 2: Sync to WS falling edge (right channel boundary)
-    wait 1 pin 1                ; WS High  (pin 1 = WS)
-    wait 0 pin 1                ; WS Low
-
-    ; Step 3: Count 24 BCK edges to verify real I2S frame timing
-    set x, 23
-sync_verify:
-    wait 0 pin 2
-    wait 1 pin 2
-    jmp x-- sync_verify
-
-    ; Step 4: Re-sync to next clean WS cycle for proper alignment
-    wait 1 pin 1                ; WS High
-    wait 0 pin 1                ; WS Low — right channel starts clean
-
-.wrap_target
-    ; === RIGHT CHANNEL (WS LOW) ===
-    set x, 23                   ; Capture 24 bits
-right_loop:
-    wait 0 pin 2                ; BCK Low  (pin 2 = BCK)
-    wait 1 pin 2                ; BCK High (Rising Edge)
-    nop                         ; Hold margin before sampling DAT (reduces cracking)
-    in pins, 1                  ; Sample DAT (in_base)
-    jmp x-- right_loop
-    push noblock                ; Push 24 bits
-
-    ; === LEFT CHANNEL (WS HIGH) ===
-    wait 1 pin 1                ; Wait for WS to go High
-    set x, 23                   ; Capture 24 bits
-left_loop:
-    wait 0 pin 2                ; BCK Low
-    wait 1 pin 2                ; BCK High (Rising Edge)
-    nop                         ; Hold margin before sampling DAT (reduces cracking)
-    in pins, 1                  ; Sample DAT
-    jmp x-- left_loop
-    push noblock                ; Push 24 bits
-
-    wait 0 pin 1                ; Wait for WS to go Low again for next frame
-.wrap
-
 ; =============================================================================
 ; NEO-YSA2 right-justified capture with per-frame WS re-sync
 ; =============================================================================
@@ -156,33 +105,6 @@ pcm1802_right_loop:
 #include "hardware/gpio.h"
 
 // Pin definitions: DAT, WS, BCK. OUT_BASE = DAT so wait pin 0=DAT, 1=WS, 2=BCK.
-
-static inline void i2s_capture_program_init(PIO pio, uint sm, uint offset, uint pin_dat, uint pin_ws, uint pin_bck) {
-    pio_sm_config c = i2s_capture_program_get_default_config(offset);
-
-    // IN pin base = DAT (in pins, 1 samples DAT)
-    sm_config_set_in_pins(&c, pin_dat);
-    // OUT pin set = DAT, WS, BCK so "wait pin 0/1/2" map to these GPIOs
-    sm_config_set_out_pins(&c, pin_dat, 3);
-
-    // Shift LEFT (MSB first), no autopush.
-    // Data arrives MSB first and shifts into ISR bit 0, moving up.
-    // After 24 bits, data is in bits 23:0.
-    sm_config_set_in_shift(&c, false, false, 32);
-
-    // Join FIFOs for 8-word RX depth
-    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
-
-    pio_gpio_init(pio, pin_dat);
-    pio_gpio_init(pio, pin_bck);
-    pio_gpio_init(pio, pin_ws);
-
-    pio_sm_set_pindirs_with_mask64(pio, sm, 0,
-        (1ull << pin_dat) | (1ull << pin_bck) | (1ull << pin_ws));
-
-    sm_config_set_clkdiv(&c, 1.0f);
-    pio_sm_init(pio, sm, offset, &c);
-}
 
 static inline void i2s_capture_frame_resync_program_init(PIO pio, uint sm, uint offset, uint pin_dat, uint pin_ws, uint pin_bck) {
     pio_sm_config c = i2s_capture_frame_resync_program_get_default_config(offset);

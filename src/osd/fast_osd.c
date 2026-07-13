@@ -7,15 +7,7 @@
 #include "font_8x8.h"
 #include "pico.h"
 
-#ifndef NEOPICO_EXP_RAM_SELECTOR_UI
-#define NEOPICO_EXP_RAM_SELECTOR_UI 0
-#endif
-
-#if NEOPICO_EXP_RAM_SELECTOR_UI
-#define FAST_OSD_RENDER_RAM(name) __not_in_flash_func(name)
-#else
 #define FAST_OSD_RENDER_RAM(name) name
-#endif
 
 volatile bool osd_visible = false;
 uint16_t __attribute__((aligned(4))) osd_framebuffer[OSD_BOX_H][OSD_BOX_W];

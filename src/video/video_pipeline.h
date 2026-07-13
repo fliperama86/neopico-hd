@@ -49,7 +49,7 @@ extern volatile bool g_scale_asm_selftest_ok;
 void video_pipeline_scale_selftest(void);
 #endif
 
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+#if NEOPICO_RESOLUTION_MENU
 typedef enum {
     VIDEO_PIPELINE_REBOOT_MODE_480P = 0,
     VIDEO_PIPELINE_REBOOT_MODE_240P = 1,
@@ -59,7 +59,7 @@ typedef enum {
 /**
  * Request a reboot-based output mode switch. The request is consumed during the
  * next boot before HDMI output starts. 720p requires the separate
- * NEOPICO_EXP_REBOOT_MODE_SWITCH_720P experiment flag.
+ * NEOPICO_RESOLUTION_MENU_720P build option.
  */
 void video_pipeline_request_reboot_mode(video_pipeline_reboot_mode_t mode);
 video_pipeline_reboot_mode_t video_pipeline_reboot_requested_mode(void);

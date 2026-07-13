@@ -19,10 +19,6 @@
 #include "capture_profile.h"
 #include "i2s_capture.pio.h"
 
-#ifndef NEOPICO_EXP_AUDIO_FRAME_RESYNC
-#define NEOPICO_EXP_AUDIO_FRAME_RESYNC 0
-#endif
-
 #ifndef NEOPICO_AUDIO_INACTIVITY_RESTART
 #define NEOPICO_AUDIO_INACTIVITY_RESTART CAPTURE_AUDIO_INACTIVITY_RESTART_DEFAULT
 #endif
@@ -73,19 +69,27 @@ bool i2s_capture_init(i2s_capture_t *cap, const i2s_capture_config_t *config, ap
     pio_set_gpio_base(config->pio, 0);
 
     // Add PIO program (standard I2S for PCM1802, right-justified for NEO-YSA2)
-#if NEOPICO_AUDIO_PCM1802
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+    if (config->source == AUDIO_SOURCE_PCM1802_I2S) {
+        uint offset = pio_add_program(config->pio, &i2s_capture_pcm1802_program);
+        cap->pio_offset = offset;
+        i2s_capture_pcm1802_program_init(config->pio, config->sm, offset, config->pin_dat, config->pin_ws,
+                                         config->pin_bck);
+    } else {
+        uint offset = pio_add_program(config->pio, &i2s_capture_frame_resync_program);
+        cap->pio_offset = offset;
+        i2s_capture_frame_resync_program_init(config->pio, config->sm, offset, config->pin_dat, config->pin_ws,
+                                              config->pin_bck);
+    }
+#elif NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_PCM1802
     uint offset = pio_add_program(config->pio, &i2s_capture_pcm1802_program);
     cap->pio_offset = offset;
     i2s_capture_pcm1802_program_init(config->pio, config->sm, offset, config->pin_dat, config->pin_ws, config->pin_bck);
-#elif NEOPICO_EXP_AUDIO_FRAME_RESYNC
+#else
     uint offset = pio_add_program(config->pio, &i2s_capture_frame_resync_program);
     cap->pio_offset = offset;
     i2s_capture_frame_resync_program_init(config->pio, config->sm, offset, config->pin_dat, config->pin_ws,
                                           config->pin_bck);
-#else
-    uint offset = pio_add_program(config->pio, &i2s_capture_program);
-    cap->pio_offset = offset;
-    i2s_capture_program_init(config->pio, config->sm, offset, config->pin_dat, config->pin_ws, config->pin_bck);
 #endif
 
     // Configure DMA
@@ -182,7 +186,17 @@ uint32_t i2s_capture_poll(i2s_capture_t *cap)
             cap->dma_buffer_idx = (next_idx + 1) & I2S_DMA_BUFFER_MASK;
 
             audio_sample_t sample;
-#if NEOPICO_AUDIO_PCM1802
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+            if (cap->config.source == AUDIO_SOURCE_PCM1802_I2S) {
+                // PCM1802: LEFT first, RIGHT second. 24-bit data in bits 23:0, take top 16.
+                sample.left = (int16_t)((raw_first >> 8) & 0xFFFF);
+                sample.right = (int16_t)((raw_second >> 8) & 0xFFFF);
+            } else {
+                // NEO-YSA2: RIGHT first, LEFT second. 16-bit data in bits 15:0.
+                sample.left = (int16_t)(raw_second & 0xFFFF);
+                sample.right = (int16_t)(raw_first & 0xFFFF);
+            }
+#elif NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_PCM1802
             // PCM1802: LEFT first, RIGHT second. 24-bit data in bits 23:0, take top 16.
             sample.left = (int16_t)((raw_first >> 8) & 0xFFFF);
             sample.right = (int16_t)((raw_second >> 8) & 0xFFFF);

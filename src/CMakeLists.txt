@@ -34,7 +34,7 @@ add_executable(neopico_hd
     settings.c
 )
 
-# Compile-time feature flags (cache params for fast A/B testing)
+# Product configuration and active experiments
 option(NEOPICO_VIDEO_240P "Start HDMI output in 240p mode via runtime mode API" OFF)
 option(NEOPICO_VIDEO_720P "Build HDMI output in 1280x720 @ 60Hz mode (requires sys_clk 372 MHz / 1.30V)" OFF)
 # When ON, link the compile-time pico_hdmi path (video_output.c). Loses the
@@ -49,9 +49,11 @@ option(NEOPICO_VIDEO_TEST_PATTERN "Render a static Core 1 video test pattern ins
 option(NEOPICO_DIAG_COUNTERS "Capture-health counters dumped over USB-serial (720p glitch diagnosis)" OFF)
 option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" ON)
 option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD)" ON)
-option(NEOPICO_OSD_ROOT_MENU "Root OSD menu with Resolution / Self Test entries (requires OSD and at least one entry feature)" ON)
-option(NEOPICO_OSD_BOOT_OPEN "Boot with the OSD open on the Genlock telemetry screen (soak aid); default OFF = OSD starts hidden, opened by the MENU button" OFF)
-set(NEOPICO_EXP_STRESS_CORE1_US "0" CACHE STRING "Diagnostics: busy-wait this many microseconds per Core 1 background tick to accelerate IRQ-timing repro (0 = off)")
+option(NEOPICO_OSD_ROOT_MENU "Root OSD menu for enabled settings and diagnostics (requires OSD and at least one entry feature)" ON)
+option(NEOPICO_OSD_CONTROLLER_INPUTS "Use active-low controller taps as additional OSD MENU/BACK inputs" OFF)
+set(NEOPICO_OSD_CONTROLLER_MENU_PIN "1" CACHE STRING "GPIO for controller START/MENU when controller OSD inputs are enabled")
+set(NEOPICO_OSD_CONTROLLER_BACK_PIN "0" CACHE STRING "GPIO for controller SELECT/BACK when controller OSD inputs are enabled")
+set(NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS "20" CACHE STRING "Controller OSD stable-release debounce time in milliseconds")
 option(NEOPICO_ENABLE_DARK_SHADOW "Enable true DARK/SHADOW LUT path in capture (128KB quantized LUT)" OFF)
 option(NEOPICO_EXP_GENLOCK_STATIC "Enable static boot-time genlock sysclk target" OFF)
 set(NEOPICO_GENLOCK_TARGET_FPS_X100 "5920" CACHE STRING "Static genlock target FPS x100 (e.g. 5920 = 59.20)")
@@ -63,40 +65,44 @@ option(NEOPICO_TRIPLE_ASM "Use hand-written M33 asm for the 3x/4x pixel-scale ke
 # the OSD) is the default firmware. One build does all three modes; pass these
 # OFF for a fixed-resolution build (then select a single mode with VIDEO_240P /
 # VIDEO_720P, which are mutually exclusive with the selector).
-option(NEOPICO_EXP_REBOOT_MODE_SWITCH "Reboot-based 240p/480p/720p HDMI mode switching via the OSD resolution menu" ON)
-option(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P "Let the OSD resolution menu cycle through 720p" ON)
-option(NEOPICO_EXP_FIRST_BOOT_REBOOT "Auto-reboot once on cold power-on (cold-boot scratchy-audio workaround: re-establishes the HDMI link warm); requires the reboot-mode path. ~1-2s extra on cold boot." ON)
-option(NEOPICO_SETTINGS_FLASH "Persist settings (resolution) to flash so they survive power-off; loaded at cold boot, written at the reboot point" ON)
+option(NEOPICO_RESOLUTION_MENU "Reboot-based 240p/480p/720p HDMI mode switching via the OSD resolution menu" ON)
+option(NEOPICO_RESOLUTION_MENU_720P "Let the OSD resolution menu cycle through 720p" ON)
+option(NEOPICO_FIRST_BOOT_REBOOT "Auto-reboot once on cold power-on (cold-boot scratchy-audio workaround: re-establishes the HDMI link warm); requires the reboot-mode path. ~1-2s extra on cold boot." ON)
+option(NEOPICO_SETTINGS_FLASH "Persist settings to flash so they survive power-off; written only at reboot points" ON)
 option(NEOPICO_OSD_RES_CONFIRM "Resolution-change safety net: after switching, show a 10s keep/revert countdown (MENU keeps + persists, BACK/timeout reverts). Requires the reboot-mode path + OSD." ON)
-option(NEOPICO_EXP_REBOOT_BUTTON_CYCLER "Enable bare BACK-button reboot-mode cycling without the OSD/menu module" OFF)
-option(NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI "Compile reboot-mode plumbing but disable the OSD resolution selector UI for timing isolation" OFF)
-option(NEOPICO_EXP_RAM_SELECTOR_UI "Place reboot selector UI/render helpers in SRAM for timing isolation" OFF)
-option(NEOPICO_EXP_STATIC_OSD_TOGGLE_ONLY "Pre-render reboot selector OSD once and only toggle visibility with MENU for timing isolation" OFF)
-option(NEOPICO_EXP_STATIC_OSD_SELECT_ONLY "Pre-render reboot selector OSD once; MENU toggles visibility and BACK only updates selection glyphs" OFF)
-option(NEOPICO_EXP_STATIC_OSD_APPLY "Pre-render reboot selector OSD once; MENU applies when visible and BACK only updates selection glyphs" OFF)
-option(NEOPICO_EXP_RAM_OSD_APPLY_PATH "Place cold OSD apply/reboot request path in SRAM and keep it noinline for timing isolation" OFF)
-option(NEOPICO_EXP_DISABLE_BACKGROUND_TASK "Disable the Core 1 background task for timing isolation" OFF)
-option(NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND "Disable only the audio branch of the Core 1 background task" OFF)
-option(NEOPICO_EXP_DISABLE_OSD_BACKGROUND "Disable only the OSD/menu branch of the Core 1 background task" OFF)
-option(NEOPICO_EXP_AUDIO_NO_CAPTURE_START "Initialize audio but do not start I2S capture DMA/PIO for timing isolation" OFF)
-option(NEOPICO_EXP_AUDIO_CAPTURE_ONLY "Start I2S capture DMA/PIO but skip audio processing/output for timing isolation" OFF)
-option(NEOPICO_EXP_AUDIO_PROCESS_NO_OUTPUT "Process captured audio but suppress HDMI audio enqueue for timing isolation" OFF)
-option(NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE "Encode HDMI audio packets but suppress DI queue push for timing isolation" OFF)
-option(NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK "Limit Core 1 audio background processing to one chunk per pass" OFF)
-option(NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS "Limit Core 1 audio output to one HDMI packet per background pass" OFF)
-option(NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE "Push a pre-encoded static silent HDMI audio packet for timing isolation" OFF)
-option(NEOPICO_EXP_AUDIO_STARTUP_REARM "After initial muted audio warmup, stop/restart I2S PIO/DMA once and re-sync before unmuting (scratchy-boot alignment workaround)" ON)
-option(NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE "Audio-only re-arm after MVS video/sync loss and reacquire (flashcart reset distortion fix)" ON)
-option(NEOPICO_EXP_AUDIO_FRAME_RESYNC "Use I2S PIO capture that re-syncs to WS every stereo frame, preventing persistent mis-framing after brief audio-clock glitches" ON)
-option(NEOPICO_EXP_AUDIO_MANUAL_REARM "Temporary debug: hold BACK to audio-only re-arm I2S PIO/DMA" OFF)
-option(NEOPICO_EXP_LEGACY_240P_AVI_INFOFRAME "Use v0.1.5-style 240p AVI InfoFrame metadata for compatibility isolation" OFF)
-option(NEOPICO_EXP_ALIGN_HSTX_DI_BUFFERS "Align runtime HSTX Data Island command-list buffers for timing isolation" OFF)
-option(NEOPICO_EXP_RAM_DI_QUEUE_PUSH "Place hstx_di_queue_push in SRAM for timing isolation" OFF)
-option(NEOPICO_EXP_RUNTIME_MODE_SWITCH "Deprecated alias for NEOPICO_EXP_REBOOT_MODE_SWITCH" OFF)
-option(NEOPICO_AUDIO_PCM1802 "Use PCM1802 ADC for analog audio capture (AES/non-MV1C boards)" OFF)
+if(NEOPICO_CAPTURE_TARGET_UPPER STREQUAL "MVS")
+    set(_NEOPICO_AUDIO_MODE_DEFAULT "SELECTABLE")
+else()
+    set(_NEOPICO_AUDIO_MODE_DEFAULT "DIGITAL")
+endif()
+set(NEOPICO_AUDIO_MODE "${_NEOPICO_AUDIO_MODE_DEFAULT}" CACHE STRING
+    "Audio capture mode: DIGITAL, PCM1802, or SELECTABLE (MVS OSD selector)")
+set_property(CACHE NEOPICO_AUDIO_MODE PROPERTY STRINGS DIGITAL PCM1802 SELECTABLE)
 option(NEOPICO_DIAG_AUDIO_OSD "Show HDMI audio underrun (silence splice) counter on the selftest OSD screen" OFF)
-option(NEOPICO_CAPTURE_FREEZE_AFTER_FRAME "Capture one MVS frame then stop capture writes for video isolation tests" OFF)
 set(NEOPICO_LINE_RING_SIZE "256" CACHE STRING "Number of 320px lines in the capture/display ring")
+
+string(TOUPPER "${NEOPICO_AUDIO_MODE}" NEOPICO_AUDIO_MODE_UPPER)
+if(NEOPICO_AUDIO_MODE_UPPER STREQUAL "DIGITAL")
+    set(AUDIO_MODE_VALUE 0)
+elseif(NEOPICO_AUDIO_MODE_UPPER STREQUAL "PCM1802")
+    set(AUDIO_MODE_VALUE 1)
+elseif(NEOPICO_AUDIO_MODE_UPPER STREQUAL "SELECTABLE")
+    set(AUDIO_MODE_VALUE 2)
+    if(NOT NEOPICO_CAPTURE_TARGET_UPPER STREQUAL "MVS")
+        message(FATAL_ERROR "NEOPICO_AUDIO_MODE=SELECTABLE currently supports only the MVS capture target")
+    endif()
+    if(NOT NEOPICO_ENABLE_OSD OR NOT NEOPICO_OSD_ROOT_MENU)
+        message(FATAL_ERROR "NEOPICO_AUDIO_MODE=SELECTABLE requires NEOPICO_ENABLE_OSD and NEOPICO_OSD_ROOT_MENU")
+    endif()
+    if(NOT NEOPICO_SETTINGS_FLASH)
+        message(FATAL_ERROR "NEOPICO_AUDIO_MODE=SELECTABLE requires NEOPICO_SETTINGS_FLASH")
+    endif()
+    if(NOT NEOPICO_RESOLUTION_MENU OR NEOPICO_USE_NONRT_HDMI)
+        message(FATAL_ERROR "NEOPICO_AUDIO_MODE=SELECTABLE requires the runtime HDMI reboot-mode selector")
+    endif()
+else()
+    message(FATAL_ERROR "NEOPICO_AUDIO_MODE must be DIGITAL, PCM1802, or SELECTABLE")
+endif()
 
 if(NEOPICO_ENABLE_OSD)
     set(ENABLE_OSD_VALUE 1)
@@ -108,6 +114,12 @@ if(NEOPICO_ENABLE_SELFTEST)
     set(ENABLE_SELFTEST_VALUE 1)
 else()
     set(ENABLE_SELFTEST_VALUE 0)
+endif()
+
+if(NEOPICO_OSD_CONTROLLER_INPUTS)
+    set(OSD_CONTROLLER_INPUTS_VALUE 1)
+else()
+    set(OSD_CONTROLLER_INPUTS_VALUE 0)
 endif()
 
 if(NEOPICO_ENABLE_DARK_SHADOW)
@@ -140,165 +152,22 @@ else()
     set(TRIPLE_ASM_VALUE 0)
 endif()
 
-if(NEOPICO_EXP_RUNTIME_MODE_SWITCH)
-    message(WARNING "NEOPICO_EXP_RUNTIME_MODE_SWITCH is deprecated; enabling NEOPICO_EXP_REBOOT_MODE_SWITCH instead")
-    set(NEOPICO_EXP_REBOOT_MODE_SWITCH ON CACHE BOOL "Enable experimental reboot-based 480p/240p HDMI mode switching via OSD Back button" FORCE)
+if(NEOPICO_RESOLUTION_MENU)
+    set(RESOLUTION_MENU_VALUE 1)
+else()
+    set(RESOLUTION_MENU_VALUE 0)
 endif()
 
-if(NEOPICO_EXP_REBOOT_MODE_SWITCH)
-    set(REBOOT_MODE_SWITCH_VALUE 1)
+if(NEOPICO_RESOLUTION_MENU_720P)
+    set(RESOLUTION_MENU_720P_VALUE 1)
 else()
-    set(REBOOT_MODE_SWITCH_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P)
-    set(REBOOT_MODE_SWITCH_720P_VALUE 1)
-else()
-    set(REBOOT_MODE_SWITCH_720P_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_REBOOT_BUTTON_CYCLER)
-    set(REBOOT_BUTTON_CYCLER_VALUE 1)
-else()
-    set(REBOOT_BUTTON_CYCLER_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI)
-    set(DISABLE_REBOOT_SELECTOR_UI_VALUE 1)
-else()
-    set(DISABLE_REBOOT_SELECTOR_UI_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_RAM_SELECTOR_UI)
-    set(RAM_SELECTOR_UI_VALUE 1)
-else()
-    set(RAM_SELECTOR_UI_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_STATIC_OSD_TOGGLE_ONLY)
-    set(STATIC_OSD_TOGGLE_ONLY_VALUE 1)
-else()
-    set(STATIC_OSD_TOGGLE_ONLY_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_STATIC_OSD_SELECT_ONLY)
-    set(STATIC_OSD_SELECT_ONLY_VALUE 1)
-else()
-    set(STATIC_OSD_SELECT_ONLY_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_STATIC_OSD_APPLY)
-    set(STATIC_OSD_APPLY_VALUE 1)
-else()
-    set(STATIC_OSD_APPLY_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_RAM_OSD_APPLY_PATH)
-    set(RAM_OSD_APPLY_PATH_VALUE 1)
-else()
-    set(RAM_OSD_APPLY_PATH_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_DISABLE_BACKGROUND_TASK)
-    set(DISABLE_BACKGROUND_TASK_VALUE 1)
-else()
-    set(DISABLE_BACKGROUND_TASK_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND)
-    set(DISABLE_AUDIO_BACKGROUND_VALUE 1)
-else()
-    set(DISABLE_AUDIO_BACKGROUND_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_DISABLE_OSD_BACKGROUND)
-    set(DISABLE_OSD_BACKGROUND_VALUE 1)
-else()
-    set(DISABLE_OSD_BACKGROUND_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_AUDIO_NO_CAPTURE_START)
-    set(AUDIO_NO_CAPTURE_START_VALUE 1)
-else()
-    set(AUDIO_NO_CAPTURE_START_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_AUDIO_CAPTURE_ONLY)
-    set(AUDIO_CAPTURE_ONLY_VALUE 1)
-else()
-    set(AUDIO_CAPTURE_ONLY_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_AUDIO_PROCESS_NO_OUTPUT)
-    set(AUDIO_PROCESS_NO_OUTPUT_VALUE 1)
-else()
-    set(AUDIO_PROCESS_NO_OUTPUT_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE)
-    set(AUDIO_ENCODE_NO_QUEUE_VALUE 1)
-else()
-    set(AUDIO_ENCODE_NO_QUEUE_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK)
-    set(AUDIO_LIMIT_BACKGROUND_WORK_VALUE 1)
-else()
-    set(AUDIO_LIMIT_BACKGROUND_WORK_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS)
-    set(AUDIO_LIMIT_OUTPUT_PACKETS_VALUE 1)
-else()
-    set(AUDIO_LIMIT_OUTPUT_PACKETS_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE)
-    set(AUDIO_PUSH_STATIC_SILENCE_VALUE 1)
-else()
-    set(AUDIO_PUSH_STATIC_SILENCE_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_AUDIO_STARTUP_REARM)
-    set(AUDIO_STARTUP_REARM_VALUE 1)
-else()
-    set(AUDIO_STARTUP_REARM_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE)
-    set(AUDIO_REARM_ON_VIDEO_REACQUIRE_VALUE 1)
-else()
-    set(AUDIO_REARM_ON_VIDEO_REACQUIRE_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_AUDIO_FRAME_RESYNC)
-    set(AUDIO_FRAME_RESYNC_VALUE 1)
-else()
-    set(AUDIO_FRAME_RESYNC_VALUE 0)
-endif()
-
-if(NEOPICO_EXP_AUDIO_MANUAL_REARM)
-    set(AUDIO_MANUAL_REARM_VALUE 1)
-else()
-    set(AUDIO_MANUAL_REARM_VALUE 0)
-endif()
-
-if(NEOPICO_AUDIO_PCM1802)
-    set(AUDIO_PCM1802_VALUE 1)
-else()
-    set(AUDIO_PCM1802_VALUE 0)
+    set(RESOLUTION_MENU_720P_VALUE 0)
 endif()
 
 if(NEOPICO_DIAG_AUDIO_OSD)
     set(DIAG_AUDIO_OSD_VALUE 1)
 else()
     set(DIAG_AUDIO_OSD_VALUE 0)
-endif()
-
-if(NEOPICO_CAPTURE_FREEZE_AFTER_FRAME)
-    set(CAPTURE_FREEZE_AFTER_FRAME_VALUE 1)
-else()
-    set(CAPTURE_FREEZE_AFTER_FRAME_VALUE 0)
 endif()
 
 if(NEOPICO_VIDEO_240P)
@@ -327,24 +196,20 @@ else()
     set(USE_NONRT_HDMI_VALUE 0)
 endif()
 
-if(NEOPICO_EXP_REBOOT_MODE_SWITCH)
+if(NEOPICO_RESOLUTION_MENU)
     if(NEOPICO_USE_NONRT_HDMI)
-        message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH requires the runtime pico_hdmi path")
+        message(FATAL_ERROR "NEOPICO_RESOLUTION_MENU requires the runtime pico_hdmi path")
     endif()
     if(NEOPICO_VIDEO_720P)
-        message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH selects 720p at boot from watchdog scratch; use NEOPICO_EXP_REBOOT_MODE_SWITCH_720P instead of NEOPICO_VIDEO_720P")
+        message(FATAL_ERROR "NEOPICO_RESOLUTION_MENU selects 720p at boot from watchdog scratch; use NEOPICO_RESOLUTION_MENU_720P instead of NEOPICO_VIDEO_720P")
     endif()
-    if(NOT NEOPICO_ENABLE_OSD AND NOT NEOPICO_EXP_REBOOT_BUTTON_CYCLER)
-        message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH requires NEOPICO_ENABLE_OSD=ON or NEOPICO_EXP_REBOOT_BUTTON_CYCLER=ON")
+    if(NOT NEOPICO_ENABLE_OSD)
+        message(FATAL_ERROR "NEOPICO_RESOLUTION_MENU requires NEOPICO_ENABLE_OSD=ON")
     endif()
 endif()
 
-if(NEOPICO_EXP_REBOOT_BUTTON_CYCLER AND NOT NEOPICO_EXP_REBOOT_MODE_SWITCH)
-    message(FATAL_ERROR "NEOPICO_EXP_REBOOT_BUTTON_CYCLER requires NEOPICO_EXP_REBOOT_MODE_SWITCH=ON")
-endif()
-
-if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P AND NOT NEOPICO_EXP_REBOOT_MODE_SWITCH)
-    message(FATAL_ERROR "NEOPICO_EXP_REBOOT_MODE_SWITCH_720P requires NEOPICO_EXP_REBOOT_MODE_SWITCH=ON")
+if(NEOPICO_RESOLUTION_MENU_720P AND NOT NEOPICO_RESOLUTION_MENU)
+    message(FATAL_ERROR "NEOPICO_RESOLUTION_MENU_720P requires NEOPICO_RESOLUTION_MENU=ON")
 endif()
 
 # Overclock builds MUST execute from RAM. Above ~150 MHz sys_clk, XIP flash
@@ -354,7 +219,7 @@ endif()
 #   - 720p:    372 MHz (VIDEO_720P, or the reboot-switch 720p mode)
 #   - RT 480p: 252 MHz (scanline-IRQ headroom; default 480p + the selector)
 set(_neopico_overclocked OFF)
-if(NEOPICO_VIDEO_720P OR NEOPICO_EXP_REBOOT_MODE_SWITCH_720P)
+if(NEOPICO_VIDEO_720P OR NEOPICO_RESOLUTION_MENU_720P)
     set(_neopico_overclocked ON)
 endif()
 if((NOT NEOPICO_USE_NONRT_HDMI) AND (NOT NEOPICO_VIDEO_240P) AND (NOT NEOPICO_VIDEO_720P))
@@ -392,7 +257,7 @@ if(NEOPICO_EXP_PRECOMPOSED_HDMI)
     if (NEOPICO_VIDEO_240P)
         message(FATAL_ERROR "NEOPICO_EXP_PRECOMPOSED_HDMI does not support 240p yet (S3b: pre-doubled ring)")
     endif()
-    if(NEOPICO_EXP_REBOOT_MODE_SWITCH)
+    if(NEOPICO_RESOLUTION_MENU)
         message(FATAL_ERROR "NEOPICO_EXP_PRECOMPOSED_HDMI + mode switching is stage S4 of the 2.1 plan; not wired yet")
     endif()
 endif()
@@ -426,7 +291,7 @@ if(NEOPICO_VIDEO_720P)
     endif()
 endif()
 
-if(NEOPICO_EXP_REBOOT_MODE_SWITCH_720P)
+if(NEOPICO_RESOLUTION_MENU_720P)
     target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_RT_RUNTIME_MODE_ATTRS=1)
 endif()
 
@@ -435,10 +300,6 @@ endif()
 # 25.2 MHz (252/(2*5)) and the 480p signal is byte-identical to the 126 MHz one.
 if(NOT NEOPICO_USE_NONRT_HDMI)
     target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_480P_HSTX_CLK_DIV=2)
-endif()
-
-if(NEOPICO_EXP_ALIGN_HSTX_DI_BUFFERS)
-    target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_ALIGN_DI_BUFFERS=1)
 endif()
 
 if(NEOPICO_EXP_PRECOMPOSED_HDMI)
@@ -453,21 +314,18 @@ if(NEOPICO_OSD_ROOT_MENU)
     if(NOT NEOPICO_ENABLE_OSD)
         message(FATAL_ERROR "NEOPICO_OSD_ROOT_MENU requires NEOPICO_ENABLE_OSD=ON")
     endif()
-    if(NOT NEOPICO_ENABLE_SELFTEST AND NOT NEOPICO_EXP_REBOOT_MODE_SWITCH)
-        message(FATAL_ERROR "NEOPICO_OSD_ROOT_MENU needs at least one entry: NEOPICO_ENABLE_SELFTEST or NEOPICO_EXP_REBOOT_MODE_SWITCH")
+    if(NOT NEOPICO_ENABLE_SELFTEST AND NOT NEOPICO_RESOLUTION_MENU
+       AND NOT NEOPICO_AUDIO_MODE_UPPER STREQUAL "SELECTABLE")
+        message(FATAL_ERROR "NEOPICO_OSD_ROOT_MENU needs at least one enabled entry")
     endif()
     target_compile_definitions(neopico_hd PRIVATE NEOPICO_OSD_ROOT_MENU=1)
 endif()
 
-if(NEOPICO_OSD_BOOT_OPEN)
-    target_compile_definitions(neopico_hd PRIVATE NEOPICO_OSD_BOOT_OPEN=1)
-endif()
-
-if(NEOPICO_EXP_FIRST_BOOT_REBOOT)
-    if(NEOPICO_USE_NONRT_HDMI OR NOT NEOPICO_EXP_REBOOT_MODE_SWITCH)
-        message(FATAL_ERROR "NEOPICO_EXP_FIRST_BOOT_REBOOT requires the runtime reboot-mode path (NEOPICO_EXP_REBOOT_MODE_SWITCH=ON, NEOPICO_USE_NONRT_HDMI=OFF)")
+if(NEOPICO_FIRST_BOOT_REBOOT)
+    if(NEOPICO_USE_NONRT_HDMI OR NOT NEOPICO_RESOLUTION_MENU)
+        message(FATAL_ERROR "NEOPICO_FIRST_BOOT_REBOOT requires the runtime reboot-mode path (NEOPICO_RESOLUTION_MENU=ON, NEOPICO_USE_NONRT_HDMI=OFF)")
     endif()
-    target_compile_definitions(neopico_hd PRIVATE NEOPICO_EXP_FIRST_BOOT_REBOOT=1)
+    target_compile_definitions(neopico_hd PRIVATE NEOPICO_FIRST_BOOT_REBOOT=1)
 endif()
 
 if(NEOPICO_SETTINGS_FLASH)
@@ -475,23 +333,10 @@ if(NEOPICO_SETTINGS_FLASH)
 endif()
 
 if(NEOPICO_OSD_RES_CONFIRM)
-    if(NEOPICO_USE_NONRT_HDMI OR NOT NEOPICO_EXP_REBOOT_MODE_SWITCH OR NOT NEOPICO_ENABLE_OSD
-       OR NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI)
-        message(FATAL_ERROR "NEOPICO_OSD_RES_CONFIRM requires the runtime reboot-mode resolution menu (NEOPICO_EXP_REBOOT_MODE_SWITCH=ON, NEOPICO_ENABLE_OSD=ON, NEOPICO_USE_NONRT_HDMI=OFF, NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI=OFF)")
+    if(NEOPICO_USE_NONRT_HDMI OR NOT NEOPICO_RESOLUTION_MENU OR NOT NEOPICO_ENABLE_OSD)
+        message(FATAL_ERROR "NEOPICO_OSD_RES_CONFIRM requires the runtime resolution menu")
     endif()
     target_compile_definitions(neopico_hd PRIVATE NEOPICO_OSD_RES_CONFIRM=1)
-endif()
-
-if(NEOPICO_EXP_STRESS_CORE1_US GREATER 0)
-    target_compile_definitions(neopico_hd PRIVATE NEOPICO_EXP_STRESS_CORE1_US=${NEOPICO_EXP_STRESS_CORE1_US})
-endif()
-
-if(NEOPICO_EXP_RAM_DI_QUEUE_PUSH)
-    target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_RAM_DI_QUEUE_PUSH=1)
-endif()
-
-if(NEOPICO_EXP_LEGACY_240P_AVI_INFOFRAME)
-    target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_LEGACY_240P_AVI_INFOFRAME=1)
 endif()
 
 pico_generate_pio_header(neopico_hd ${CMAKE_CURRENT_LIST_DIR}/${NEOPICO_CAPTURE_PIO})
@@ -526,6 +371,10 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_DIAG_COUNTERS=${DIAG_COUNTERS_VALUE}
     NEOPICO_ENABLE_OSD=${ENABLE_OSD_VALUE}
     NEOPICO_ENABLE_SELFTEST=${ENABLE_SELFTEST_VALUE}
+    NEOPICO_OSD_CONTROLLER_INPUTS=${OSD_CONTROLLER_INPUTS_VALUE}
+    NEOPICO_OSD_CONTROLLER_MENU_PIN=${NEOPICO_OSD_CONTROLLER_MENU_PIN}
+    NEOPICO_OSD_CONTROLLER_BACK_PIN=${NEOPICO_OSD_CONTROLLER_BACK_PIN}
+    NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS=${NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS}
     ENABLE_DARK_SHADOW=${ENABLE_DARK_SHADOW_VALUE}
     NEOPICO_EXP_GENLOCK_STATIC=${GENLOCK_STATIC_VALUE}
     NEOPICO_GENLOCK_TARGET_FPS_X100=${NEOPICO_GENLOCK_TARGET_FPS_X100}
@@ -533,32 +382,10 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_EXP_VTOTAL_LINES=${NEOPICO_EXP_VTOTAL_LINES}
     NEOPICO_EXP_GENLOCK_DYNAMIC=${GENLOCK_DYNAMIC_VALUE}
     NEOPICO_TRIPLE_ASM=${TRIPLE_ASM_VALUE}
-    NEOPICO_EXP_REBOOT_MODE_SWITCH=${REBOOT_MODE_SWITCH_VALUE}
-    NEOPICO_EXP_REBOOT_MODE_SWITCH_720P=${REBOOT_MODE_SWITCH_720P_VALUE}
-    NEOPICO_EXP_REBOOT_BUTTON_CYCLER=${REBOOT_BUTTON_CYCLER_VALUE}
-    NEOPICO_EXP_DISABLE_REBOOT_SELECTOR_UI=${DISABLE_REBOOT_SELECTOR_UI_VALUE}
-    NEOPICO_EXP_RAM_SELECTOR_UI=${RAM_SELECTOR_UI_VALUE}
-    NEOPICO_EXP_STATIC_OSD_TOGGLE_ONLY=${STATIC_OSD_TOGGLE_ONLY_VALUE}
-    NEOPICO_EXP_STATIC_OSD_SELECT_ONLY=${STATIC_OSD_SELECT_ONLY_VALUE}
-    NEOPICO_EXP_STATIC_OSD_APPLY=${STATIC_OSD_APPLY_VALUE}
-    NEOPICO_EXP_RAM_OSD_APPLY_PATH=${RAM_OSD_APPLY_PATH_VALUE}
-    NEOPICO_EXP_DISABLE_BACKGROUND_TASK=${DISABLE_BACKGROUND_TASK_VALUE}
-    NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND=${DISABLE_AUDIO_BACKGROUND_VALUE}
-    NEOPICO_EXP_DISABLE_OSD_BACKGROUND=${DISABLE_OSD_BACKGROUND_VALUE}
-    NEOPICO_EXP_AUDIO_NO_CAPTURE_START=${AUDIO_NO_CAPTURE_START_VALUE}
-    NEOPICO_EXP_AUDIO_CAPTURE_ONLY=${AUDIO_CAPTURE_ONLY_VALUE}
-    NEOPICO_EXP_AUDIO_PROCESS_NO_OUTPUT=${AUDIO_PROCESS_NO_OUTPUT_VALUE}
-    NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE=${AUDIO_ENCODE_NO_QUEUE_VALUE}
-    NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK=${AUDIO_LIMIT_BACKGROUND_WORK_VALUE}
-    NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS=${AUDIO_LIMIT_OUTPUT_PACKETS_VALUE}
-    NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE=${AUDIO_PUSH_STATIC_SILENCE_VALUE}
-    NEOPICO_EXP_AUDIO_STARTUP_REARM=${AUDIO_STARTUP_REARM_VALUE}
-    NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE=${AUDIO_REARM_ON_VIDEO_REACQUIRE_VALUE}
-    NEOPICO_EXP_AUDIO_FRAME_RESYNC=${AUDIO_FRAME_RESYNC_VALUE}
-    NEOPICO_EXP_AUDIO_MANUAL_REARM=${AUDIO_MANUAL_REARM_VALUE}
-    NEOPICO_AUDIO_PCM1802=${AUDIO_PCM1802_VALUE}
+    NEOPICO_RESOLUTION_MENU=${RESOLUTION_MENU_VALUE}
+    NEOPICO_RESOLUTION_MENU_720P=${RESOLUTION_MENU_720P_VALUE}
+    NEOPICO_AUDIO_MODE=${AUDIO_MODE_VALUE}
     NEOPICO_DIAG_AUDIO_OSD=${DIAG_AUDIO_OSD_VALUE}
-    NEOPICO_CAPTURE_FREEZE_AFTER_FRAME=${CAPTURE_FREEZE_AFTER_FRAME_VALUE}
     NEOPICO_LINE_RING_SIZE=${NEOPICO_LINE_RING_SIZE}
 )
 

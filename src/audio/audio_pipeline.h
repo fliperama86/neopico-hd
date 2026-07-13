@@ -12,6 +12,7 @@
 
 #include "audio_buffer.h"
 #include "audio_common.h"
+#include "audio_source.h"
 #include "dc_filter.h"
 #include "i2s_capture.h"
 #include "lowpass.h"
@@ -56,6 +57,9 @@ typedef struct {
     // PIO resources
     PIO pio;
     uint sm;
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+    audio_source_t source;
+#endif
 } audio_pipeline_config_t;
 
 // Pipeline instance

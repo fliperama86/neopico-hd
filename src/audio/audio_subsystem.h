@@ -4,6 +4,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "audio_source.h"
+
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+void audio_subsystem_set_source(audio_source_t source);
+audio_source_t audio_subsystem_get_source(void);
+#endif
+
 /**
  * Initialize the audio subsystem (pipeline, buffers, etc.)
  */

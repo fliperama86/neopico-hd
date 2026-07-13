@@ -32,7 +32,7 @@
 
 // PCM1802 and SNES sources may need to produce output samples faster than
 // their input clocks. LINEAR supports that; DROP only decimates.
-#if NEOPICO_AUDIO_PCM1802 || NEOPICO_CAPTURE_TARGET == NEOPICO_CAPTURE_TARGET_SNES
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_PCM1802 || NEOPICO_CAPTURE_TARGET == NEOPICO_CAPTURE_TARGET_SNES
 #define AUDIO_SRC_DEFAULT_MODE SRC_MODE_LINEAR
 #else
 #define AUDIO_SRC_DEFAULT_MODE SRC_MODE_DROP
@@ -56,6 +56,9 @@ bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *con
                                        .pin_ws = config->pin_ws,
                                        .pio = config->pio,
                                        .sm = config->sm};
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+    cap_config.source = config->source;
+#endif
 
     if (!i2s_capture_init(&p->capture, &cap_config, &p->capture_ring)) {
         return false;
@@ -71,8 +74,18 @@ bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *con
 
     // Initialize SRC. MVS decimates 55.5k -> 48k; PCM1802 is nominally 48k;
     // SNES upsamples ~32k -> 48k.
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+    if (config->source == AUDIO_SOURCE_PCM1802_I2S) {
+        src_init(&p->src, AUDIO_PCM1802_INPUT_RATE, SRC_OUTPUT_RATE_DEFAULT);
+        src_set_mode(&p->src, SRC_MODE_LINEAR);
+    } else {
+        src_init(&p->src, CAPTURE_AUDIO_INPUT_RATE, SRC_OUTPUT_RATE_DEFAULT);
+        src_set_mode(&p->src, SRC_MODE_DROP);
+    }
+#else
     src_init(&p->src, SRC_INPUT_RATE_DEFAULT, SRC_OUTPUT_RATE_DEFAULT);
     src_set_mode(&p->src, AUDIO_SRC_DEFAULT_MODE);
+#endif
 
     // Initialize button state
     p->btn1_last_state = true; // Pull-up means idle high

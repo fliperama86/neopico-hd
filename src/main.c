@@ -47,28 +47,12 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 #define NEOPICO_EXP_GENLOCK_DYNAMIC 0
 #endif
 
-#ifndef NEOPICO_EXP_REBOOT_MODE_SWITCH
-#define NEOPICO_EXP_REBOOT_MODE_SWITCH 0
+#ifndef NEOPICO_RESOLUTION_MENU
+#define NEOPICO_RESOLUTION_MENU 0
 #endif
 
-#ifndef NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
-#define NEOPICO_EXP_REBOOT_MODE_SWITCH_720P 0
-#endif
-
-#ifndef NEOPICO_EXP_REBOOT_BUTTON_CYCLER
-#define NEOPICO_EXP_REBOOT_BUTTON_CYCLER 0
-#endif
-
-#ifndef NEOPICO_EXP_DISABLE_BACKGROUND_TASK
-#define NEOPICO_EXP_DISABLE_BACKGROUND_TASK 0
-#endif
-
-#ifndef NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND
-#define NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND 0
-#endif
-
-#ifndef NEOPICO_EXP_DISABLE_OSD_BACKGROUND
-#define NEOPICO_EXP_DISABLE_OSD_BACKGROUND 0
+#ifndef NEOPICO_RESOLUTION_MENU_720P
+#define NEOPICO_RESOLUTION_MENU_720P 0
 #endif
 
 #if NEOPICO_EXP_GENLOCK_DYNAMIC && (NEOPICO_EXP_GENLOCK_STATIC || NEOPICO_EXP_VTOTAL_MATCH)
@@ -150,10 +134,10 @@ static const video_mode_t *build_vtotal_match_mode(void)
 }
 #endif
 
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_USE_NONRT_HDMI
+#if NEOPICO_RESOLUTION_MENU && !NEOPICO_USE_NONRT_HDMI
 static const video_mode_t *video_output_mode_for_reboot_mode(video_pipeline_reboot_mode_t mode)
 {
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+#if NEOPICO_RESOLUTION_MENU_720P
     if (mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
         return &video_mode_720_p;
     }
@@ -163,50 +147,6 @@ static const video_mode_t *video_output_mode_for_reboot_mode(video_pipeline_rebo
     }
 #endif
     return (mode == VIDEO_PIPELINE_REBOOT_MODE_240P) ? &video_mode_240_p : &video_mode_480_p;
-}
-#endif
-
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH && NEOPICO_EXP_REBOOT_BUTTON_CYCLER
-static bool reboot_button_back_was_pressed = false;
-static uint32_t reboot_button_last_back_press_ms = 0;
-
-static video_pipeline_reboot_mode_t reboot_button_next_mode(video_pipeline_reboot_mode_t mode)
-{
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
-    switch (mode) {
-        case VIDEO_PIPELINE_REBOOT_MODE_480P:
-            return VIDEO_PIPELINE_REBOOT_MODE_240P;
-        case VIDEO_PIPELINE_REBOOT_MODE_240P:
-            return VIDEO_PIPELINE_REBOOT_MODE_720P;
-        default:
-            return VIDEO_PIPELINE_REBOOT_MODE_480P;
-    }
-#else
-    return (mode == VIDEO_PIPELINE_REBOOT_MODE_240P) ? VIDEO_PIPELINE_REBOOT_MODE_480P
-                                                     : VIDEO_PIPELINE_REBOOT_MODE_240P;
-#endif
-}
-
-static void reboot_button_cycler_init(void)
-{
-    gpio_init(PIN_OSD_BTN_BACK);
-    gpio_set_dir(PIN_OSD_BTN_BACK, GPIO_IN);
-    gpio_pull_up(PIN_OSD_BTN_BACK);
-    reboot_button_back_was_pressed = !gpio_get(PIN_OSD_BTN_BACK);
-    reboot_button_last_back_press_ms = to_ms_since_boot(get_absolute_time());
-}
-
-static void reboot_button_cycler_tick_background(void)
-{
-    const bool back_pressed = !gpio_get(PIN_OSD_BTN_BACK); // active low
-    if (back_pressed && !reboot_button_back_was_pressed) {
-        const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
-        if ((now_ms - reboot_button_last_back_press_ms) >= 200U) {
-            reboot_button_last_back_press_ms = now_ms;
-            video_pipeline_request_reboot_mode(reboot_button_next_mode(video_pipeline_reboot_requested_mode()));
-        }
-    }
-    reboot_button_back_was_pressed = back_pressed;
 }
 #endif
 
@@ -239,10 +179,6 @@ static void precomposed_desync_watchdog(void)
 }
 #endif
 
-#ifndef NEOPICO_EXP_STRESS_CORE1_US
-#define NEOPICO_EXP_STRESS_CORE1_US 0
-#endif
-
 static void combined_background_task(void)
 {
 #if NEOPICO_EXP_PRECOMPOSED_HDMI
@@ -254,18 +190,10 @@ static void combined_background_task(void)
     video_pipeline_precomp_background();
 #endif
 #endif
-#if NEOPICO_EXP_STRESS_CORE1_US > 0
-    // Repro accelerator: simulate heavy Core 1 background bursts to raise
-    // the rate of any IRQ-timing-sensitive failure. Diagnostics only.
-    busy_wait_us_32(NEOPICO_EXP_STRESS_CORE1_US);
-#endif
-#if !NEOPICO_VIDEO_DVI_ONLY && !NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND
+#if !NEOPICO_VIDEO_DVI_ONLY
     audio_subsystem_background_task();
 #endif
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH && NEOPICO_EXP_REBOOT_BUTTON_CYCLER
-    reboot_button_cycler_tick_background();
-#endif
-#if NEOPICO_ENABLE_OSD && !NEOPICO_EXP_DISABLE_OSD_BACKGROUND
+#if NEOPICO_ENABLE_OSD
     menu_diag_experiment_tick_background();
 #endif
 }
@@ -278,7 +206,7 @@ int main(void)
 {
     sleep_ms(1000);
 
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_USE_NONRT_HDMI
+#if NEOPICO_RESOLUTION_MENU && !NEOPICO_USE_NONRT_HDMI
     video_pipeline_reboot_mode_t reboot_boot_mode =
         (NEOPICO_VIDEO_240P != 0) ? VIDEO_PIPELINE_REBOOT_MODE_240P : VIDEO_PIPELINE_REBOOT_MODE_480P;
     const bool warm_reboot = video_pipeline_take_reboot_mode_boot_request(&reboot_boot_mode);
@@ -293,18 +221,26 @@ int main(void)
     }
 #endif
 #if NEOPICO_SETTINGS_FLASH
+    neopico_settings_t persisted;
+    settings_load(&persisted);
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+    // Audio-source changes reboot through the existing warm-reboot path, so
+    // unlike resolution the persisted source must be loaded on every boot.
+    if (persisted.audio_source_valid == NEOPICO_SETTINGS_AUDIO_SOURCE_VALID &&
+        audio_source_is_valid(persisted.audio_source)) {
+        audio_subsystem_set_source((audio_source_t)persisted.audio_source);
+    }
+#endif
     // Cold boot (power-on): the warm-reboot scratch is gone, so recover the
     // last-selected resolution from flash. A warm reboot already carries the
-    // chosen mode in the scratch, so only load on a cold boot.
+    // chosen mode in the scratch, so only apply flash resolution on cold boot.
     if (!warm_reboot) {
-        neopico_settings_t persisted;
-        settings_load(&persisted);
         if (persisted.resolution <= (uint8_t)VIDEO_PIPELINE_REBOOT_MODE_720P) {
             reboot_boot_mode = (video_pipeline_reboot_mode_t)persisted.resolution;
         }
     }
 #endif
-#if NEOPICO_EXP_FIRST_BOOT_REBOOT
+#if NEOPICO_FIRST_BOOT_REBOOT
     // Quick-and-dirty cold-boot scratchy-audio workaround: on a cold (power-on)
     // boot, immediately reboot once into the default mode -- the same path the
     // OSD resolution-select uses. Replicates the manual reset that clears the
@@ -329,7 +265,7 @@ int main(void)
     sleep_ms(10);
     set_sys_clock_khz(SYS_CLK_720P_KHZ, true);
 #else
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_USE_NONRT_HDMI && NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+#if NEOPICO_RESOLUTION_MENU && !NEOPICO_USE_NONRT_HDMI && NEOPICO_RESOLUTION_MENU_720P
     if (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
         vreg_set_voltage(VREG_VOLTAGE_1_30);
         sleep_ms(10);
@@ -339,7 +275,7 @@ int main(void)
     {
         uint32_t sys_clk_khz = SYS_CLK_60HZ_KHZ;
         bool overclock_480p = false;
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH && !NEOPICO_USE_NONRT_HDMI
+#if NEOPICO_RESOLUTION_MENU && !NEOPICO_USE_NONRT_HDMI
         // Selector: the 480p reboot mode runs at 252 MHz for scanline-IRQ
         // headroom (240p/720p reboot modes keep their own clocks).
         overclock_480p = (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_480P);
@@ -370,8 +306,18 @@ int main(void)
     gpio_init(PIN_OSD_BTN_BACK);
     gpio_set_dir(PIN_OSD_BTN_BACK, GPIO_IN);
     gpio_pull_up(PIN_OSD_BTN_BACK);
-#elif NEOPICO_EXP_REBOOT_MODE_SWITCH && NEOPICO_EXP_REBOOT_BUTTON_CYCLER
-    reboot_button_cycler_init();
+
+#if NEOPICO_OSD_CONTROLLER_INPUTS
+    // AES controller lines are externally pulled high and active low. Keep the
+    // RP2350 inputs high-impedance by leaving both internal pulls disabled.
+    gpio_init(NEOPICO_OSD_CONTROLLER_MENU_PIN);
+    gpio_set_dir(NEOPICO_OSD_CONTROLLER_MENU_PIN, GPIO_IN);
+    gpio_disable_pulls(NEOPICO_OSD_CONTROLLER_MENU_PIN);
+
+    gpio_init(NEOPICO_OSD_CONTROLLER_BACK_PIN);
+    gpio_set_dir(NEOPICO_OSD_CONTROLLER_BACK_PIN, GPIO_IN);
+    gpio_disable_pulls(NEOPICO_OSD_CONTROLLER_BACK_PIN);
+#endif
 #endif
 
     sleep_ms(500);
@@ -394,7 +340,7 @@ int main(void)
 #if !NEOPICO_USE_NONRT_HDMI
 #if NEOPICO_VIDEO_720P
     video_output_set_mode(&video_mode_720_p);
-#elif NEOPICO_EXP_REBOOT_MODE_SWITCH
+#elif NEOPICO_RESOLUTION_MENU
     if (reboot_boot_mode != VIDEO_PIPELINE_REBOOT_MODE_480P) {
         video_output_set_mode(video_output_mode_for_reboot_mode(reboot_boot_mode));
     }
@@ -410,7 +356,7 @@ int main(void)
     // The non-rt path doesn't expose video_output_update_acr; skip it.
     video_output_update_acr(get_current_pixel_clock_hz());
 #endif
-#if (!NEOPICO_VIDEO_DVI_ONLY || NEOPICO_ENABLE_OSD) && !NEOPICO_EXP_DISABLE_BACKGROUND_TASK
+#if !NEOPICO_VIDEO_DVI_ONLY || NEOPICO_ENABLE_OSD
     video_output_set_background_task(combined_background_task);
 #endif
 

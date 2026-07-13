@@ -10,10 +10,7 @@
 
 #include "pico/time.h"
 
-#include "hardware/gpio.h"
 #include "hardware/pio.h"
-
-#include <stdio.h>
 
 #include "audio_pipeline.h"
 #include "capture_pins.h"
@@ -22,57 +19,30 @@
 // Audio pipeline instance
 static audio_pipeline_t audio_pipeline;
 
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+static audio_source_t audio_source = AUDIO_SOURCE_MV1C_DIGITAL;
+
+void audio_subsystem_set_source(audio_source_t source)
+{
+    if (audio_source_is_valid((uint8_t)source)) {
+        audio_source = source;
+    }
+}
+
+audio_source_t audio_subsystem_get_source(void)
+{
+    return audio_source;
+}
+#endif
+
 // Audio state for HSTX encoding
 static int audio_frame_counter = 0;
 #define AUDIO_COLLECT_SIZE 128
 static audio_sample_t audio_collect_buffer[AUDIO_COLLECT_SIZE];
 static uint32_t audio_collect_count = 0;
-#if NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS
-static uint32_t audio_output_packet_budget = 0;
-#endif
 
 #ifndef NEOPICO_VIDEO_720P
 #define NEOPICO_VIDEO_720P 0
-#endif
-
-#ifndef NEOPICO_EXP_AUDIO_NO_CAPTURE_START
-#define NEOPICO_EXP_AUDIO_NO_CAPTURE_START 0
-#endif
-
-#ifndef NEOPICO_EXP_AUDIO_CAPTURE_ONLY
-#define NEOPICO_EXP_AUDIO_CAPTURE_ONLY 0
-#endif
-
-#ifndef NEOPICO_EXP_AUDIO_PROCESS_NO_OUTPUT
-#define NEOPICO_EXP_AUDIO_PROCESS_NO_OUTPUT 0
-#endif
-
-#ifndef NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE
-#define NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE 0
-#endif
-
-#ifndef NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK
-#define NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK 0
-#endif
-
-#ifndef NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS
-#define NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS 0
-#endif
-
-#ifndef NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE
-#define NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE 0
-#endif
-
-#ifndef NEOPICO_EXP_AUDIO_STARTUP_REARM
-#define NEOPICO_EXP_AUDIO_STARTUP_REARM 0
-#endif
-
-#ifndef NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE
-#define NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE 0
-#endif
-
-#ifndef NEOPICO_EXP_AUDIO_MANUAL_REARM
-#define NEOPICO_EXP_AUDIO_MANUAL_REARM 0
 #endif
 
 static inline bool audio_di_hsync_active(void)
@@ -89,22 +59,6 @@ static volatile bool audio_output_muted = true;
 static volatile bool audio_rearm_requested = false;
 
 static const audio_sample_t audio_silence[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
-
-#if NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE
-static hstx_data_island_t audio_static_silence_island;
-static bool audio_static_silence_ready = false;
-
-static const hstx_data_island_t *audio_static_silence_packet(void)
-{
-    if (!audio_static_silence_ready) {
-        hstx_packet_t packet;
-        (void)hstx_packet_set_audio_samples(&packet, audio_silence, 4, 0);
-        hstx_encode_data_island(&audio_static_silence_island, &packet, false, audio_di_hsync_active());
-        audio_static_silence_ready = true;
-    }
-    return &audio_static_silence_island;
-}
-#endif
 
 void audio_subsystem_set_muted(bool muted)
 {
@@ -133,50 +87,9 @@ static void audio_subsystem_rearm_capture(void)
     audio_pipeline_start(&audio_pipeline);
 }
 
-#if NEOPICO_EXP_AUDIO_MANUAL_REARM && NEOPICO_ENABLE_OSD
-static bool audio_manual_rearm_requested(void)
-{
-    enum {
-        MANUAL_REARM_HOLD_FRAMES = 30,    // ~0.5s at 60fps
-        MANUAL_REARM_RELEASE_FRAMES = 30, // require release before another trigger
-    };
-    static uint32_t held_frames = 0;
-    static uint32_t release_frames = MANUAL_REARM_RELEASE_FRAMES;
-    static bool armed = true;
-
-    const bool back_pressed = !gpio_get(PIN_OSD_BTN_BACK);
-    if (back_pressed) {
-        release_frames = 0;
-        if (held_frames < MANUAL_REARM_HOLD_FRAMES) {
-            held_frames++;
-        }
-    } else {
-        held_frames = 0;
-        if (release_frames < MANUAL_REARM_RELEASE_FRAMES) {
-            release_frames++;
-        }
-        if (release_frames >= MANUAL_REARM_RELEASE_FRAMES) {
-            armed = true;
-        }
-    }
-
-    if (armed && held_frames >= MANUAL_REARM_HOLD_FRAMES) {
-        armed = false;
-        return true;
-    }
-    return false;
-}
-#endif
-
 static void audio_output_callback(const audio_sample_t *samples, uint32_t count, void *ctx)
 {
     (void)ctx;
-
-#if NEOPICO_EXP_AUDIO_PROCESS_NO_OUTPUT
-    (void)samples;
-    audio_collect_count = 0;
-    return;
-#endif
 
     for (uint32_t i = 0; i < count; i++) {
         if (audio_collect_count < AUDIO_COLLECT_SIZE) {
@@ -184,24 +97,6 @@ static void audio_output_callback(const audio_sample_t *samples, uint32_t count,
         }
 
         if (audio_collect_count >= 4) {
-#if NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS
-            if (audio_output_packet_budget == 0) {
-                break;
-            }
-#endif
-#if NEOPICO_EXP_AUDIO_PUSH_STATIC_SILENCE
-            if (hstx_di_queue_push(audio_static_silence_packet())) {
-                audio_collect_count -= 4;
-                for (uint32_t j = 0; j < audio_collect_count; j++) {
-                    audio_collect_buffer[j] = audio_collect_buffer[j + 4];
-                }
-#if NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS
-                audio_output_packet_budget--;
-#endif
-            } else {
-                break;
-            }
-#else
             hstx_packet_t packet;
             const audio_sample_t *src = audio_output_muted ? audio_silence : audio_collect_buffer;
             int new_frame_counter = hstx_packet_set_audio_samples(&packet, src, 4, audio_frame_counter);
@@ -209,30 +104,15 @@ static void audio_output_callback(const audio_sample_t *samples, uint32_t count,
             hstx_data_island_t island;
             hstx_encode_data_island(&island, &packet, false, audio_di_hsync_active());
 
-#if NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE
-            audio_frame_counter = new_frame_counter;
-            audio_collect_count -= 4;
-            for (uint32_t j = 0; j < audio_collect_count; j++) {
-                audio_collect_buffer[j] = audio_collect_buffer[j + 4];
-            }
-#if NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS
-            audio_output_packet_budget--;
-#endif
-#else
             if (hstx_di_queue_push(&island)) {
                 audio_frame_counter = new_frame_counter;
                 audio_collect_count -= 4;
                 for (uint32_t j = 0; j < audio_collect_count; j++) {
                     audio_collect_buffer[j] = audio_collect_buffer[j + 4];
                 }
-#if NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS
-                audio_output_packet_budget--;
-#endif
             } else {
                 break;
             }
-#endif
-#endif
         }
     }
 }
@@ -290,10 +170,21 @@ static void audio_background_task_control(void)
             new_rate -= 10;
         }
 
-        if (new_rate < AUDIO_INPUT_RATE_MIN)
-            new_rate = AUDIO_INPUT_RATE_MIN;
-        if (new_rate > AUDIO_INPUT_RATE_MAX)
-            new_rate = AUDIO_INPUT_RATE_MAX;
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+        const uint32_t input_rate_min = (audio_pipeline.config.source == AUDIO_SOURCE_PCM1802_I2S)
+                                            ? AUDIO_PCM1802_RATE_MIN
+                                            : CAPTURE_AUDIO_RATE_MIN;
+        const uint32_t input_rate_max = (audio_pipeline.config.source == AUDIO_SOURCE_PCM1802_I2S)
+                                            ? AUDIO_PCM1802_RATE_MAX
+                                            : CAPTURE_AUDIO_RATE_MAX;
+#else
+        const uint32_t input_rate_min = AUDIO_INPUT_RATE_MIN;
+        const uint32_t input_rate_max = AUDIO_INPUT_RATE_MAX;
+#endif
+        if (new_rate < input_rate_min)
+            new_rate = input_rate_min;
+        if (new_rate > input_rate_max)
+            new_rate = input_rate_max;
 
         if (new_rate != current_rate) {
             audio_pipeline.src.input_rate = new_rate;
@@ -303,26 +194,18 @@ static void audio_background_task_control(void)
 
 static void audio_background_task(void)
 {
-#if NEOPICO_EXP_AUDIO_NO_CAPTURE_START || NEOPICO_EXP_AUDIO_CAPTURE_ONLY
-    return;
-#endif
     audio_background_task_control();
 
-#if NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS
-    audio_output_packet_budget = 1;
-#endif
     audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
-#if !NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK
     while (ap_ring_available(&audio_pipeline.capture_ring) > 0) {
         audio_pipeline_process(&audio_pipeline, audio_output_callback, NULL);
     }
-#endif
 }
 #endif
 
 // Audio startup state machine — runs from Core 1 background task
-// Minimal: wait for HSTX, init + start, brief warmup muted, optional capture
-// re-arm, then unmute and run.
+// Minimal: wait for HSTX, init + start, brief warmup muted, capture re-arm,
+// then unmute and run.
 enum {
     AUDIO_STATE_WAIT_HSTX, // Wait for HSTX to stabilize
     AUDIO_STATE_INIT,      // Initialize GPIO + PIO + DMA + start capture
@@ -358,13 +241,6 @@ void audio_subsystem_background_task(void)
         return;
     }
 
-#if NEOPICO_EXP_AUDIO_MANUAL_REARM && NEOPICO_ENABLE_OSD
-    if (audio_state == AUDIO_STATE_RUNNING && audio_manual_rearm_requested()) {
-        audio_subsystem_request_rearm();
-        return;
-    }
-#endif
-
     switch (audio_state) {
         case AUDIO_STATE_WAIT_HSTX:
             if (video_frame_count >= AUDIO_HSTX_SETTLE_FRAMES) {
@@ -378,13 +254,9 @@ void audio_subsystem_background_task(void)
             audio_subsystem_set_muted(false);
             audio_state = AUDIO_STATE_RUNNING;
 #else
-#if NEOPICO_EXP_AUDIO_NO_CAPTURE_START
-            audio_state = AUDIO_STATE_RUNNING;
-#else
             audio_subsystem_start();
             audio_state_enter_frame = video_frame_count;
             audio_state = AUDIO_STATE_WARM;
-#endif
 #endif
             break;
 
@@ -394,13 +266,7 @@ void audio_subsystem_background_task(void)
             // (filters are disabled in minimal path).
             audio_background_task();
             if (video_frame_count - audio_state_enter_frame >= AUDIO_WARM_FRAMES) {
-#if NEOPICO_EXP_AUDIO_STARTUP_REARM
                 audio_state = AUDIO_STATE_REARM;
-#else
-                audio_subsystem_flush_processing_state();
-                audio_subsystem_set_muted(false);
-                audio_state = AUDIO_STATE_RUNNING;
-#endif
             }
             break;
 
@@ -442,6 +308,9 @@ void audio_subsystem_init(void)
                                             .pin_btn2 = PIN_OSD_BTN_BACK,
                                             .pio = pio2,
                                             .sm = 0};
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+    audio_config.source = audio_source;
+#endif
 
     audio_pipeline_init(&audio_pipeline, &audio_config);
 }

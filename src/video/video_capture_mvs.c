@@ -76,14 +76,6 @@ static void video_capture_diag_tick(uint32_t input_frames)
 #define ENABLE_DARK_SHADOW 0
 #endif
 
-#ifndef NEOPICO_CAPTURE_FREEZE_AFTER_FRAME
-#define NEOPICO_CAPTURE_FREEZE_AFTER_FRAME 0
-#endif
-
-#ifndef NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE
-#define NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE 0
-#endif
-
 // =============================================================================
 // MVS Timing Constants
 // =============================================================================
@@ -566,20 +558,16 @@ void video_capture_run(void)
 #if NEOPICO_DIAG_COUNTERS
             g_line_ring_diag.sync_resets++;
 #endif
-#if NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE
             audio_rearm_on_next_signal = true;
-#endif
             video_capture_reset_hardware();
             tud_task();
             continue;
         }
 
-#if NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE
         if (audio_rearm_on_next_signal) {
             audio_subsystem_request_rearm();
             audio_rearm_on_next_signal = false;
         }
-#endif
 
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
         g_mvs_vsync_timestamp = timer_hw->timerawl;
@@ -643,16 +631,6 @@ void video_capture_run(void)
 
             line_ring_commit(g_mvs_height);
         }
-
-#if NEOPICO_CAPTURE_FREEZE_AFTER_FRAME
-        dma_channel_abort(g_dma_chan);
-        pio_sm_set_enabled(g_pio_mvs, g_sm_pixel, false);
-        pio_sm_set_enabled(g_pio_mvs, g_sm_sync, false);
-        while (1) {
-            tud_task();
-            tight_loop_contents();
-        }
-#endif
 
 #if NEOPICO_DIAG_COUNTERS
         video_capture_diag_tick(g_frame_count);

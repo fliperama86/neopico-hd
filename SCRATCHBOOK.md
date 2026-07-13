@@ -1348,6 +1348,25 @@ Working implication for this board:
 - Correction after user challenge: RP2350 GPIO0-GPIO7 are `Digital IO (FT)`, unlike RP2040 GPIO. The RP2350 datasheet permits up to 5.5 V on FT inputs when IOVDD is powered at 3.3 V, so AES controller lines may connect directly to J5 GP0-GP3 during normal jointly-powered operation. Previous statement that level shifting was always required was wrong. Important limit: with IOVDD unpowered, FT input maximum is 3.63 V; use translation/isolation if AES may drive 5 V while NeoPico is off. Configure as input, no internal pull, active-low; optional 1-4.7k series resistors provide fault/ESD current limiting.
 - AES3-6 controller tap recommendation: use Player 1 connector `CN1` solder tails or nearby pads, verified by continuity to the front contacts while fully unpowered. Front view looking into console port is top row `8 7 6 5 4 3 2 1`, bottom row `15 14 13 12 11 10 9`. Relevant pins: UP 15, DOWN 7, START 11, SELECT 3, GND 1. Preferred direct mapping is CN1 pins 15/7/11/3 to J5 pins 1/2/3/4 (GP0/1/2/3); do not connect controller +5 V pin 8.
 - Controller tap refinement: CN1 solder tails are on the cable side, before the AES series EMI/filter components. They work electrically for slow active-low inputs, but the preferred tap is the console/NEO-B1 side of each corresponding filter so the RP2350 benefits from the AES cable EMI/ESD filtering. The GP input is high impedance, so either side does not materially load game controls; after-filter is safer/cleaner.
+- More accessible AES controller taps identified at the through-hole CRE401 SIP networks after the filters. Player 1 mapping from the AES controller schematic: `CR5 pin 3 / OUT1 / IN00` = UP, `CR5 pin 5 / OUT2 / IN01` = DOWN, `CR3 pin 3 / OUT1 / IN20` = START, `CR3 pin 5 / OUT2 / IN21` = SELECT. Preferred wiring: those four pads to J5 GP0/GP1/GP2/GP3. CR3 and CR5 are the red 10-pin packs above CN1; use their larger underside solder pads, identify square pad 1 and count pin numbers, and verify against CN1 with the console fully unpowered because underside orientation is mirrored.
+- Terminology correction: AES controller inputs are handled by `NEO-C1`, not `NEO-B1`. Prior "console/NEO-B1 side" wording means the downstream console-logic side of the filter, specifically toward NEO-C1.
+
+## 2026-07-12 - AES START/SELECT OSD input implementation
+- User wired START and SELECT to GP0/GP1 but is not fully certain of their order. Initial firmware assumption is START=GP0 and SELECT=GP1; pin numbers are CMake cache settings so they can be swapped without source edits.
+- Added `NEOPICO_OSD_CONTROLLER_INPUTS` default OFF. When enabled, GP0 is an additional MENU input and GP1 an additional BACK input, while physical GP25/GP26 buttons remain active. Controller GPIOs are inputs with internal pulls disabled and are sampled only in the existing Core 1 OSD background task.
+- Validation passed: pre-commit hooks, default MVS build, SNES build, and fresh Release PCM1802 + controller-input build. Candidate UF2: `/tmp/neopico-hd-pcm1802-controller/src/neopico_hd.uf2`, configured START/MENU=GP0 and SELECT/BACK=GP1.
+- Pending coordinated flash. If controls are reversed in hardware, rebuild with MENU pin 1 and BACK pin 0.
+- User acknowledged the exact command. Flashed `/tmp/neopico-hd-pcm1802-controller/src/neopico_hd.uf2` successfully with `pi flash`; RP2350 rebooted into application mode. Awaiting hardware confirmation of GP0/GP1 button order.
+- Workflow correction from user: do not place NeoPico build directories/artifacts under `/tmp`; use `main` and a build directory inside the repository. Source edits were already on repo `main`, but the external temporary build path was contrary to preference. Use a repo-local build path for subsequent builds and flashes.
+
+## 2026-07-13 - Controller chord, swap, and debounce
+- Hardware result: original assumption was reversed. Correct mapping is START/MENU=GP1 and SELECT/BACK=GP0.
+- Updated controller OSD behavior: while hidden, START alone does nothing and a debounced START+SELECT chord opens the root menu once. While visible, START remains MENU/confirm and SELECT remains BACK/cycle.
+- Added configurable 30 ms per-input stable-state debounce and press-transition events, so holding a controller button cannot repeat/toggle actions. Controller inputs remain flag-gated OFF by default; physical GP25/GP26 buttons retain existing behavior.
+- Validation passed: pre-commit hooks, default MVS build, SNES build, and PCM1802/controller Release build. Repo-local artifact: `build-pcm1802-controller/src/neopico_hd.uf2`, configured GP1 START, GP0 SELECT, 30 ms debounce. Pending coordinated flash.
+- User acknowledged the repo-local flash command. `pi flash build-pcm1802-controller/src/neopico_hd.uf2` completed successfully and rebooted the RP2350 into application mode.
+- Hardware result: 30 ms stable-low debounce misses some START/SELECT presses. Root cause is the implementation requiring the pressed level to survive two Core 1 background polls at least 30 ms apart; audio work runs before the OSD poll, so short taps can disappear between polls.
+- Proposed correction, awaiting approval: generate the press event immediately on the first active-low edge, then lock it out until the input has remained released for about 20 ms. This preserves one event per physical press and bounce protection while eliminating the stable-low capture delay that loses taps.
 
 ## 2026-07-12 - PCM1802 servo fix: user implemented, reviewed and verified
 - User implemented the proposed fix themselves (audio_config.h AUDIO_INPUT_RATE_MIN/MAX 47000-49000 under flag, src.h SRC_INPUT_RATE_DEFAULT=AUDIO_INPUT_RATE, subsystem clamp uses new macros, LINEAR default for PCM1802||SNES). Review: correct, matches proposal exactly.
@@ -1380,3 +1399,50 @@ Working implication for this board:
 - neopico-hd: commit 267ae19 on main (submodule bump to b6422ee + NEOPICO_DIAG_AUDIO_OSD default OFF). NOT pushed, user still soaking; push/release when ready (submodule side is already pushed so CI will resolve).
 - Verified before committing: fresh no-flags MVS build contains the pacing symbol (default really ON); build with explicit OFF is byte-identical to the pre-change baseline (clean rollback); pre-commit hooks passed.
 - User's currently flashed soak UF2 (pcm1802+diag+pacing) is functionally the new default plus diag, so the soak remains representative.
+
+## 2026-07-12 - Why exact pacing was off by default (user question)
+- Answer: the flag never pre-existed; it was created today OFF-by-default per AGENTS.md experiment policy (flag-gated, byte-identical default, flip after hardware soak), then promoted.
+- Pacing lineage in pico_hdmi: 6700cec set_sample_rate assumed exactly 60 Hz (exact for 480p, 25.2MHz/800x525); d984db4 240p landed with known audio issues; e2a4022 (2026-02-07) fixed the 60.114 Hz mismatch (~91 excess samples/s, periodic dropouts) with floor-truncated 16.16 spl, leaving the ~0.2 samples/s residual; b6422ee (today) removes the residual with the rational remainder.
+
+## 2026-07-12 - Exact pacing coverage across modes (user question)
+- Verified per-mode: configure_audio_packets runs at init, on apply_mode (runtime switch), and on sample-rate change, so each mode derives rem/den from its own h_total/pixel clock. Old deficits: 480p 0.183/s, 240p 0.183/s, 720p 0.089/s; now exactly 48000.000 in all three. CTS=pclk/1000 is integer-exact for 25.2MHz and 74.4MHz, so delivered == ACR-advertised in every shipped mode.
+- Scope limits: non-RT builds (video_output.c) still floor-truncate (not used by selector firmware); genlock experiments slew CTS by design (flags OFF); the fix addresses only the pacing-drift drop mechanism, not vsync-loss rearm mutes or Core-1 starvation (AU diag covers the latter).
+
+## 2026-07-12 - Documentation pass for the audio work (commit cc6cd94)
+- HSTX_IMPLEMENTATION.md: new "Pacing & Clock Accuracy" + "Underrun Diagnostics" subsections under HDMI Audio (pacing derivation, truncation-drift history e2a4022 -> b6422ee, PICO_HDMI_EXACT_AUDIO_PACING default ON + rollback, AU counter usage).
+- KNOWN_ISSUES.md: added "5. Rare Periodic HDMI Audio Dropouts (Resolved 2026-07-12)" with root cause, fix commits (pico_hdmi b6422ee, neopico 267ae19), and the two remaining distinct mechanisms (rearm mute, Core-1 starvation + AU diag).
+- MVS_MV1C_DIGITAL_AUDIO.md: new "Analog Sources (PCM1802 / AES builds)" subsection (source-aware servo window 47000-49000, pre-52d9375 harshness bug, why LINEAR is the PCM1802/SNES default).
+- Verified no em dashes in added lines; pre-commit hooks passed. Not pushed (main still unpushed by design; user pushes when soak is done). User separately committed hardware work as b7ccd12.
+
+## 2026-07-13 - Runtime Audio menu implementation in progress
+- User approved a flag-gated persistent Audio menu with `MV1C Digital` and `PCM1802 I2S`, applied by reboot, plus the missed-controller-press correction.
+- Design keeps the settings payload/version at 32 bytes: audio source occupies two formerly reserved bytes and uses marker `0xA5`, so old records retain their resolution and fall back to the build's compile-time audio default.
+- Added `NEOPICO_AUDIO_RUNTIME_SELECT` default OFF. It is limited to the MVS runtime-mode OSD/settings build; default MVS and SNES builds remain on their compile-time audio paths.
+- Controller handling now fires on the first observed active-low edge, suppresses repeats while held/bouncing, and rearms only after a stable release. Default release debounce is 20 ms.
+- Tooling correction: plain `clang-format` was not on PATH; use the repository hook's `/opt/homebrew/opt/llvm/bin/clang-format` fallback directly.
+- Review caught and fixed a flag interaction before hardware testing: a runtime `MV1C Digital` choice must explicitly use DROP mode even when `NEOPICO_AUDIO_PCM1802=ON` makes PCM1802 the old-settings fallback.
+- Persistence review caught an old-record edge case: confirming the active compile-time fallback now writes the audio-source marker and current resolution, instead of returning without actually recording the explicit choice.
+- Validation passed: featured Release build (`PCM1802=ON`, runtime Audio selector ON, controller GP1/GP0, 20 ms release debounce), flag-off MVS Release, flag-off SNES Release, `git diff --check`, clang-format, and clang-tidy/pre-commit.
+- Repo-local candidate: `build-pcm1802-controller/src/neopico_hd.uf2`, SHA-256 `b1fe9f98c4ccad22d13ff694a390b50cfa5c7574b465b7bb6346b706771ec24f`. No hardware command or flash performed.
+- User acknowledged the exact repo-local flash command. `pi flash build-pcm1802-controller/src/neopico_hd.uf2` completed successfully and rebooted the RP2350 into application mode. Awaiting controller debounce and persistent Audio menu hardware verification.
+- Hardware verification: controller behavior and Audio menu work, but the first-run runtime Audio fallback incorrectly appeared as `PCM1802 I2S`. User correction: runtime-select firmware must default to `MV1C Digital`; only an explicitly persisted selection may override it. `NEOPICO_AUDIO_PCM1802` should remain the source choice only for builds without the runtime selector.
+
+## 2026-07-13 - Compile-flag cleanup audit
+- User requested cleanup because the CMake surface has accumulated many stale flags. Audit found roughly 25 April-era timing-isolation/A-B flags still threaded through CMake/source despite all being default OFF and absent from CI/release builds.
+- Recommended cleanup: delete obsolete selector isolation, background-disable, audio pipeline bypass, legacy InfoFrame/alignment, manual rearm, capture-freeze, soak-open, stress, and deprecated alias flags; normalize source to the current production behavior.
+- Recommend replacing the interacting `NEOPICO_AUDIO_PCM1802` + `NEOPICO_AUDIO_RUNTIME_SELECT` pair with one audio-mode cache string (`DIGITAL`, `PCM1802`, or `SELECTABLE`). MVS `SELECTABLE` defaults to MV1C unless flash contains an explicit source; SNES remains digital.
+- Keep genuinely active build/product choices and ongoing experiments: capture target, output modes/non-RT, copy-to-RAM, OSD/selftest/settings/controller, DARK/SHADOW, test/diagnostic outputs, precomposed HDMI, genlock, triple-ASM, and audio underrun OSD.
+
+## 2026-07-13 - Compile-flag cleanup implemented and validated
+- User approved the audited cleanup. Removed about 25 obsolete A/B, timing-isolation, audio-bypass, selector-soak, manual-rearm, alignment, and capture-freeze CMake flags plus their dead source branches. Current production audio startup/rearm/frame-resync behavior is now direct code.
+- Replaced `NEOPICO_AUDIO_PCM1802` plus `NEOPICO_AUDIO_RUNTIME_SELECT` with `NEOPICO_AUDIO_MODE=DIGITAL|PCM1802|SELECTABLE`. Fresh MVS defaults to `SELECTABLE`; fresh SNES defaults to `DIGITAL`; fixed AES builds use `PCM1802`.
+- Corrected selectable first-run behavior: the in-memory source initializes to `AUDIO_SOURCE_MV1C_DIGITAL`; flash overrides it only when the explicit audio-source marker is valid. A previously persisted PCM selection remains honored and must be changed once through the menu if MV1C is desired.
+- Renamed stable product flags: `NEOPICO_RESOLUTION_MENU`, `NEOPICO_RESOLUTION_MENU_720P`, and `NEOPICO_FIRST_BOOT_REBOOT`. Remaining `NEOPICO_EXP_*` flags are only active precomposed/genlock/VTOTAL experiments.
+- Updated README build recipes, audio/resolution/glitch docs, and firmware audit reporting for the simplified flag surface.
+- Validation passed: repo-local featured selectable/controller build, fresh default MVS (`SELECTABLE`), fresh default SNES (`DIGITAL`), fixed MVS PCM1802, `git diff --check`, formatting hooks, and firmware timing/layout audit with no findings. Clang-tidy remains blocked by its host-Clang versus ARM-sysroot header mismatch; its one unsafe auto-fix was reverted and the target rebuilt successfully.
+- Current repo-local candidate: `build-pcm1802-controller/src/neopico_hd.uf2`, SHA-256 `7aa4fa459ce7aaa74ead25a525ba0010bc13a4508c3bf89a8553aac6eb8b9b11`. Not flashed during this cleanup.
+
+## 2026-07-13 - v0.9.0 release scope
+- User requested pushing `main` and publishing a release. Selected `v0.9.0` because the firmware adds controller-driven persistent Audio selection and replaces public CMake audio/resolution flags.
+- Release scope is the tested firmware, documentation, audit, and memory changes. Explicitly excluded unrelated local KiCad UI-state change `hardware/neopico-hd/neopico-hd.kicad_prl`.
+- Repository workflow builds fresh MVS and SNES UF2/ELF artifacts plus fabrication files from a `v*` tag, then creates the GitHub release automatically.

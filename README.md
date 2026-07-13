@@ -106,6 +106,14 @@ cmake --build build_720p_nonrt --target neopico_hd -j4
 # Optional standalone HDMI/OSD self-test firmware
 cmake -S . -B build_selftest -DNEOPICO_BUILD_SELFTEST=ON
 cmake --build build_selftest --target neopico_selftest -j4
+
+# MVS/AES universal build with the persistent Audio menu (the MVS default)
+cmake -S . -B build_audio_menu -DNEOPICO_AUDIO_MODE=SELECTABLE
+cmake --build build_audio_menu --target neopico_hd -j4
+
+# Fixed-source AES build without the Audio menu
+cmake -S . -B build_pcm1802 -DNEOPICO_AUDIO_MODE=PCM1802
+cmake --build build_pcm1802 --target neopico_hd -j4
 ```
 
 ## Architecture

@@ -62,26 +62,23 @@ SECTIONS_TO_SHOW = (
 )
 
 FLAGS_TO_SHOW = (
+    "NEOPICO_CAPTURE_TARGET",
+    "NEOPICO_AUDIO_MODE",
     "NEOPICO_ENABLE_OSD",
+    "NEOPICO_OSD_CONTROLLER_INPUTS",
     "NEOPICO_VIDEO_240P",
     "NEOPICO_VIDEO_720P",
+    "NEOPICO_USE_NONRT_HDMI",
+    "NEOPICO_COPY_TO_RAM",
     "NEOPICO_VIDEO_DVI_ONLY",
-    "NEOPICO_EXP_REBOOT_MODE_SWITCH",
-    "NEOPICO_EXP_REBOOT_MODE_SWITCH_720P",
-    "NEOPICO_EXP_REBOOT_BUTTON_CYCLER",
-    "NEOPICO_EXP_RAM_SELECTOR_UI",
-    "NEOPICO_EXP_STATIC_OSD_APPLY",
-    "NEOPICO_EXP_RAM_OSD_APPLY_PATH",
-    "NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND",
-    "NEOPICO_EXP_DISABLE_OSD_BACKGROUND",
-    "NEOPICO_EXP_AUDIO_NO_CAPTURE_START",
-    "NEOPICO_EXP_AUDIO_CAPTURE_ONLY",
-    "NEOPICO_EXP_AUDIO_PROCESS_NO_OUTPUT",
-    "NEOPICO_EXP_AUDIO_ENCODE_NO_QUEUE",
-    "NEOPICO_EXP_AUDIO_LIMIT_BACKGROUND_WORK",
-    "NEOPICO_EXP_AUDIO_LIMIT_OUTPUT_PACKETS",
-    "NEOPICO_EXP_RAM_DI_QUEUE_PUSH",
-    "NEOPICO_EXP_LEGACY_240P_AVI_INFOFRAME",
+    "NEOPICO_RESOLUTION_MENU",
+    "NEOPICO_RESOLUTION_MENU_720P",
+    "NEOPICO_FIRST_BOOT_REBOOT",
+    "NEOPICO_SETTINGS_FLASH",
+    "NEOPICO_EXP_PRECOMPOSED_HDMI",
+    "NEOPICO_EXP_GENLOCK_DYNAMIC",
+    "NEOPICO_DIAG_COUNTERS",
+    "NEOPICO_DIAG_AUDIO_OSD",
 )
 
 
@@ -364,14 +361,12 @@ def audit_report(
         if len(refs) > 4:
             findings.append(Finding("WARN", f"{name} has {len(refs) - 4} more possible flash references"))
 
-    audio_bg_disabled = flags.get("NEOPICO_EXP_DISABLE_AUDIO_BACKGROUND") == "ON"
     for name in background_symbols:
         symbol = symbols.get(name)
         if symbol is None:
             continue
         if in_flash(symbol.addr):
-            severity = "INFO" if audio_bg_disabled and name.startswith("audio_") else "WARN"
-            findings.append(Finding(severity, f"background/Core1 symbol is flash-resident: {symbol_line(symbol)}"))
+            findings.append(Finding("WARN", f"background/Core1 symbol is flash-resident: {symbol_line(symbol)}"))
 
     return Report(elf=elf, sections=sections, symbols=symbols, disasm=disasm, flags=flags, findings=findings)
 

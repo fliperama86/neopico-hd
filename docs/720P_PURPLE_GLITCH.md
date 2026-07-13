@@ -155,13 +155,13 @@ Firm now: it's a **content-independent global TMDS transient** (black bars corru
 ```bash
 # FIFO probe on Self Test (RT 720p, genlock-off):
 cmake ... -DNEOPICO_VIDEO_720P=ON -DNEOPICO_USE_NONRT_HDMI=OFF \
-  -DNEOPICO_EXP_REBOOT_MODE_SWITCH=OFF -DNEOPICO_EXP_REBOOT_MODE_SWITCH_720P=OFF \
-  -DNEOPICO_OSD_RES_CONFIRM=OFF -DNEOPICO_EXP_FIRST_BOOT_REBOOT=OFF
+  -DNEOPICO_RESOLUTION_MENU=OFF -DNEOPICO_RESOLUTION_MENU_720P=OFF \
+  -DNEOPICO_OSD_RES_CONFIRM=OFF -DNEOPICO_FIRST_BOOT_REBOOT=OFF
 #   + src/CMakeLists.txt: target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_PERF_PROBE=1)
 
-# Capture-freeze (real busy frame, Core 0 stopped):
-cmake ... -DNEOPICO_VIDEO_720P=ON -DNEOPICO_USE_NONRT_HDMI=OFF \
-  -DNEOPICO_CAPTURE_FREEZE_AFTER_FRAME=ON  (+ same OSD/reboot OFF flags)
+# The one-frame capture-freeze isolation flag used during this investigation
+# was removed after the capture path was ruled out. Use NEOPICO_DIAG_COUNTERS
+# or NEOPICO_VIDEO_TEST_PATTERN for current capture/output isolation work.
 
 # Torture/checkerboard demo: lib/pico_hdmi/examples/bouncing_box_rt + #define TORTURE_PATTERN
 ```

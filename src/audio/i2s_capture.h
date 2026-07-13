@@ -12,6 +12,7 @@
 
 #include "audio_buffer.h"
 #include "audio_common.h"
+#include "audio_source.h"
 
 // I2S capture configuration
 typedef struct {
@@ -20,6 +21,9 @@ typedef struct {
     uint pin_ws;  // Word select (LRCK) pin
     PIO pio;      // PIO instance to use
     uint sm;      // State machine to use
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+    audio_source_t source;
+#endif
 } i2s_capture_config_t;
 
 // I2S capture state

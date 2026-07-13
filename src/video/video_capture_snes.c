@@ -25,10 +25,6 @@
 #include "tusb.h"
 #include "video_capture_snes.pio.h"
 
-#ifndef NEOPICO_CAPTURE_FREEZE_AFTER_FRAME
-#define NEOPICO_CAPTURE_FREEZE_AFTER_FRAME 0
-#endif
-
 #ifndef NEOPICO_SNES_CAPTURE_WARMUP_FRAMES
 #define NEOPICO_SNES_CAPTURE_WARMUP_FRAMES 60
 #endif
@@ -231,15 +227,6 @@ void video_capture_run(void)
 
             line_ring_commit(line + 1);
         }
-
-#if NEOPICO_CAPTURE_FREEZE_AFTER_FRAME
-        dma_channel_abort(g_dma_chan);
-        pio_sm_set_enabled(g_pio_snes, g_sm_pixel, false);
-        while (1) {
-            tud_task();
-            tight_loop_contents();
-        }
-#endif
     }
 }
 

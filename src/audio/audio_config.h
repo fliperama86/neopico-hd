@@ -6,6 +6,7 @@
 #ifndef AUDIO_CONFIG_H
 #define AUDIO_CONFIG_H
 
+#include "audio_source.h"
 #include "capture_profile.h"
 
 // =============================================================================
@@ -17,13 +18,17 @@
 #define AUDIO_BUFFER_SIZE 1024
 
 // Sample rates
-#if NEOPICO_AUDIO_PCM1802
+#define AUDIO_PCM1802_INPUT_RATE 48000
+#define AUDIO_PCM1802_RATE_MIN 47000
+#define AUDIO_PCM1802_RATE_MAX 49000
+
+#if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_PCM1802
 // PCM1802 ADC with 12.288 MHz crystal: 12288000 / 256 = 48000 Hz exactly
-#define AUDIO_INPUT_RATE 48000
+#define AUDIO_INPUT_RATE AUDIO_PCM1802_INPUT_RATE
 // The PCM1802 clock is independent of the MVS video-derived audio clock.
 // Keep the DI queue feedback servo close to its nominal 48 kHz rate.
-#define AUDIO_INPUT_RATE_MIN 47000
-#define AUDIO_INPUT_RATE_MAX 49000
+#define AUDIO_INPUT_RATE_MIN AUDIO_PCM1802_RATE_MIN
+#define AUDIO_INPUT_RATE_MAX AUDIO_PCM1802_RATE_MAX
 #else
 #define AUDIO_INPUT_RATE CAPTURE_AUDIO_INPUT_RATE
 #define AUDIO_INPUT_RATE_MIN CAPTURE_AUDIO_RATE_MIN

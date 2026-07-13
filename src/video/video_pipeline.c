@@ -18,7 +18,7 @@
 #if NEOPICO_ENABLE_OSD
 #include "osd/fast_osd.h"
 #endif
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+#if NEOPICO_RESOLUTION_MENU
 #include "hardware/structs/watchdog.h"
 #include "hardware/watchdog.h"
 #endif
@@ -44,24 +44,20 @@
 #define NEOPICO_VIDEO_720P 0
 #endif
 
-#ifndef NEOPICO_EXP_REBOOT_MODE_SWITCH
-#define NEOPICO_EXP_REBOOT_MODE_SWITCH 0
+#ifndef NEOPICO_RESOLUTION_MENU
+#define NEOPICO_RESOLUTION_MENU 0
 #endif
 
-#ifndef NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
-#define NEOPICO_EXP_REBOOT_MODE_SWITCH_720P 0
+#ifndef NEOPICO_RESOLUTION_MENU_720P
+#define NEOPICO_RESOLUTION_MENU_720P 0
 #endif
 
-#ifndef NEOPICO_EXP_RAM_OSD_APPLY_PATH
-#define NEOPICO_EXP_RAM_OSD_APPLY_PATH 0
+#if NEOPICO_RESOLUTION_MENU && NEOPICO_USE_NONRT_HDMI
+#error "NEOPICO_RESOLUTION_MENU requires the rt PicoHDMI path"
 #endif
 
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH && NEOPICO_USE_NONRT_HDMI
-#error "NEOPICO_EXP_REBOOT_MODE_SWITCH requires the rt PicoHDMI path"
-#endif
-
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH && NEOPICO_VIDEO_720P
-#error "Use NEOPICO_EXP_REBOOT_MODE_SWITCH_720P for 720p reboot switching; do not combine with NEOPICO_VIDEO_720P"
+#if NEOPICO_RESOLUTION_MENU && NEOPICO_VIDEO_720P
+#error "Use NEOPICO_RESOLUTION_MENU_720P for 720p reboot switching; do not combine with NEOPICO_VIDEO_720P"
 #endif
 
 // Scanline effect toggle (off by default)
@@ -75,15 +71,15 @@ typedef void (*pixel_scale_fn_t)(uint32_t *dst, const uint16_t *src, int count);
 // No-signal fallback color (RGB565): mid gray.
 #define NO_SIGNAL_COLOR_RGB565 0x7BEF
 
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+#if NEOPICO_RESOLUTION_MENU
 static void __scratch_x("000_video_pipeline_480p")
     video_pipeline_scanline_callback_480p(uint32_t v_scanline, uint32_t active_line, uint32_t *dst);
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+#if NEOPICO_RESOLUTION_MENU_720P
 static void video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst);
 #endif
 #endif
 
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+#if NEOPICO_RESOLUTION_MENU
 static video_pipeline_reboot_mode_t reboot_requested_mode =
     (NEOPICO_VIDEO_240P != 0) ? VIDEO_PIPELINE_REBOOT_MODE_240P : VIDEO_PIPELINE_REBOOT_MODE_480P;
 #define REBOOT_MODE_BOOT_MAGIC 0x4e505253U
@@ -96,7 +92,7 @@ static video_pipeline_reboot_mode_t reboot_requested_mode =
 // The new mode is NOT persisted to flash until the user confirms; cancel/timeout
 // reboots to the previous mode (flash still holds the last confirmed resolution).
 #define REBOOT_PENDING_MAGIC 0x4e505000U // "NPP" in bits [31:8]
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+#if NEOPICO_RESOLUTION_MENU_720P
 #define REBOOT_MODE_MAX VIDEO_PIPELINE_REBOOT_MODE_720P
 #else
 #define REBOOT_MODE_MAX VIDEO_PIPELINE_REBOOT_MODE_240P
@@ -439,10 +435,10 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
 #endif
     video_output_init(frame_width, frame_height);
     video_output_set_vsync_callback(video_pipeline_vsync_callback);
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+#if NEOPICO_RESOLUTION_MENU
     if (video_output_active_mode->v_active_lines == 720U) {
         reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_720P;
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+#if NEOPICO_RESOLUTION_MENU_720P
         video_output_set_scanline_callback(video_pipeline_scanline_callback_reboot_modes);
 #else
         video_output_set_scanline_callback(video_pipeline_scanline_callback_480p);
@@ -482,12 +478,8 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
 #endif
 }
 
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH
-#if NEOPICO_EXP_RAM_OSD_APPLY_PATH
-#define VIDEO_PIPELINE_REBOOT_REQUEST_RAM(name) __no_inline_not_in_flash_func(name)
-#else
+#if NEOPICO_RESOLUTION_MENU
 #define VIDEO_PIPELINE_REBOOT_REQUEST_RAM(name) name
-#endif
 
 void VIDEO_PIPELINE_REBOOT_REQUEST_RAM(video_pipeline_request_reboot_mode)(video_pipeline_reboot_mode_t mode)
 {
@@ -886,7 +878,7 @@ void __scratch_x("") video_pipeline_vsync_callback(void)
 #endif
 }
 
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+#if NEOPICO_RESOLUTION_MENU
 static void __scratch_x("000_video_pipeline_480p")
     video_pipeline_scanline_callback_480p(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
 {
@@ -972,8 +964,8 @@ static void __scratch_x("000_video_pipeline_480p")
 }
 #endif
 
-#if (!NEOPICO_EXP_REBOOT_MODE_SWITCH || NEOPICO_EXP_REBOOT_MODE_SWITCH_720P) && !NEOPICO_EXP_PRECOMPOSED_HDMI
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH && NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+#if (!NEOPICO_RESOLUTION_MENU || NEOPICO_RESOLUTION_MENU_720P) && !NEOPICO_EXP_PRECOMPOSED_HDMI
+#if NEOPICO_RESOLUTION_MENU && NEOPICO_RESOLUTION_MENU_720P
 static void video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
 #else
 void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
@@ -981,9 +973,9 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
 {
     (void)v_scanline;
 
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH
+#if NEOPICO_RESOLUTION_MENU
     const bool mode_is_240p = (video_output_active_mode->v_active_lines == 240U);
-#if NEOPICO_EXP_REBOOT_MODE_SWITCH_720P
+#if NEOPICO_RESOLUTION_MENU_720P
     const bool mode_is_720p = (video_output_active_mode->v_active_lines == 720U);
     const uint32_t h_words = (mode_is_240p || mode_is_720p) ? (1280U / 2U) : (640U / 2U);
     const uint32_t h_scale = mode_is_720p ? 3U : mode_is_240p ? 4U : 2U;
