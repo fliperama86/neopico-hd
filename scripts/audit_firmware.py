@@ -38,10 +38,7 @@ SCRATCH_SIZE = 4096
 DEFAULT_CRITICAL_SYMBOLS = (
     "dma_irq_handler",
     "build_line_with_di",
-    "rt_build_line_with_di",
-    "build_line_with_di_backporch",
     "hstx_di_queue_get_audio_packet",
-    "video_pipeline_scanline_callback_480p",
 )
 
 DEFAULT_BACKGROUND_SYMBOLS = (
@@ -456,7 +453,22 @@ def main(argv: list[str]) -> int:
 
     elf = resolve_elf(args.elf_or_build_dir)
     baseline_elf = resolve_elf(args.baseline) if args.baseline else None
-    critical = parse_symbol_arg(args.critical, DEFAULT_CRITICAL_SYMBOLS)
+    critical_list = list(parse_symbol_arg(args.critical, DEFAULT_CRITICAL_SYMBOLS))
+    flags = parse_flags(elf)
+    if flags.get("NEOPICO_RESOLUTION_MENU_720P") == "ON":
+        for symbol in ("rt_build_line_with_di", "build_line_with_di_backporch"):
+            if symbol not in critical_list:
+                critical_list.append(symbol)
+    if flags.get("NEOPICO_EXP_PRECOMPOSED_HDMI") != "ON":
+        scanline_symbol = (
+            "video_pipeline_scanline_callback_reboot_modes"
+            if flags.get("NEOPICO_RESOLUTION_MENU") == "ON"
+            and flags.get("NEOPICO_RESOLUTION_MENU_720P") == "ON"
+            else "video_pipeline_scanline_callback"
+        )
+        if scanline_symbol not in critical_list:
+            critical_list.append(scanline_symbol)
+    critical = tuple(critical_list)
     background = parse_symbol_arg(args.background, DEFAULT_BACKGROUND_SYMBOLS)
 
     report = audit_report(elf, args.tool_prefix, critical, background)

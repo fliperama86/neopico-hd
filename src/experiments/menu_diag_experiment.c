@@ -5,7 +5,8 @@
 
 #include "audio_source.h"
 
-#if NEOPICO_OSD_RES_CONFIRM || NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+#if (NEOPICO_SETTINGS_FLASH && NEOPICO_RESOLUTION_MENU) || NEOPICO_OSD_RES_CONFIRM ||                                  \
+    NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
 #include "settings.h"
 #endif
 
@@ -57,6 +58,10 @@ static void selftest_draw_resync_count(void)
 
 #ifndef NEOPICO_OSD_ROOT_MENU
 #define NEOPICO_OSD_ROOT_MENU 0
+#endif
+
+#ifndef NEOPICO_VERSION
+#define NEOPICO_VERSION "dev"
 #endif
 
 #define SELECTOR_UI_RAM(name) name
@@ -178,6 +183,35 @@ static inline bool osd_physical_back_pressed(void)
     return !gpio_get(PIN_OSD_BTN_BACK);
 }
 
+#if NEOPICO_SETTINGS_FLASH && NEOPICO_RESOLUTION_MENU
+#define FACTORY_RESET_HOLD_MS 5000U
+static bool s_factory_reset_chord_active;
+static uint32_t s_factory_reset_hold_start_ms;
+
+static void factory_reset_buttons_tick(void)
+{
+    const bool chord_pressed = osd_physical_menu_pressed() && osd_physical_back_pressed();
+    if (!chord_pressed) {
+        s_factory_reset_chord_active = false;
+        return;
+    }
+
+    const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+    if (!s_factory_reset_chord_active) {
+        s_factory_reset_chord_active = true;
+        s_factory_reset_hold_start_ms = now_ms;
+        return;
+    }
+
+    if ((now_ms - s_factory_reset_hold_start_ms) >= FACTORY_RESET_HOLD_MS) {
+        // Persist the recovery defaults before rebooting. This path is
+        // intentionally independent of OSD visibility and the current screen.
+        settings_factory_reset();
+        video_pipeline_request_reboot_mode(VIDEO_PIPELINE_REBOOT_MODE_480P);
+    }
+}
+#endif
+
 #if NEOPICO_OSD_CONTROLLER_INPUTS
 typedef struct {
     bool raw_pressed;
@@ -189,6 +223,8 @@ typedef struct {
 
 static osd_controller_button_t s_controller_start;
 static osd_controller_button_t s_controller_select;
+static osd_controller_button_t s_controller_up;
+static osd_controller_button_t s_controller_down;
 
 static void osd_controller_button_init(osd_controller_button_t *button, bool pressed, uint32_t now_ms)
 {
@@ -226,6 +262,8 @@ static void osd_controller_buttons_update(uint32_t now_ms)
 {
     osd_controller_button_update(&s_controller_start, !gpio_get(NEOPICO_OSD_CONTROLLER_MENU_PIN), now_ms);
     osd_controller_button_update(&s_controller_select, !gpio_get(NEOPICO_OSD_CONTROLLER_BACK_PIN), now_ms);
+    osd_controller_button_update(&s_controller_up, !gpio_get(NEOPICO_OSD_CONTROLLER_UP_PIN), now_ms);
+    osd_controller_button_update(&s_controller_down, !gpio_get(NEOPICO_OSD_CONTROLLER_DOWN_PIN), now_ms);
 }
 #endif
 
@@ -292,6 +330,23 @@ static video_pipeline_reboot_mode_t SELECTOR_UI_RAM(resolution_next)(video_pipel
 #endif
         default:
             return VIDEO_PIPELINE_REBOOT_MODE_240P;
+    }
+}
+
+static video_pipeline_reboot_mode_t SELECTOR_UI_RAM(resolution_previous)(video_pipeline_reboot_mode_t mode)
+{
+    // Cycle opposite the display order: 240p -> 720p/480p -> 480p -> 240p.
+    switch (mode) {
+        case VIDEO_PIPELINE_REBOOT_MODE_480P:
+            return VIDEO_PIPELINE_REBOOT_MODE_240P;
+#if NEOPICO_RESOLUTION_MENU_720P
+        case VIDEO_PIPELINE_REBOOT_MODE_240P:
+            return VIDEO_PIPELINE_REBOOT_MODE_720P;
+        case VIDEO_PIPELINE_REBOOT_MODE_720P:
+            return VIDEO_PIPELINE_REBOOT_MODE_480P;
+#endif
+        default:
+            return VIDEO_PIPELINE_REBOOT_MODE_480P;
     }
 }
 
@@ -375,8 +430,9 @@ static void SELECTOR_UI_APPLY_RAM(resolution_selector_apply)(void)
 #if NEOPICO_OSD_ROOT_MENU
 // ===========================================================================
 // Root OSD menu: each entry is present only if its feature is compiled in.
-// BACK cycles, MENU enters; leaf screens return
-// to the root on MENU; the root auto-hides after 8 s of inactivity. All
+// Controller UP/DOWN moves, START confirms, and SELECT returns. The two
+// physical buttons retain their legacy MENU-confirm/BACK-cycle behavior. The
+// root auto-hides after 8 s of inactivity. All
 // logic and drawing run on the Core 1 background tick -- nothing here may
 // ever touch the capture path or the scratch_x/scratch_y sections (see
 // SCRATCHBOOK: code presence in those areas has caused sync drops).
@@ -535,7 +591,7 @@ static void root_menu_render_entry(uint8_t idx)
 static void root_menu_draw(void)
 {
     fast_osd_clear();
-    fast_osd_puts_color(ROOT_TITLE_ROW, 2, "NeoPico-HD", OSD_COLOR_YELLOW);
+    fast_osd_puts_color(ROOT_TITLE_ROW, 2, "NeoPico-HD v" NEOPICO_VERSION, OSD_COLOR_YELLOW);
     for (uint8_t i = 0; i < (uint8_t)ROOT_ENTRY_COUNT; i++) {
         root_menu_render_entry(i);
     }
@@ -660,6 +716,9 @@ static void root_menu_buttons_tick(void)
     const bool back_pressed = osd_physical_back_pressed();
     bool menu_edge = menu_pressed && !s_btn_was_pressed && (now_ms - s_last_press_ms) >= 200U;
     bool back_edge = back_pressed && !s_back_was_pressed && (now_ms - s_last_back_press_ms) >= 200U;
+    bool controller_select_edge = false;
+    bool up_edge = false;
+    bool down_edge = false;
 #if NEOPICO_OSD_CONTROLLER_INPUTS
     if (s_screen == MENU_SCREEN_HIDDEN) {
         // Controller START alone must not open the OSD. Open once when the
@@ -667,10 +726,12 @@ static void root_menu_buttons_tick(void)
         menu_edge |= s_controller_start.stable_pressed && s_controller_select.stable_pressed &&
                      (s_controller_start.press_event || s_controller_select.press_event);
     } else {
-        // Once visible, preserve the existing navigation scheme: START is
-        // MENU/confirm and SELECT is BACK/cycle. press_event is one-shot.
+        // Once visible, controller navigation is distinct from the legacy
+        // two-button physical scheme. Each press_event is one-shot.
         menu_edge |= s_controller_start.press_event;
-        back_edge |= s_controller_select.press_event;
+        controller_select_edge = s_controller_select.press_event;
+        up_edge = s_controller_up.press_event;
+        down_edge = s_controller_down.press_event;
     }
 #endif
     if (menu_edge) {
@@ -691,7 +752,20 @@ static void root_menu_buttons_tick(void)
             break;
 
         case MENU_SCREEN_ROOT:
-            if (back_edge) {
+            if (controller_select_edge) {
+                osd_hide();
+                s_screen = MENU_SCREEN_HIDDEN;
+            } else if (up_edge != down_edge) {
+                const uint8_t prev = s_root_sel;
+                if (up_edge) {
+                    s_root_sel = (uint8_t)((s_root_sel + ROOT_ENTRY_COUNT - 1U) % ROOT_ENTRY_COUNT);
+                } else {
+                    s_root_sel = (uint8_t)((s_root_sel + 1U) % ROOT_ENTRY_COUNT);
+                }
+                root_menu_render_entry(prev);
+                root_menu_render_entry(s_root_sel);
+                s_root_last_input_ms = now_ms;
+            } else if (back_edge) {
                 const uint8_t prev = s_root_sel;
                 s_root_sel = (uint8_t)((s_root_sel + 1U) % ROOT_ENTRY_COUNT);
                 root_menu_render_entry(prev);
@@ -707,7 +781,13 @@ static void root_menu_buttons_tick(void)
 
 #if NEOPICO_REBOOT_SELECTOR_UI
         case MENU_SCREEN_RESOLUTION:
-            if (back_edge) {
+            if (controller_select_edge) {
+                root_menu_enter_root(now_ms);
+            } else if (up_edge != down_edge) {
+                const video_pipeline_reboot_mode_t previous_mode = s_selected_mode;
+                s_selected_mode = up_edge ? resolution_previous(s_selected_mode) : resolution_next(s_selected_mode);
+                resolution_selector_update_selection(previous_mode);
+            } else if (back_edge) {
                 const video_pipeline_reboot_mode_t previous_mode = s_selected_mode;
                 s_selected_mode = resolution_next(s_selected_mode);
                 resolution_selector_update_selection(previous_mode);
@@ -750,7 +830,9 @@ static void root_menu_buttons_tick(void)
 
 #if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
         case MENU_SCREEN_AUDIO:
-            if (back_edge) {
+            if (controller_select_edge) {
+                root_menu_enter_root(now_ms);
+            } else if ((up_edge != down_edge) || back_edge) {
                 const audio_source_t previous_source = s_selected_audio_source;
                 s_selected_audio_source = audio_source_next(s_selected_audio_source);
                 audio_selector_update_selection(previous_source);
@@ -778,7 +860,7 @@ static void root_menu_buttons_tick(void)
         case MENU_SCREEN_RES_CONFIRM: {
             if (menu_edge) {
                 res_confirm_keep();
-            } else if (back_edge || (int32_t)(now_ms - s_res_confirm_deadline_ms) >= 0) {
+            } else if (controller_select_edge || back_edge || (int32_t)(now_ms - s_res_confirm_deadline_ms) >= 0) {
                 res_confirm_revert(); // reboots; does not return
             } else {
                 int32_t secs = (int32_t)((s_res_confirm_deadline_ms - now_ms + 999U) / 1000U);
@@ -796,7 +878,7 @@ static void root_menu_buttons_tick(void)
 
 #if NEOPICO_ENABLE_SELFTEST
         case MENU_SCREEN_SELFTEST:
-            if (menu_edge) {
+            if (controller_select_edge || menu_edge) {
                 root_menu_enter_root(now_ms);
             }
             break;
@@ -804,7 +886,7 @@ static void root_menu_buttons_tick(void)
 
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
         case MENU_SCREEN_GENLOCK:
-            if (menu_edge) {
+            if (controller_select_edge || menu_edge) {
                 root_menu_enter_root(now_ms);
             }
             break;
@@ -820,10 +902,16 @@ void menu_diag_experiment_init(void)
 {
     s_btn_was_pressed = false;
     s_last_press_ms = 0;
+#if NEOPICO_SETTINGS_FLASH && NEOPICO_RESOLUTION_MENU
+    s_factory_reset_chord_active = false;
+    s_factory_reset_hold_start_ms = 0;
+#endif
 #if NEOPICO_OSD_CONTROLLER_INPUTS
     const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
     osd_controller_button_init(&s_controller_start, !gpio_get(NEOPICO_OSD_CONTROLLER_MENU_PIN), now_ms);
     osd_controller_button_init(&s_controller_select, !gpio_get(NEOPICO_OSD_CONTROLLER_BACK_PIN), now_ms);
+    osd_controller_button_init(&s_controller_up, !gpio_get(NEOPICO_OSD_CONTROLLER_UP_PIN), now_ms);
+    osd_controller_button_init(&s_controller_down, !gpio_get(NEOPICO_OSD_CONTROLLER_DOWN_PIN), now_ms);
 #endif
 #if NEOPICO_RESOLUTION_MENU
     s_back_was_pressed = false;
@@ -880,6 +968,9 @@ void menu_diag_experiment_on_menu_close(void)
 
 void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
 {
+#if NEOPICO_SETTINGS_FLASH && NEOPICO_RESOLUTION_MENU
+    factory_reset_buttons_tick();
+#endif
 #if NEOPICO_OSD_CONTROLLER_INPUTS
     osd_controller_buttons_update(to_ms_since_boot(get_absolute_time()));
 #endif

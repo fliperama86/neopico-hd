@@ -80,16 +80,17 @@ To ensure clean audio and video capture, follow these best practices:
 
 ## Prebuilt Firmware
 
-GitHub Releases include ready-to-flash UF2 files:
+GitHub Releases include ready-to-flash selector firmware. Each UF2 can switch
+between 240p, 480p, and 720p from the reboot-based OSD resolution menu.
 
-| Asset | Mode | Notes |
-| ----- | ---- | ----- |
-| `neopico_hd.uf2` | 480p HDMI | Default MV1C digital-audio build |
-| `neopico_hd_240p.uf2` | 240p HDMI | Runtime-mode 240p output |
-| `neopico_hd_720p_nonrt.uf2` | 720p HDMI | Experimental 1280x720 non-RT PicoHDMI path |
-| `neopico_hd_pcm1802.uf2` | 480p HDMI | PCM1802 analog-audio build |
+| Asset | Capture | Audio |
+| ----- | ------- | ----- |
+| `neopico_hd_mvs.uf2` | Neo Geo MVS/AES | Persistent MV1C Digital / PCM1802 I2S menu |
+| `neopico_hd_snes.uf2` | SNES | Digital input |
 
-The 720p build runs the RP2350 at 372 MHz with 1.3V core voltage. It uses the compile-time PicoHDMI path (`NEOPICO_USE_NONRT_HDMI=ON`) and the PicoHDMI HSTX fast-slew/12mA pad configuration.
+Matching ELF files and the `neopico-hd-jlcpcb.zip` fabrication package are also
+attached to each release. Controller-driven AES OSD navigation is opt-in for
+custom builds because GP0-GP3 may float on installations without those taps.
 
 ## Building
 
@@ -107,8 +108,10 @@ cmake --build build_720p_nonrt --target neopico_hd -j4
 cmake -S . -B build_selftest -DNEOPICO_BUILD_SELFTEST=ON
 cmake --build build_selftest --target neopico_selftest -j4
 
-# MVS/AES universal build with the persistent Audio menu (the MVS default)
-cmake -S . -B build_audio_menu -DNEOPICO_AUDIO_MODE=SELECTABLE
+# MVS/AES universal build with the persistent Audio menu and AES controller OSD
+cmake -S . -B build_audio_menu \
+  -DNEOPICO_AUDIO_MODE=SELECTABLE \
+  -DNEOPICO_OSD_CONTROLLER_INPUTS=ON
 cmake --build build_audio_menu --target neopico_hd -j4
 
 # Fixed-source AES build without the Audio menu

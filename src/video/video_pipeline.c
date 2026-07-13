@@ -72,10 +72,9 @@ typedef void (*pixel_scale_fn_t)(uint32_t *dst, const uint16_t *src, int count);
 #define NO_SIGNAL_COLOR_RGB565 0x7BEF
 
 #if NEOPICO_RESOLUTION_MENU
-static void __scratch_x("000_video_pipeline_480p")
-    video_pipeline_scanline_callback_480p(uint32_t v_scanline, uint32_t active_line, uint32_t *dst);
 #if NEOPICO_RESOLUTION_MENU_720P
-static void video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst);
+static void __scratch_x("000_video_pipeline_modes")
+    video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst);
 #endif
 #endif
 
@@ -438,18 +437,16 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
 #if NEOPICO_RESOLUTION_MENU
     if (video_output_active_mode->v_active_lines == 720U) {
         reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_720P;
-#if NEOPICO_RESOLUTION_MENU_720P
-        video_output_set_scanline_callback(video_pipeline_scanline_callback_reboot_modes);
-#else
-        video_output_set_scanline_callback(video_pipeline_scanline_callback_480p);
-#endif
     } else if (video_output_active_mode->v_active_lines == 240U) {
         reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_240P;
-        video_output_set_scanline_callback(video_pipeline_scanline_callback_480p);
     } else {
         reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
-        video_output_set_scanline_callback(video_pipeline_scanline_callback_480p);
     }
+#if NEOPICO_RESOLUTION_MENU_720P
+    video_output_set_scanline_callback(video_pipeline_scanline_callback_reboot_modes);
+#else
+    video_output_set_scanline_callback(video_pipeline_scanline_callback);
+#endif
 #elif NEOPICO_EXP_PRECOMPOSED_HDMI
 #if NEOPICO_VIDEO_720P
     // Pillarbox baked into every ring line once; prep only writes centers.
@@ -878,95 +875,10 @@ void __scratch_x("") video_pipeline_vsync_callback(void)
 #endif
 }
 
-#if NEOPICO_RESOLUTION_MENU
-static void __scratch_x("000_video_pipeline_480p")
-    video_pipeline_scanline_callback_480p(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
-{
-    (void)v_scanline;
-
-    const bool mode_is_240p = (video_output_active_mode->v_active_lines == 240U);
-    const uint32_t h_words = mode_is_240p ? (1280U / 2U) : (640U / 2U);
-    const uint32_t h_scale = mode_is_240p ? 4U : 2U;
-    const uint32_t image_words = (LINE_WIDTH * h_scale) / 2U;
-    const uint32_t x_margin_words = 0U;
-#if NEOPICO_ENABLE_OSD
-    const uint32_t osd_x_words = (((uint32_t)OSD_BOX_X * h_scale) / 2U);
-    const uint32_t osd_w_words = (((uint32_t)OSD_BOX_W * h_scale) / 2U);
-#endif
-    const pixel_scale_fn_t scale_pixels =
-        mode_is_240p ? video_pipeline_quadruple_pixels_fast : video_pipeline_double_pixels_fast;
-    const uint32_t fb_line = mode_is_240p ? active_line : (active_line >> 1);
-#define VIDEO_PIPELINE_SCALE_SELECTED(dst_arg, src_arg, count_arg) scale_pixels((dst_arg), (src_arg), (count_arg))
-
-#if NEOPICO_ENABLE_OSD
-    const uint32_t osd_line_u32 = fb_line - OSD_BOX_Y;
-    const bool osd_line_active = osd_visible_latched && (osd_line_u32 < OSD_BOX_H);
-#else
-    const bool osd_line_active = false;
-#endif
-
-    if (!osd_line_active) {
-        const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
-        // Single unsigned range check for active 224-line window.
-        if (mvs_line_u32 >= MVS_HEIGHT) {
-            video_pipeline_fill_rgb565(dst, h_words, OVERSCAN_COLOR_RGB565);
-            return;
-        }
-
-        const uint16_t mvs_line = (uint16_t)mvs_line_u32;
-        const uint16_t *src = NULL;
-        if (line_ring_ready(mvs_line)) {
-            src = line_ring_read_ptr(mvs_line);
-        }
-        if (!src) {
-            video_pipeline_fill_rgb565(dst, h_words, NO_SIGNAL_COLOR_RGB565);
-            return;
-        }
-        video_pipeline_fill_rgb565(dst, x_margin_words, OVERSCAN_COLOR_RGB565);
-        VIDEO_PIPELINE_SCALE_SELECTED(dst + x_margin_words, src, LINE_WIDTH);
-        video_pipeline_fill_rgb565(dst + x_margin_words + image_words, h_words - x_margin_words - image_words,
-                                   OVERSCAN_COLOR_RGB565);
-        return;
-    }
-
-#if NEOPICO_ENABLE_OSD
-    // OSD-active path: draw OSD even if capture source is unavailable.
-    const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
-    const uint16_t *src = NULL;
-    if (mvs_line_u32 < MVS_HEIGHT) {
-        const uint16_t mvs_line = (uint16_t)mvs_line_u32;
-        if (line_ring_ready(mvs_line)) {
-            src = line_ring_read_ptr(mvs_line);
-        }
-    }
-
-    const uint16_t *osd_src = osd_framebuffer[osd_line_u32];
-    if (!src) {
-        video_pipeline_fill_rgb565(dst, osd_x_words, NO_SIGNAL_COLOR_RGB565);
-        VIDEO_PIPELINE_SCALE_SELECTED(dst + osd_x_words, osd_src, OSD_BOX_W);
-        video_pipeline_fill_rgb565(dst + osd_x_words + osd_w_words, h_words - osd_x_words - osd_w_words,
-                                   NO_SIGNAL_COLOR_RGB565);
-        return;
-    }
-
-    // Before OSD
-    video_pipeline_fill_rgb565(dst, x_margin_words, OVERSCAN_COLOR_RGB565);
-    VIDEO_PIPELINE_SCALE_SELECTED(dst + x_margin_words, src, OSD_BOX_X);
-    // OSD region (blit from OSD framebuffer)
-    VIDEO_PIPELINE_SCALE_SELECTED(dst + osd_x_words, osd_src, OSD_BOX_W);
-    // After OSD
-    VIDEO_PIPELINE_SCALE_SELECTED(dst + osd_x_words + osd_w_words, src + OSD_BOX_X + OSD_BOX_W,
-                                  LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
-    video_pipeline_fill_rgb565(dst + x_margin_words + image_words, h_words - x_margin_words - image_words,
-                               OVERSCAN_COLOR_RGB565);
-#endif
-#undef VIDEO_PIPELINE_SCALE_SELECTED
-}
-#endif
-
-#if (!NEOPICO_RESOLUTION_MENU || NEOPICO_RESOLUTION_MENU_720P) && !NEOPICO_EXP_PRECOMPOSED_HDMI
+#if !NEOPICO_EXP_PRECOMPOSED_HDMI
 #if NEOPICO_RESOLUTION_MENU && NEOPICO_RESOLUTION_MENU_720P
-static void video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
+static void __scratch_x("000_video_pipeline_modes")
+    video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
 #else
 void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
 #endif

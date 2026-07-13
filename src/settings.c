@@ -5,6 +5,7 @@
 
 #include <string.h>
 
+#include "audio_source.h"
 #include "pico.h"
 
 // Last 4 KB sector of flash, reserved for settings. The firmware image is tiny
@@ -74,4 +75,13 @@ void __no_inline_not_in_flash_func(settings_save)(const neopico_settings_t *s)
     flash_range_erase(SETTINGS_FLASH_OFFSET, FLASH_SECTOR_SIZE);
     flash_range_program(SETTINGS_FLASH_OFFSET, page, FLASH_PAGE_SIZE);
     restore_interrupts(saved);
+}
+
+void __no_inline_not_in_flash_func(settings_factory_reset)(void)
+{
+    neopico_settings_t defaults;
+    settings_defaults(&defaults);
+    defaults.audio_source = (uint8_t)AUDIO_SOURCE_MV1C_DIGITAL;
+    defaults.audio_source_valid = NEOPICO_SETTINGS_AUDIO_SOURCE_VALID;
+    settings_save(&defaults);
 }

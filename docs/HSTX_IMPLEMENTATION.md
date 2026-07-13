@@ -31,6 +31,10 @@ Comprehensive record of the RP2350 HSTX implementation and HDMI audio findings.
 - **RAW_N_SHIFTS**: Must be set to **1** in the HSTX command expander. A value of 0 actually means 32 shifts, which causes massive horizontal sync drift.
 - **Line Doubling**: The 240p MVS source is scaled to 480p by doubling every line (`fb_line = dvi_line >> 1`). This ensures the full HDMI active area is filled with stable data.
 
+### Native 240p AVI Compatibility
+
+The native 240p output uses a non-CEA 1280x240 timing with VIC 0. Production builds define `PICO_HDMI_LEGACY_240P_AVI_INFOFRAME=1`, which emits the hardware-validated conservative AVI payload (`PB1=0x00`, `PB2=0x08`, `PR=0`). The active-format/aspect payload with `PR=3` caused black video with continuing HDMI audio on tested scaler paths. This compatibility behavior is limited to VIC 0; standard 480p and 720p metadata is unchanged.
+
 ## 3. HDMI Audio (Data Islands)
 
 ### Encoding

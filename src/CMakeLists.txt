@@ -50,9 +50,11 @@ option(NEOPICO_DIAG_COUNTERS "Capture-health counters dumped over USB-serial (72
 option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" ON)
 option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD)" ON)
 option(NEOPICO_OSD_ROOT_MENU "Root OSD menu for enabled settings and diagnostics (requires OSD and at least one entry feature)" ON)
-option(NEOPICO_OSD_CONTROLLER_INPUTS "Use active-low controller taps as additional OSD MENU/BACK inputs" OFF)
-set(NEOPICO_OSD_CONTROLLER_MENU_PIN "1" CACHE STRING "GPIO for controller START/MENU when controller OSD inputs are enabled")
-set(NEOPICO_OSD_CONTROLLER_BACK_PIN "0" CACHE STRING "GPIO for controller SELECT/BACK when controller OSD inputs are enabled")
+option(NEOPICO_OSD_CONTROLLER_INPUTS "Use active-low controller taps as additional OSD inputs" OFF)
+set(NEOPICO_OSD_CONTROLLER_MENU_PIN "0" CACHE STRING "GPIO for controller START/MENU when controller OSD inputs are enabled")
+set(NEOPICO_OSD_CONTROLLER_BACK_PIN "1" CACHE STRING "GPIO for controller SELECT/BACK when controller OSD inputs are enabled")
+set(NEOPICO_OSD_CONTROLLER_UP_PIN "3" CACHE STRING "GPIO for controller UP when controller OSD inputs are enabled")
+set(NEOPICO_OSD_CONTROLLER_DOWN_PIN "2" CACHE STRING "GPIO for controller DOWN when controller OSD inputs are enabled")
 set(NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS "20" CACHE STRING "Controller OSD stable-release debounce time in milliseconds")
 option(NEOPICO_ENABLE_DARK_SHADOW "Enable true DARK/SHADOW LUT path in capture (128KB quantized LUT)" OFF)
 option(NEOPICO_EXP_GENLOCK_STATIC "Enable static boot-time genlock sysclk target" OFF)
@@ -295,6 +297,13 @@ if(NEOPICO_RESOLUTION_MENU_720P)
     target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_RT_RUNTIME_MODE_ATTRS=1)
 endif()
 
+# 240p uses a non-CEA VIC-0 timing. Keep the conservative AVI payload that was
+# hardware-validated with the normal HDMI audio stream: PB1=0x00, PB2=0x08,
+# and PR=0. The newer active-format/aspect/PR=3 payload causes black video on
+# tested scaler paths. This define changes only VIC-0/240p metadata; 480p and
+# 720p keep their standard AVI payloads.
+target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_LEGACY_240P_AVI_INFOFRAME=1)
+
 # RT 480p runs at 252 MHz for scanline-IRQ headroom (see main.c SYS_CLK_480P_KHZ).
 # Halve the 480p HSTX clk divider in the library so the pixel clock stays
 # 25.2 MHz (252/(2*5)) and the 480p signal is byte-identical to the 126 MHz one.
@@ -362,6 +371,7 @@ target_link_libraries(neopico_hd
 )
 
 target_compile_definitions(neopico_hd PRIVATE
+    NEOPICO_VERSION="${PROJECT_VERSION}"
     NEOPICO_CAPTURE_TARGET=${CAPTURE_TARGET_VALUE}
     NEOPICO_VIDEO_240P=${VIDEO_240P_VALUE}
     NEOPICO_VIDEO_720P=${VIDEO_720P_VALUE}
@@ -374,6 +384,8 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_OSD_CONTROLLER_INPUTS=${OSD_CONTROLLER_INPUTS_VALUE}
     NEOPICO_OSD_CONTROLLER_MENU_PIN=${NEOPICO_OSD_CONTROLLER_MENU_PIN}
     NEOPICO_OSD_CONTROLLER_BACK_PIN=${NEOPICO_OSD_CONTROLLER_BACK_PIN}
+    NEOPICO_OSD_CONTROLLER_UP_PIN=${NEOPICO_OSD_CONTROLLER_UP_PIN}
+    NEOPICO_OSD_CONTROLLER_DOWN_PIN=${NEOPICO_OSD_CONTROLLER_DOWN_PIN}
     NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS=${NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS}
     ENABLE_DARK_SHADOW=${ENABLE_DARK_SHADOW_VALUE}
     NEOPICO_EXP_GENLOCK_STATIC=${GENLOCK_STATIC_VALUE}

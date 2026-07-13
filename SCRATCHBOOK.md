@@ -1449,3 +1449,53 @@ Working implication for this board:
 - Release result: committed tested scope as `937d887`, pushed `main`, and passed branch Actions run `29266678886` for MVS, SNES, and fabrication.
 - Created and pushed annotated tag `v0.9.0`; tag Actions run `29266842188` passed all build/fabrication/release jobs. GitHub published the non-draft release with MVS/SNES UF2+ELF artifacts and `neopico-hd-jlcpcb.zip`: https://github.com/fliperama86/neopico-hd/releases/tag/v0.9.0
 - GitHub Actions emitted only Node.js 20 deprecation warnings for `actions/checkout@v4` and `actions/upload-artifact@v4`; no job failed. The unrelated local KiCad `.kicad_prl` change remains uncommitted.
+
+## 2026-07-13 - Firmware version in root OSD title
+- User requested the version number beside the `NeoPico-HD` root-menu title.
+- Implementation uses the root CMake `project(... VERSION 0.9.0 ...)` as the single version definition, passes it as `NEOPICO_VERSION`, and renders `NeoPico-HD v0.9.0` within the existing 28-column title row.
+- Scope is root menu only; leaf-screen titles and the self-test title remain unchanged.
+- Validation passed: selectable/controller MVS, fresh-default MVS, fresh-default SNES, exact ELF title-string checks, formatting/diff checks, and firmware timing/layout audit with no findings. Repo-local UF2 SHA-256: `6904d6a3ea7bcf6551d30698a8dd8cdefed499c06bb1dc40458a2391db8fef62`.
+- No flash, commit, push, or release performed for this version-label change. The unrelated KiCad `.kicad_prl` modification remains untouched.
+
+## 2026-07-13 - Four-button AES OSD navigation
+- User corrected the final AES controller mapping to START=GP0 and SELECT=GP1; UP/DOWN remain GP2/GP3.
+- Approved behavior: START+SELECT opens the hidden OSD, UP/DOWN moves and wraps root/Resolution/Audio selections, START confirms, and SELECT returns or cancels. GP25/GP26 retain legacy two-button confirm/cycle behavior.
+- Implementation remains flag-gated by `NEOPICO_OSD_CONTROLLER_INPUTS` and runs only in the existing Core 1 background OSD task.
+- Flash requested after repository-local build validation; hardware command requires a separate ready acknowledgement.
+- Validation passed: targeted selectable/controller MVS build, firmware timing/layout audit, explicit compiled pin-definition check, `git diff --check`, and controller-off MVS/SNES regression builds.
+- Repo-local candidate: `build-pcm1802-controller/src/neopico_hd.uf2`, SHA-256 `7830b84e14938734013d638b43b19aea71f68757f1580b139427fc59b843823f`. Pending operator acknowledgement for `pi flash`.
+- Hardware result after user-performed flash: START works, but UP/DOWN are electrically reversed and SELECT does not respond. Correct installed direction mapping is UP=GP3 and DOWN=GP2.
+- SELECT is wired from GP1 to MV1C NEO-YSA2 pin 54 (`SEL UP`). This is the MVS Select Game Up input corresponding to JAMMA parts-side pin 26 and is a valid P1 Select source only when the controller DB15 pin 3 drives that net. Recommended discriminator: measure GP1 released versus Select held before changing input logic.
+- Rebuilt after the direction correction with compiled mapping START=GP0, SELECT=GP1, UP=GP3, DOWN=GP2. Firmware audit and `git diff --check` passed. Candidate SHA-256: `67edb7c923373a34aeaa44c01e601ea69ff002f22d915ec6aa6c9558bab6c13b`.
+
+## 2026-07-13 - 240p selector regression investigation
+- User reports 720p works but 240p does not, and requires all selector resolutions to use the same application path.
+- Read-only inspection found the PicoHDMI RT engine and reboot selection are shared, but scanline routing was split: 240p/480p used a duplicated specialized callback while 720p used the unified three-mode callback.
+- User approved consolidating 240p/480p/720p onto the unified callback, keeping it in scratch RAM, removing the duplicate, and validating builds/audits before any flash.
+- Validation caught an initial no-720 selector link failure: the old preprocessor guard omitted both callbacks after the duplicate was removed. Corrected the unified callback guard to compile for every non-precomposed configuration; keep this edge build in regression coverage.
+- Final implementation routes 240p, 480p, and 720p selector boots through one `video_pipeline_scanline_callback_reboot_modes` callback and removes the duplicated 240p/480p callback. The unified callback is at scratch-X `0x20080020`, size `0x1e0`; total scratch-X is `0x674`, leaving 396 bytes before the Core 1 stack boundary.
+- Updated `audit_firmware.py` to select mode-specific critical symbols from CMake flags instead of expecting removed or 720p-only symbols in every build.
+- Validation passed: selectable/controller MVS target, standard MVS, standard SNES, and selector-without-720 edge build; all applicable firmware audits report no findings. Formatting, `git diff --check`, Python compile check, and all pre-commit hooks passed.
+- Repo-local candidate: `build-pcm1802-controller/src/neopico_hd.uf2`, SHA-256 `1c9989232c41b8d51750e16f0beb3acfc22831a765a28388488f7cda0972dfa8`. Not flashed.
+- User acknowledged the exact flash step. `pi flash build-pcm1802-controller/src/neopico_hd.uf2` loaded successfully and rebooted the RP2350 into application mode. Awaiting 240p/480p/720p hardware verification.
+- Hardware result: 240p produces a black picture while HDMI audio continues, and the persisted bad mode prevents normal resolution recovery. User requested a recovery chord and defined factory defaults as 480p plus MV1C Digital audio.
+- Approved implementation: hold the physical MENU (GP25) and BACK (GP26) inputs together for at least 5 seconds, independent of OSD state; persist explicit 480p/MV1C defaults and reboot into 480p. This is a recovery mechanism, not yet a fix for the black 240p active-video path.
+- Validation note: pre-commit clang-tidy again hit the known host-Clang versus ARM-sysroot missing-header failure and applied an unsafe internal-linkage fix to the externally called resolution-confirm function. Reverted that one auto-fix before rebuilding.
+- Factory-reset implementation complete: `settings_factory_reset()` persists resolution byte 0, audio source byte 0 (`MV1C Digital`), and the explicit `0xA5` audio marker; the 5-second physical chord calls it before a watchdog reboot request for 480p.
+- Validation passed: selectable/controller MVS, standard MVS, standard SNES, and no-720 selector builds; all firmware audits report no findings. Formatting, whitespace/EOF hooks, and `git diff --check` pass. Full pre-commit is blocked only by the known host clang-tidy ARM-sysroot failure; its unsafe fix was reverted and the target rebuilt successfully.
+- Repo-local candidate: `build-pcm1802-controller/src/neopico_hd.uf2`, SHA-256 `e810da862e8c1de1638b937779b1e7d251d57b585e2b4bcb1406d39766736f68`. Not flashed.
+- User acknowledged the exact flash command. `pi flash build-pcm1802-controller/src/neopico_hd.uf2` completed successfully and rebooted the RP2350 into application mode. Awaiting physical 5-second MENU+BACK recovery test from the persisted 240p state.
+- Read-only comparison found the black-video regression: the v0.9 compile-flag cleanup removed the proven `PICO_HDMI_LEGACY_240P_AVI_INFOFRAME=1` propagation. The flashed build therefore used VIC-0 `PB1=0x10`, `PB2=0x18`, `PR=3`; prior full-stream hardware A/B showed that profile fails while conservative `PB1=0x00`, `PB2=0x08`, `PR=0` works with HDMI audio. Exact failing sub-field was not isolated.
+- User approved restoring the conservative AVI profile for 240p only, while retaining the unified 240p/480p/720p application scanline callback and leaving standard 480p/720p metadata unchanged. No hardware action is authorized by this approval; rebuild and audit before requesting a separate flash acknowledgement.
+- Implemented the production fix by always compiling PicoHDMI with `PICO_HDMI_LEGACY_240P_AVI_INFOFRAME=1`. Linked disassembly confirms VIC 0 takes the zeroed PB1 / PB2=8 branch and `build_all_command_lists()` passes PR=0; nonzero VICs retain PB1=0x10 and their existing 4:3/16:9 PB2 values.
+- Validation passed for the selectable/controller MVS candidate, standard MVS, standard SNES, and selector-without-720 edge build. Every generated PicoHDMI flags file contains the compatibility define and every firmware timing/layout audit reports no findings. The targeted hot layout is unchanged at `.scratch_x=1652` with the unified callback at `0x20080020`, size 480 bytes.
+- Candidate `build-pcm1802-controller/src/neopico_hd.uf2` SHA-256 is `c348fba1c3563cc8c03e919fef2470ac2766ee493264616f5e77e02b9ad2ca5e`. Not flashed; request an explicit operator acknowledgement before `pi flash`.
+- User acknowledged the exact flash command. `pi flash build-pcm1802-controller/src/neopico_hd.uf2` loaded the compatibility candidate to 100% and rebooted the RP2350 into application mode. Awaiting hardware verification of 240p video with audio and subsequent 480p/720p switching.
+
+## 2026-07-13 - v0.9.1 release preparation
+- User reported the flashed 240p compatibility candidate is perfect and explicitly requested pushing `main` and publishing a release.
+- Selected patch version `v0.9.1`. Release scope is the hardware-validated 240p AVI compatibility fix, unified selector callback, 5-second 480p/MV1C factory reset, four-button AES OSD navigation, root-menu version display, audit updates, and documentation.
+- The unrelated local KiCad UI-state change in `hardware/neopico-hd/neopico-hd.kicad_prl` remains excluded. No branch or pull request; release directly from `main` per project policy.
+- Bumped the single CMake project version to `0.9.1`. Rebuilt the selectable/controller MVS candidate against the exact flashed ELF baseline: hot `.scratch_x/.scratch_y`, HSTX, DMA, audio, and unified scanline symbols are unchanged; only ordinary data placement moved by 4 bytes and the audit reports no findings. Release candidate SHA-256 is `c46561c7692cf088dad8c2be732508467daf86e9fc83f1f01add37c51ab735d5`.
+- Fresh GitHub-workflow-equivalent builds passed for default MVS and SNES, with embedded `NeoPico-HD v0.9.1`, the legacy 240p AVI define, and clean firmware audits. Local UF2 hashes: MVS `112399baaac03cc5ac60b752bbb4688e490c3c9062a98836b3224c3adf3a0a61`; SNES `3fe6fd7ed24486f42392ddcb1c1b9d9949fb92672c79c05a70afde6521ff4305`.
+- Safe pre-commit hooks, Python syntax compilation, YAML validation, and `git diff --check` pass. The known host clang-tidy/ARM-sysroot auto-fix hook remains intentionally excluded. README release assets were corrected to the actual MVS/SNES UF2+ELF workflow output, and the opt-in AES controller build flag is documented.

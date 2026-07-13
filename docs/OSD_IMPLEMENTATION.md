@@ -2,6 +2,9 @@
 
 NeoPico-HD implements a lightweight, pixel-accurate OSD designed to overlay system information and menus without interfering with the captured video stream.
 
+The root-menu title includes the firmware version from CMake's single
+`project(... VERSION ...)` definition, for example `NeoPico-HD v0.9.1`.
+
 ## Architecture
 
 ### 1. Separate Layer Strategy
@@ -46,3 +49,5 @@ To maintain a stable signal, future OSD or scaling logic MUST adhere to these ru
 
 - **State Machine**: The menu is driven by a simple state machine (e.g., `OSD_HIDDEN`, `OSD_MAIN_MENU`, `OSD_SETTINGS`).
 - **Input**: Menu navigation is handled via board buttons or defined controller combos, processed in the main loop and flagged to Core 1.
+- **Controller Mapping**: With `NEOPICO_OSD_CONTROLLER_INPUTS=ON`, the active-low defaults are START=GP0, SELECT=GP1, UP=GP3, and DOWN=GP2. START+SELECT opens the hidden OSD, UP/DOWN moves and wraps the selection, START confirms, and SELECT returns or cancels.
+- **Physical Buttons**: GP25 MENU and GP26 BACK retain the legacy two-button confirm/cycle behavior.

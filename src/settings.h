@@ -29,4 +29,8 @@ bool settings_load(neopico_settings_t *out);
 // flash op so no flash-resident code runs while XIP is suspended.
 void settings_save(const neopico_settings_t *s);
 
+// Restore the recovery defaults and persist them: 480p plus an explicit
+// MV1C Digital audio selection.
+void settings_factory_reset(void);
+
 #endif // NEOPICO_SETTINGS_H
