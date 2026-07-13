@@ -51,6 +51,7 @@ option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" ON)
 option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD)" ON)
 option(NEOPICO_OSD_ROOT_MENU "Root OSD menu for enabled settings and diagnostics (requires OSD and at least one entry feature)" ON)
 option(NEOPICO_OSD_CONTROLLER_INPUTS "Use active-low controller taps as additional OSD inputs" OFF)
+option(NEOPICO_OSD_FAKE_BLEND "EXPERIMENTAL: fake a translucent OSD panel by dimming game pixels where OSD background pixels are black; OSD text/colors remain opaque" OFF)
 set(NEOPICO_OSD_CONTROLLER_MENU_PIN "0" CACHE STRING "GPIO for controller START/MENU when controller OSD inputs are enabled")
 set(NEOPICO_OSD_CONTROLLER_BACK_PIN "1" CACHE STRING "GPIO for controller SELECT/BACK when controller OSD inputs are enabled")
 set(NEOPICO_OSD_CONTROLLER_UP_PIN "3" CACHE STRING "GPIO for controller UP when controller OSD inputs are enabled")
@@ -110,6 +111,18 @@ if(NEOPICO_ENABLE_OSD)
     set(ENABLE_OSD_VALUE 1)
 else()
     set(ENABLE_OSD_VALUE 0)
+endif()
+
+if(NEOPICO_OSD_FAKE_BLEND)
+    if(NOT NEOPICO_ENABLE_OSD)
+        message(FATAL_ERROR "NEOPICO_OSD_FAKE_BLEND requires NEOPICO_ENABLE_OSD=ON")
+    endif()
+    if(NEOPICO_EXP_PRECOMPOSED_HDMI)
+        message(FATAL_ERROR "NEOPICO_OSD_FAKE_BLEND does not support NEOPICO_EXP_PRECOMPOSED_HDMI")
+    endif()
+    set(OSD_FAKE_BLEND_VALUE 1)
+else()
+    set(OSD_FAKE_BLEND_VALUE 0)
 endif()
 
 if(NEOPICO_ENABLE_SELFTEST)
@@ -380,6 +393,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_VIDEO_TEST_PATTERN=${VIDEO_TEST_PATTERN_VALUE}
     NEOPICO_DIAG_COUNTERS=${DIAG_COUNTERS_VALUE}
     NEOPICO_ENABLE_OSD=${ENABLE_OSD_VALUE}
+    NEOPICO_OSD_FAKE_BLEND=${OSD_FAKE_BLEND_VALUE}
     NEOPICO_ENABLE_SELFTEST=${ENABLE_SELFTEST_VALUE}
     NEOPICO_OSD_CONTROLLER_INPUTS=${OSD_CONTROLLER_INPUTS_VALUE}
     NEOPICO_OSD_CONTROLLER_MENU_PIN=${NEOPICO_OSD_CONTROLLER_MENU_PIN}

@@ -52,6 +52,18 @@
 #define NEOPICO_RESOLUTION_MENU_720P 0
 #endif
 
+#ifndef NEOPICO_OSD_FAKE_BLEND
+#define NEOPICO_OSD_FAKE_BLEND 0
+#endif
+
+#if NEOPICO_OSD_FAKE_BLEND && !NEOPICO_ENABLE_OSD
+#error "NEOPICO_OSD_FAKE_BLEND requires NEOPICO_ENABLE_OSD"
+#endif
+
+#if NEOPICO_OSD_FAKE_BLEND && NEOPICO_EXP_PRECOMPOSED_HDMI
+#error "NEOPICO_OSD_FAKE_BLEND does not support NEOPICO_EXP_PRECOMPOSED_HDMI"
+#endif
+
 #if NEOPICO_RESOLUTION_MENU && NEOPICO_USE_NONRT_HDMI
 #error "NEOPICO_RESOLUTION_MENU requires the rt PicoHDMI path"
 #endif
@@ -66,6 +78,9 @@ bool fx_scanlines_enabled = false;
 static bool osd_visible_latched = false;
 #endif
 typedef void (*pixel_scale_fn_t)(uint32_t *dst, const uint16_t *src, int count);
+#if NEOPICO_ENABLE_OSD && NEOPICO_OSD_FAKE_BLEND
+typedef void (*pixel_scale_osd_fn_t)(uint32_t *dst, const uint16_t *game, const uint16_t *osd, int count);
+#endif
 // Overscan/background outside active 224-line image area (RGB565): black.
 #define OVERSCAN_COLOR_RGB565 0x0000
 // No-signal fallback color (RGB565): mid gray.
@@ -154,6 +169,94 @@ static void __scratch_y("") video_pipeline_fill_rgb565(uint32_t *dst, uint32_t w
         dst[i] = packed;
     }
 }
+
+#if NEOPICO_ENABLE_OSD && NEOPICO_OSD_FAKE_BLEND
+// Fake OSD transparency: black background pixels retain 12.5% of the captured
+// game pixel underneath; nonblack OSD pixels remain fully opaque. Process two
+// packed RGB565 pixels at a time so selection remains branch-free per pixel.
+#define VIDEO_PIPELINE_RGB565_RETAIN_1_8_MASK_2PX 0xC718C718U
+_Static_assert((OSD_BOX_X & 1U) == 0U, "fake-blend OSD X must be two-pixel aligned");
+_Static_assert((OSD_BOX_W & 1U) == 0U, "fake-blend OSD width must contain complete pixel pairs");
+
+static inline __attribute__((always_inline)) uint32_t video_pipeline_osd_fake_blend_pair(uint32_t game_pair,
+                                                                                         uint32_t osd_pair)
+{
+    const uint32_t dim_pair = (game_pair & VIDEO_PIPELINE_RGB565_RETAIN_1_8_MASK_2PX) >> 3;
+    const uint32_t lo = osd_pair & 0xFFFFU;
+    const uint32_t hi = osd_pair >> 16;
+    const uint32_t lo_mask = 0U - (uint32_t)(lo != (uint32_t)OSD_COLOR_BG);
+    const uint32_t hi_mask = 0U - (uint32_t)(hi != (uint32_t)OSD_COLOR_BG);
+    const uint32_t osd_mask = (lo_mask & 0x0000FFFFU) | (hi_mask << 16);
+    return (osd_pair & osd_mask) | (dim_pair & ~osd_mask);
+}
+
+static void __scratch_y("")
+    video_pipeline_double_pixels_osd_fake_blend(uint32_t *restrict dst, const uint16_t *restrict game,
+                                                const uint16_t *restrict osd, int count)
+        __attribute__((noinline, noclone));
+static void __scratch_y("")
+    video_pipeline_triple_pixels_osd_fake_blend(uint32_t *restrict dst, const uint16_t *restrict game,
+                                                const uint16_t *restrict osd, int count)
+        __attribute__((noinline, noclone));
+static void __scratch_y("")
+    video_pipeline_quadruple_pixels_osd_fake_blend(uint32_t *restrict dst, const uint16_t *restrict game,
+                                                   const uint16_t *restrict osd, int count)
+        __attribute__((noinline, noclone));
+
+static void __scratch_y("")
+    video_pipeline_double_pixels_osd_fake_blend(uint32_t *restrict dst, const uint16_t *restrict game,
+                                                const uint16_t *restrict osd, int count)
+{
+    const uint32_t *game32 = (const uint32_t *)game;
+    const uint32_t *osd32 = (const uint32_t *)osd;
+    const int pairs = count >> 1;
+    for (int i = 0; i < pairs; i++) {
+        const uint32_t blended = video_pipeline_osd_fake_blend_pair(game32[i], osd32[i]);
+        const uint32_t p0 = blended & 0xFFFFU;
+        const uint32_t p1 = blended >> 16;
+        dst[0] = p0 | (p0 << 16);
+        dst[1] = p1 | (p1 << 16);
+        dst += 2;
+    }
+}
+
+static void __scratch_y("")
+    video_pipeline_triple_pixels_osd_fake_blend(uint32_t *restrict dst, const uint16_t *restrict game,
+                                                const uint16_t *restrict osd, int count)
+{
+    const uint32_t *game32 = (const uint32_t *)game;
+    const uint32_t *osd32 = (const uint32_t *)osd;
+    const int pairs = count >> 1;
+    for (int i = 0; i < pairs; i++) {
+        const uint32_t blended = video_pipeline_osd_fake_blend_pair(game32[i], osd32[i]);
+        const uint32_t p0 = blended & 0xFFFFU;
+        const uint32_t p1 = blended >> 16;
+        dst[(i * 3) + 0] = p0 | (p0 << 16);
+        dst[(i * 3) + 1] = p0 | (p1 << 16);
+        dst[(i * 3) + 2] = p1 | (p1 << 16);
+    }
+}
+
+static void __scratch_y("")
+    video_pipeline_quadruple_pixels_osd_fake_blend(uint32_t *restrict dst, const uint16_t *restrict game,
+                                                   const uint16_t *restrict osd, int count)
+{
+    const uint32_t *game32 = (const uint32_t *)game;
+    const uint32_t *osd32 = (const uint32_t *)osd;
+    const int pairs = count >> 1;
+    for (int i = 0; i < pairs; i++) {
+        const uint32_t blended = video_pipeline_osd_fake_blend_pair(game32[i], osd32[i]);
+        const uint32_t p0 = blended & 0xFFFFU;
+        const uint32_t p1 = blended >> 16;
+        const uint32_t d0 = p0 | (p0 << 16);
+        const uint32_t d1 = p1 | (p1 << 16);
+        dst[(i * 4) + 0] = d0;
+        dst[(i * 4) + 1] = d0;
+        dst[(i * 4) + 2] = d1;
+        dst[(i * 4) + 3] = d1;
+    }
+}
+#endif
 
 #if NEOPICO_VIDEO_TEST_PATTERN
 static uint16_t test_pattern_line[LINE_WIDTH] __attribute__((aligned(4)));
@@ -896,6 +999,11 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     const pixel_scale_fn_t scale_pixels = mode_is_720p   ? video_pipeline_triple_pixels_fast
                                           : mode_is_240p ? video_pipeline_quadruple_pixels_fast
                                                          : video_pipeline_double_pixels_fast;
+#if NEOPICO_ENABLE_OSD && NEOPICO_OSD_FAKE_BLEND
+    const pixel_scale_osd_fn_t scale_osd_pixels = mode_is_720p   ? video_pipeline_triple_pixels_osd_fake_blend
+                                                  : mode_is_240p ? video_pipeline_quadruple_pixels_osd_fake_blend
+                                                                 : video_pipeline_double_pixels_osd_fake_blend;
+#endif
     if (mode_is_720p && ((active_line % 3U) != 0U)) {
         return;
     }
@@ -907,6 +1015,10 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     const uint32_t x_margin_words = 0U;
     const pixel_scale_fn_t scale_pixels =
         mode_is_240p ? video_pipeline_quadruple_pixels_fast : video_pipeline_double_pixels_fast;
+#if NEOPICO_ENABLE_OSD && NEOPICO_OSD_FAKE_BLEND
+    const pixel_scale_osd_fn_t scale_osd_pixels =
+        mode_is_240p ? video_pipeline_quadruple_pixels_osd_fake_blend : video_pipeline_double_pixels_osd_fake_blend;
+#endif
     const uint32_t fb_line = mode_is_240p ? active_line : (active_line >> 1);
 #endif
 #if NEOPICO_ENABLE_OSD
@@ -914,6 +1026,13 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     const uint32_t osd_w_words = (((uint32_t)OSD_BOX_W * h_scale) / 2U);
 #endif
 #define VIDEO_PIPELINE_SCALE_SELECTED(dst_arg, src_arg, count_arg) scale_pixels((dst_arg), (src_arg), (count_arg))
+#if NEOPICO_ENABLE_OSD && NEOPICO_OSD_FAKE_BLEND
+#define VIDEO_PIPELINE_SCALE_OSD_SELECTED(dst_arg, game_arg, osd_arg, count_arg)                                       \
+    scale_osd_pixels((dst_arg), (game_arg), (osd_arg), (count_arg))
+#else
+#define VIDEO_PIPELINE_SCALE_OSD_SELECTED(dst_arg, game_arg, osd_arg, count_arg)                                       \
+    VIDEO_PIPELINE_SCALE_SELECTED((dst_arg), (osd_arg), (count_arg))
+#endif
 #else
     const uint32_t h_words = VIDEO_PIPELINE_H_WORDS;
     const uint32_t image_words = VIDEO_PIPELINE_IMAGE_WORDS;
@@ -924,6 +1043,21 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
 #endif
 #define VIDEO_PIPELINE_SCALE_SELECTED(dst_arg, src_arg, count_arg)                                                     \
     VIDEO_PIPELINE_SCALE_PIXELS((dst_arg), (src_arg), (count_arg))
+#if NEOPICO_ENABLE_OSD && NEOPICO_OSD_FAKE_BLEND
+#if NEOPICO_VIDEO_720P
+#define VIDEO_PIPELINE_SCALE_OSD_SELECTED(dst_arg, game_arg, osd_arg, count_arg)                                       \
+    video_pipeline_triple_pixels_osd_fake_blend((dst_arg), (game_arg), (osd_arg), (count_arg))
+#elif NEOPICO_VIDEO_240P
+#define VIDEO_PIPELINE_SCALE_OSD_SELECTED(dst_arg, game_arg, osd_arg, count_arg)                                       \
+    video_pipeline_quadruple_pixels_osd_fake_blend((dst_arg), (game_arg), (osd_arg), (count_arg))
+#else
+#define VIDEO_PIPELINE_SCALE_OSD_SELECTED(dst_arg, game_arg, osd_arg, count_arg)                                       \
+    video_pipeline_double_pixels_osd_fake_blend((dst_arg), (game_arg), (osd_arg), (count_arg))
+#endif
+#else
+#define VIDEO_PIPELINE_SCALE_OSD_SELECTED(dst_arg, game_arg, osd_arg, count_arg)                                       \
+    VIDEO_PIPELINE_SCALE_SELECTED((dst_arg), (osd_arg), (count_arg))
+#endif
 
 #if NEOPICO_VIDEO_TEST_PATTERN && NEOPICO_VIDEO_720P
     if (!test_pattern_line_ready) {
@@ -1000,14 +1134,15 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     // Before OSD
     video_pipeline_fill_rgb565(dst, x_margin_words, OVERSCAN_COLOR_RGB565);
     VIDEO_PIPELINE_SCALE_SELECTED(dst + x_margin_words, src, OSD_BOX_X);
-    // OSD region (blit from OSD framebuffer)
-    VIDEO_PIPELINE_SCALE_SELECTED(dst + osd_x_words, osd_src, OSD_BOX_W);
+    // OSD region: opaque blit by default, or fixed 87.5% black-panel opacity.
+    VIDEO_PIPELINE_SCALE_OSD_SELECTED(dst + osd_x_words, src + OSD_BOX_X, osd_src, OSD_BOX_W);
     // After OSD
     VIDEO_PIPELINE_SCALE_SELECTED(dst + osd_x_words + osd_w_words, src + OSD_BOX_X + OSD_BOX_W,
                                   LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
     video_pipeline_fill_rgb565(dst + x_margin_words + image_words, h_words - x_margin_words - image_words,
                                OVERSCAN_COLOR_RGB565);
 #endif
+#undef VIDEO_PIPELINE_SCALE_OSD_SELECTED
 #undef VIDEO_PIPELINE_SCALE_SELECTED
 }
 #endif
