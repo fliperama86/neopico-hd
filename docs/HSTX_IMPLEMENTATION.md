@@ -48,6 +48,18 @@ Comprehensive record of the RP2350 HSTX implementation and HDMI audio findings.
 3. **Throughput**: Sending packets on active video lines is required to meet the 48kHz rate (~200 packets/frame).
 4. **Header Flag**: The very first symbol of the first header byte correctly omits the Data Island flag (bit 3) for compatibility.
 
+### Pacing & Clock Accuracy
+
+Audio packets are paced by a per-scanline accumulator in `hstx_di_queue_tick()`. The samples-per-line value is derived from the actual pixel clock and `h_total`, never from an assumed 60 Hz field rate (an early version assumed exactly 60 Hz, which over-delivered ~91 samples/s at 240p's 60.114 Hz and caused periodic dropouts; fixed in pico_hdmi `e2a4022`).
+
+That fix still floor-truncated the value to 16.16 fixed point, delivering slightly fewer samples than the ACR-advertised rate on the same clock: about 0.18 samples/s short at 480p/240p and 0.09 at 720p. Since ACR (N=6144, CTS=pixel_clock/1000, integer-exact for 25.2 and 74.4 MHz) tells the sink to play exactly 48000 Hz, the sink's buffer drains slowly and conceals with a brief mute: a rare, TV-dependent audio drop every tens of minutes.
+
+Since pico_hdmi `b6422ee`, `PICO_HDMI_EXACT_AUDIO_PACING` (default **ON**) carries the exact division remainder in a rational (Bresenham) accumulator, so long-term delivery equals the nominal sample rate exactly in every runtime mode, with bounded 1/65536-sample jitter. Rollback: build with `-DPICO_HDMI_EXACT_AUDIO_PACING=OFF`. The legacy non-RT path (`video_output.c`) keeps the truncated setter.
+
+### Underrun Diagnostics
+
+If the producer (Core 1 audio task) cannot keep the Data Island queue non-empty, the scanline ISR splices a pre-encoded 4-sample silence packet and increments `hstx_di_queue_silence_count`. Build with `-DNEOPICO_DIAG_AUDIO_OSD=ON` (default OFF) to display this counter as `AU<n>` on the selftest OSD screen: a counter that climbs while a drop is heard means producer starvation; a flat counter means the drop happened inside the sink.
+
 ## 4. Hardware Resource Mapping (RP2350B)
 
 | Peripheral | Purpose       | GPIO Range     |

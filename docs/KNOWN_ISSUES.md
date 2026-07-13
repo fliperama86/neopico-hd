@@ -62,6 +62,19 @@ This document tracks known hardware and software limitations of the NeoPico-HD p
 - Capture includes watchdog restart on sustained inactivity.
 - Current firmware adds a one-shot post-warmup relock path to emulate the "reset after clocks settle" recovery, without adding ISR load.
 
+### 5. Rare Periodic HDMI Audio Dropouts (Resolved 2026-07-12)
+
+**Issue**: A brief audio drop every tens of minutes, on all resolutions, both MVS and AES sources, across all firmware versions. Severity depended on the connected sink; some TVs never showed it.
+
+**Root cause**: The Data Island scheduler paced audio with a floor-truncated 16.16 samples-per-line value, delivering ~0.18 samples/s (480p/240p; ~0.09 at 720p) less than the exactly-48000 Hz rate advertised via ACR on the same clock. The sink's audio buffer drained until it concealed with a short mute. Firmware buffers stayed healthy (the SRC servo locks production to the scheduler), so no firmware counter could see it.
+
+**Resolution**: pico_hdmi `b6422ee` (`PICO_HDMI_EXACT_AUDIO_PACING`, default ON) paces with an exact rational accumulator; delivery now matches the ACR rate exactly in every runtime mode. NeoPico bump: `267ae19`. See `docs/HSTX_IMPLEMENTATION.md`, "Pacing & Clock Accuracy".
+
+**Remaining distinct mechanisms** (not covered by this fix):
+
+- A real video sync loss (>100 ms without vsync) triggers an audio re-arm: ~0.5 s mute coinciding with a visible video hiccup. Intentional recovery behavior.
+- A Core 1 background stall longer than the queue cushion (~10 ms) splices silence packets. Build with `-DNEOPICO_DIAG_AUDIO_OSD=ON` to watch the `AU<n>` counter on the selftest screen; it climbing during an audible drop indicates this mechanism.
+
 ---
 
 ## OSD & UI

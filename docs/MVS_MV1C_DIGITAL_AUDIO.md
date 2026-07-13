@@ -59,6 +59,13 @@ We implement a feedback control loop in `audio_subsystem.c` to dynamically adjus
 
 This mechanism effectively "locks" the audio production rate to the HDMI consumption rate, compensating for thermal drift and clock inaccuracies without audible pitch shifting or glitches.
 
+### Analog Sources (PCM1802 / AES builds)
+
+Builds with `-DNEOPICO_AUDIO_PCM1802=ON` (AES and non-MV1C boards) capture standard I2S from an external PCM1802 ADC in master mode: 24-bit, exactly 48000 Hz from a 12.288 MHz oscillator (256fs). Two things change relative to the MVS digital tap:
+
+- **Servo window follows the source**: the feedback loop clamps the SRC input rate to `AUDIO_INPUT_RATE_MIN/MAX` (47000-49000) instead of the MVS window (53000-58000). Before commit `52d9375` the MVS clamp applied unconditionally, pinning the SRC at 53000 against a true 48000 Hz input; DROP mode then discarded ~9.4% of samples and the DI queue spliced silence, heard as harsh, fizzy audio on AES installs.
+- **SRC defaults to LINEAR**: DROP can never emit more samples than it receives, so it cannot compensate when the ADC oscillator runs even slightly slower than the Pico's 48 kHz consumption. LINEAR interpolation can gently upsample, letting the servo converge in both directions (SNES builds use LINEAR for the same reason).
+
 ## Implementation Status (Verified)
 
 - **Capture Rate**: Verified at 55,553 Hz (exact match to MVS).
