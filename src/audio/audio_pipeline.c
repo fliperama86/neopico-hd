@@ -30,7 +30,9 @@
 #define PROCESS_BUFFER_SIZE 64
 #define PROCESS_OUTPUT_BUFFER_SIZE (PROCESS_BUFFER_SIZE * 2)
 
-#if NEOPICO_CAPTURE_TARGET == NEOPICO_CAPTURE_TARGET_SNES
+// PCM1802 and SNES sources may need to produce output samples faster than
+// their input clocks. LINEAR supports that; DROP only decimates.
+#if NEOPICO_AUDIO_PCM1802 || NEOPICO_CAPTURE_TARGET == NEOPICO_CAPTURE_TARGET_SNES
 #define AUDIO_SRC_DEFAULT_MODE SRC_MODE_LINEAR
 #else
 #define AUDIO_SRC_DEFAULT_MODE SRC_MODE_DROP
@@ -67,7 +69,8 @@ bool audio_pipeline_init(audio_pipeline_t *p, const audio_pipeline_config_t *con
     lowpass_init(&p->lowpass);
     p->lowpass.enabled = false;
 
-    // Initialize SRC. MVS decimates 55.5k -> 48k; SNES upsamples ~32k -> 48k.
+    // Initialize SRC. MVS decimates 55.5k -> 48k; PCM1802 is nominally 48k;
+    // SNES upsamples ~32k -> 48k.
     src_init(&p->src, SRC_INPUT_RATE_DEFAULT, SRC_OUTPUT_RATE_DEFAULT);
     src_set_mode(&p->src, AUDIO_SRC_DEFAULT_MODE);
 

@@ -290,10 +290,10 @@ static void audio_background_task_control(void)
             new_rate -= 10;
         }
 
-        if (new_rate < CAPTURE_AUDIO_RATE_MIN)
-            new_rate = CAPTURE_AUDIO_RATE_MIN;
-        if (new_rate > CAPTURE_AUDIO_RATE_MAX)
-            new_rate = CAPTURE_AUDIO_RATE_MAX;
+        if (new_rate < AUDIO_INPUT_RATE_MIN)
+            new_rate = AUDIO_INPUT_RATE_MIN;
+        if (new_rate > AUDIO_INPUT_RATE_MAX)
+            new_rate = AUDIO_INPUT_RATE_MAX;
 
         if (new_rate != current_rate) {
             audio_pipeline.src.input_rate = new_rate;

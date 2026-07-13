@@ -20,8 +20,14 @@
 #if NEOPICO_AUDIO_PCM1802
 // PCM1802 ADC with 12.288 MHz crystal: 12288000 / 256 = 48000 Hz exactly
 #define AUDIO_INPUT_RATE 48000
+// The PCM1802 clock is independent of the MVS video-derived audio clock.
+// Keep the DI queue feedback servo close to its nominal 48 kHz rate.
+#define AUDIO_INPUT_RATE_MIN 47000
+#define AUDIO_INPUT_RATE_MAX 49000
 #else
 #define AUDIO_INPUT_RATE CAPTURE_AUDIO_INPUT_RATE
+#define AUDIO_INPUT_RATE_MIN CAPTURE_AUDIO_RATE_MIN
+#define AUDIO_INPUT_RATE_MAX CAPTURE_AUDIO_RATE_MAX
 #endif
 #define AUDIO_OUTPUT_RATE 48000 // HSTX audio output rate
 

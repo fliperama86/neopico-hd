@@ -9,10 +9,10 @@
 #define SRC_H
 
 #include "audio_common.h"
-#include "capture_profile.h"
+#include "audio_config.h"
 
 // Default rates
-#define SRC_INPUT_RATE_DEFAULT CAPTURE_AUDIO_INPUT_RATE
+#define SRC_INPUT_RATE_DEFAULT AUDIO_INPUT_RATE
 #define SRC_OUTPUT_RATE_DEFAULT 48000
 
 // SRC instance
