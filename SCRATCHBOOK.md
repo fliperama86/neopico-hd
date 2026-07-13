@@ -1446,3 +1446,6 @@ Working implication for this board:
 - User requested pushing `main` and publishing a release. Selected `v0.9.0` because the firmware adds controller-driven persistent Audio selection and replaces public CMake audio/resolution flags.
 - Release scope is the tested firmware, documentation, audit, and memory changes. Explicitly excluded unrelated local KiCad UI-state change `hardware/neopico-hd/neopico-hd.kicad_prl`.
 - Repository workflow builds fresh MVS and SNES UF2/ELF artifacts plus fabrication files from a `v*` tag, then creates the GitHub release automatically.
+- Release result: committed tested scope as `937d887`, pushed `main`, and passed branch Actions run `29266678886` for MVS, SNES, and fabrication.
+- Created and pushed annotated tag `v0.9.0`; tag Actions run `29266842188` passed all build/fabrication/release jobs. GitHub published the non-draft release with MVS/SNES UF2+ELF artifacts and `neopico-hd-jlcpcb.zip`: https://github.com/fliperama86/neopico-hd/releases/tag/v0.9.0
+- GitHub Actions emitted only Node.js 20 deprecation warnings for `actions/checkout@v4` and `actions/upload-artifact@v4`; no job failed. The unrelated local KiCad `.kicad_prl` change remains uncommitted.
