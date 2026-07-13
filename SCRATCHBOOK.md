@@ -1124,3 +1124,259 @@ Working implication for this board:
 - Localization (content-only vs global incl black bars/OSD) UNRESOLVED — flip-flopped on TV photos; even high-fps frame-steps conflicted. Don't conclude mechanism from photos.
 - Open fork (counters can't see either): (a) wrong DATA in an on-time line (capture sampling: PCLK phase/RGB-bus) vs (b) output-side (scaler/HSTX). Next discriminator: solid high-contrast local band over live capture, frame-step a glitch.
 - DECISION: label 720p "Experimental (3x)" in the resolution OSD; ship as experimental. Full tracker: docs/720P_PURPLE_GLITCH.md (+ older docs/720P_SAMSUNG_GAME_MODE_INVESTIGATION.md; should be merged).
+
+## 2026-06-27 - Audio startup re-arm experiment
+- User reported KOF98/Darksoft audio boots either clean or very scratchy, with no worsening over time. Interpreted as startup I2S framing/state issue, not drift or PLL problem.
+- Implemented NEOPICO_EXP_AUDIO_STARTUP_REARM default ON: Core 1 audio state machine now does initial muted warmup, one-shot stop/restart of I2S PIO/DMA, second muted warmup, flushes capture/SRC/collect state, then unmutes. Build passed in build-audio-rearm-check.
+- Noted unrelated KiCad hardware project/history dirt in git status after build check; do not treat as part of audio fix unless user confirms cleanup.
+- Also verified rollback path: default build passed with startup re-arm ON, and build with -DNEOPICO_EXP_AUDIO_STARTUP_REARM=OFF passed.
+
+## 2026-06-27 - Flashcart audio distortion after game select
+- User tested standalone KOF98 vs Darksoft flashcart: menu audio is fine, distortion appears after picking a game. Updated hypothesis: flashcart/console reset or audio-clock disturbance occurs AFTER the one-shot boot re-arm, so startup-only rearm is too early for this path. Next likely fix: trigger an audio-only re-arm on MVS video/sync reacquire or provide a manual/OSD audio reset to confirm.
+
+## 2026-06-27 - J5 as flashcart reset-detect input
+- Checked KiCad/read-only: J5 AUX is a 2x04 header exposing A1/RP2350 GPIO0-GPIO7 (pads 1-8). Firmware currently uses video GP27-45, audio GP22-24, OSD GP25-26, so J5 GPIO0-7 are free candidates for an MVS/flashcart reset detect input. Prefer GP4-GP7 to avoid future UART habits; add protection/series or buffer for 5V/reset-line safety.
+
+## 2026-06-27 - Manual audio-only re-arm test path
+- Implemented NEOPICO_EXP_AUDIO_MANUAL_REARM default ON for diagnosis: when audio is running, holding MENU+BACK (GP25+GP26) for ~0.5s mutes audio, stop/restarts I2S PIO/DMA, warms muted for ~0.5s, flushes capture/SRC/collect state, then unmutes. Requires button release before retrigger.
+- Built default and -DNEOPICO_EXP_AUDIO_MANUAL_REARM=OFF successfully. Intended test: after Darksoft game select causes distortion, hold MENU+BACK; if audio clears, flashcart reset/audio-clock disturbance hypothesis is confirmed.
+
+## 2026-06-27 - Flashed manual audio re-arm test build
+- Flashed build-audio-manual-test/src/neopico_hd.uf2 successfully with pi flash. Build includes NEOPICO_EXP_AUDIO_STARTUP_REARM=ON and NEOPICO_EXP_AUDIO_MANUAL_REARM=ON. Test action: after Darksoft game-select distortion, hold MENU+BACK for ~0.5s; audio mutes/rearms/rewarms then unmutes.
+
+## 2026-06-27 - Manual audio re-arm confirmed; BACK-only preferred
+- HW test result: manual audio-only re-arm fixed Darksoft post-game-select distorted audio. Confirms the capture can become mis-framed after flashcart/console reset or audio-clock disturbance.
+- User preference for next build: use BACK-only instead of MENU+BACK. Updated NEOPICO_EXP_AUDIO_MANUAL_REARM trigger to hold BACK for ~0.5s, built build-audio-back-test/src/neopico_hd.uf2. Await explicit ready before flashing.
+
+## 2026-06-27 - Proper Darksoft audio fix: auto re-arm on video reacquire
+- Implemented NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE default ON. Core 0 video capture marks audio re-arm pending after MVS no-signal timeout/sync reset; on next VSYNC reacquire it calls audio_subsystem_request_rearm(). Core 1 consumes the request in audio_subsystem_background_task(), mutes, stop/restarts I2S PIO/DMA, rewarmes muted for ~0.5s, flushes capture/SRC/collect state, and unmutes.
+- Manual BACK re-arm kept only as NEOPICO_EXP_AUDIO_MANUAL_REARM default OFF. Default, auto-off, and startup+auto-off builds passed. Flash candidate: build-audio-auto-fix/src/neopico_hd.uf2.
+
+## 2026-06-27 - Flashed auto audio re-arm fix
+- Flashed build-audio-auto-fix/src/neopico_hd.uf2 successfully with pi flash. This build has automatic audio re-arm on MVS video/sync reacquire; manual BACK re-arm is compiled OFF by default. Test target: Darksoft menu -> select game -> verify game audio no longer distorted without manual reset.
+
+## 2026-06-27 - Auto audio re-arm HW result
+- User tested Darksoft menu -> game select with auto re-arm build and reports it seems fixed. Likely release-worthy after a bit more soak. Root cause now treated as MVS/flashcart reset or sync/audio-clock disturbance causing I2S capture mis-framing; automatic video-reacquire audio re-arm clears it.
+
+## 2026-06-27 - Auto video-reacquire audio fix insufficient
+- User reports audio issue still persists after auto re-arm-on-video-reacquire build. Conclusion: Darksoft game select likely disturbs/resets the audio/I2S domain without causing a long enough MVS video no-signal timeout, so the Core 0 video reacquire trigger is insufficient. Manual audio re-arm still confirmed as effective, so fix needs a better trigger: hardware reset detect via J5/GPIO, audio-domain clock-gap watchdog, or keep BACK manual fallback.
+
+## 2026-06-27 - Audio fix constraints: no manual, avoid new wiring
+- User clarified manual audio reset is out of question for a release. New reset wiring via J5 is possible but not ideal. Need explore software-only automatic triggers beyond video no-signal/reacquire, because that trigger missed Darksoft game-select distortion while manual re-arm remains effective.
+
+## 2026-06-27 - Software audio alternative: per-frame I2S WS re-sync
+- Implemented NEOPICO_EXP_AUDIO_FRAME_RESYNC default ON. Added new PIO program i2s_capture_frame_resync that waits for WS high->low at the start of every stereo frame before capturing RIGHT then LEFT. Goal: if Darksoft briefly glitches BCK/WS during game launch, capture drops/reacquires a frame instead of staying permanently mis-framed.
+- Selected new PIO program for MV1C path only; PCM1802 path unchanged. Default build, -DNEOPICO_EXP_AUDIO_FRAME_RESYNC=OFF rollback build, and -DNEOPICO_AUDIO_PCM1802=ON build all passed. Flash candidate: build-audio-frame-resync/src/neopico_hd.uf2.
+
+## 2026-06-27 - ADV7513 via RP2350 PIO feasibility note
+- User asked whether RP2350 PIO could drive ADV7513 at 720p60. Current conclusion: possible only with a narrow, optimized low-pin-count ADV7513 input mode, preferably YCbCr 4:2:2 DDR or 2x-clock on 8/12 data pins, not practical as straightforward 24-bit RGB SDR at 74.25 MHz because DMA bandwidth/pin count/Core work is too high. Need external pixel-clock quality and ADV7513 I2C init, plus RGB->YCbCr/packing if using 4:2:2.
+
+## 2026-06-27 - Added TDP158 KiCad library parts
+- Added project-local TDP158 symbol to hardware/neopico-hd/neopico-hd.kicad_sym and footprint Library.pretty/TDP158_RSB_WQFN-40-1EP_5x5mm_P0.4mm_EP3.15x3.15mm.kicad_mod. Footprint uses TI RSB0040E land pattern values from TDP158 datasheet: 5x5mm WQFN-40, 0.4mm pitch, 40x 0.2x0.6mm perimeter pads, 3.15x3.15mm exposed pad with 4 paste apertures. Symbol maps TDP158 pins incl TMDS lanes, DDC/HPD/control, VCC/VDD/GND/EP.
+- Validated with KiCad CLI SVG export for symbol and footprint. Did not wire redriver into schematic yet.
+
+## 2026-06-27 - TDP158 library correction: pico-retrodigital
+- User clarified the TDP158 symbol/footprint should be added to /Users/dudu/Projects/pico-retrodigital, not only NeoPico. Added TDP158 symbol to hardware/pico-retrodigital/pico-retrodigital.kicad_sym and footprint to hardware/pico-retrodigital/pico-retrodigital.pretty/. Validated both with KiCad CLI SVG export. Did not wire into schematic. Earlier NeoPico library addition remains unless explicitly cleaned.
+
+## 2026-06-27 - Firmware audio fix committed and pushed
+- Committed firmware-only changes as b8cdba7 (audio: recover I2S capture after flashcart resets) and pushed main to origin. Commit intentionally excluded SCRATCHBOOK, hardware/KiCad edits, TDP158 library work, and build artifacts. Build validation before commit: cmake --build build-audio-frame-resync --target neopico_hd -j8 passed; pre-commit hooks passed after pointing build/ to the validated build dir.
+
+## 2026-06-27 - DARK/SHADOW RAM budget concern
+- True RGB15+DARK+SHADOW conversion as a flat uint16 LUT needs 131072 entries = 256KB. With current large buffers (line_ring about 160KB, OSD framebuffer about 56KB, I2S DMA about 16KB, optional 720p ring about 40KB) it is likely too tight or impossible in the current full-feature RP2350 build, especially with copy-to-RAM overclock builds. Prefer not making full 256KB DARK/SHADOW LUT default without a map-file proof or reducing other buffers/features.
+- 480p-only RAM estimate for true DARK/SHADOW: removing the 720p ring saves about 40KB, but 256KB LUT + 160KB line ring + 56KB OSD + 16KB audio DMA + misc/stacks/code-in-RAM still leaves little/no safe headroom. 480p might fit only with feature reductions and map-file validation, not as a safe default.
+
+## 2026-06-27 - User wants pragmatic DARK/SHADOW experiment
+- User pushed back on over-defensive RAM concern. Proceeding pragmatically: try true DARK/SHADOW behind a compile-time flag, target 480p first, use build/map to decide fit rather than rejecting upfront. No hardware flashing involved.
+- Implemented true DARK/SHADOW as a 3-state LUT instead of brute-force 17-bit LUT: normal, DARK-only, SHADOW with DARK forced. Size is 3*32768*2 = 192KB. Updated docs/CMake wording.
+- Build results: default rollback build passes. Fixed RT 480p + OSD + true LUT still overflows RAM by 23460 bytes. Non-RT fixed 480p + OSD + true LUT builds. RT fixed 480p + true LUT builds when OSD is disabled. No hardware flashed.
+- clang-format was not available in the shell (`command not found`), so the DARK/SHADOW C edit was left manually formatted. Temporary build directories were removed after validation.
+- Rebuilt flash candidate build-dark-shadow-480p-nonrt/src/neopico_hd.uf2: fixed 480p non-RT HDMI, OSD on, true DARK/SHADOW enabled. Build passed. Waiting for explicit hardware-ready ack before running pi flash.
+- Flashed build-dark-shadow-480p-nonrt/src/neopico_hd.uf2 successfully with pi flash. Candidate is fixed 480p non-RT HDMI, OSD on, true DARK/SHADOW enabled. Tool rebooted RP2350 from USB serial to BOOTSEL and back to app mode.
+
+## 2026-06-27 - True DARK/SHADOW non-RT sync drop
+- HW result: after flashing fixed 480p non-RT HDMI + OSD + true DARK/SHADOW, user reports sync drops. Treat non-RT 480p output path as likely regression source. Next quick isolation: flash RT 480p true DARK/SHADOW with OSD disabled, since that build fits and keeps the known RT output path.
+
+## 2026-06-27 - Correction: uncontrolled non-RT variable
+- User corrected a serious workflow mistake: flashing the non-RT 480p build introduced an uncontrolled output-path variable and invalidated the DARK/SHADOW experiment. Do not change HDMI path, OSD, resolution selector, or other build axes unless the user explicitly requests it. Only change the requested variable. Treat the non-RT sync-drop result as invalid for DARK/SHADOW conclusions.
+
+## 2026-06-27 - DARK/SHADOW LUT quantization question
+- User asked whether the DARK/SHADOW LUT can be quantized. Need answer/design only unless explicitly told to implement. Keep experiment controlled: do not change HDMI path/OSD/resolution selector to make RAM fit.
+- Implemented quantized true DARK/SHADOW LUT while preserving the normal build path: exact 32K normal RGB LUT plus two 16K effect LUTs (DARK and SHADOW-with-DARK), total 128KB. Quantization drops only corrected blue LSB for effect pixels. Built default config with only NEOPICO_ENABLE_DARK_SHADOW=ON in build-dark-shadow-quantized; build passed. Waiting for explicit ready before flashing build-dark-shadow-quantized/src/neopico_hd.uf2.
+- Flashed build-dark-shadow-quantized/src/neopico_hd.uf2 successfully with pi flash. This is the controlled RT/default path with only NEOPICO_ENABLE_DARK_SHADOW=ON and quantized 128KB effect LUT. pi flash needed one retry to enter BOOTSEL, then loaded and rebooted to application mode.
+- Committed and pushed quantized DARK/SHADOW implementation as 81e95ab (video: add quantized DARK/SHADOW LUT) to origin/main. Scope intentionally limited to src/video/video_capture.c, src/CMakeLists.txt, and DARK/SHADOW docs. Feature remains behind NEOPICO_ENABLE_DARK_SHADOW (default OFF). Excluded SCRATCHBOOK, hardware/KiCad dirt, and build artifacts. Validation: default build passed in build/; NEOPICO_ENABLE_DARK_SHADOW=ON build passed in build-dark-shadow-quantized; pre-commit hooks passed.
+
+## 2026-06-27 - Capture target file split preference
+- User corrected architecture detail: keep MVS and SNES target files separated as much as possible. Do not put SNES definitions in `mvs_pins.h`. Use target-specific files plus neutral selector/config headers for shared code.
+
+## 2026-06-27 - NeoPico capture-target split initial implementation
+- Implemented initial NeoPico-side target split with separate capture files: `video_capture_mvs.c/.pio` and `video_capture_snes.c/.pio` selected by `-DNEOPICO_CAPTURE_TARGET=MVS|SNES`.
+- Added neutral `capture_profile.h` and `capture_pins.h`; added target-specific `snes_pins.h`; removed SNES definitions from `mvs_pins.h` per user correction.
+- Shared HDMI/audio/output path remains NeoPico RT path. Verified compile commands for both default MVS and SNES use `video_output_rt.c` with `PICO_HDMI_480P_HSTX_CLK_DIV=2`.
+- SNES capture PIO divides sysclk back to 126 MHz timing when NeoPico RT 480p runs sysclk at 252 MHz.
+- Build validation passed: default `build` MVS target and separate SNES validation build with `-DNEOPICO_CAPTURE_TARGET=SNES`. Removed temporary SNES build dir afterward.
+
+## 2026-06-27 - Flashed NeoPico SNES capture target
+- User requested build and flash. Built `build-snes-capture` with `-DNEOPICO_CAPTURE_TARGET=SNES`; target `neopico_hd` passed.
+- Flashed `build-snes-capture/src/neopico_hd.uf2` successfully with `pi flash`. Tool rebooted RP2350 from USB serial to BOOTSEL, loaded firmware, and rebooted to application mode.
+- Firmware is NeoPico shared RT HDMI/audio/output path with SNES/SuperPico capture backend selected.
+
+## 2026-06-27 - SNES target first HW result
+- User reports SNES target firmware works but has two issues: video glitches quite a lot at startup then settles; audio is busted and sounds like highly compressed audio.
+- Immediate hypothesis: audio path kept NeoPico/MVS SRC default DROP mode, which is appropriate for 55.5k->48k decimation but wrong for SNES ~32k->48k upsampling. Need select LINEAR SRC for SNES. Startup video likely needs SNES capture warmup/valid-frame gating or later capture trigger after H/V signals settle.
+
+## 2026-06-27 - SNES startup glitch and audio-compression fixes
+- User reports SNES target works but startup video glitches heavily before settling, and audio sounds highly compressed.
+- Applied SNES-target audio fix already in progress: use LINEAR SRC for SNES 32.04k -> 48k upsampling instead of MVS DROP decimation, and enlarge audio process output buffer to handle expansion.
+- Added SNES-only capture warmup gate, default 60 frames, before starting line_ring capture/PIO IRQ after power-up or firmware boot. Goal: hide unstable early H/V/PCLK capture from HDMI output.
+- Build validation passed: SNES target in build-snes-capture and default MVS target in build both build `neopico_hd` successfully. No flash run on this report turn.
+
+## 2026-06-27 - Flashed SNES audio/SRC and startup warmup fix
+- User requested flash. Flashed `build-snes-capture/src/neopico_hd.uf2` successfully with `pi flash`.
+- Build includes SNES target, LINEAR SRC with larger output process buffer for 32.04k -> 48k audio upsampling, and 60-frame SNES capture warmup gate for startup video glitches.
+
+## 2026-06-27 - SNES target fixes confirmed and staged
+- User reports flashed SNES audio/SRC and startup warmup build is good.
+- Staging requested. Stage only firmware/source changes for NeoPico SNES capture target, audio profile/SRC fixes, and MVS file rename. Exclude SCRATCHBOOK, build artifacts, and unrelated hardware/KiCad dirt.
+
+## 2026-06-27 - SNES DSP audio wiring reminder
+- For NeoPico SNES target audio, firmware expects DSP44 DATA/SDATA -> GP22, DSP43 LRCK/WS -> GP23, DSP42 BCK/BCLK -> GP24, plus common GND. DCK/DSP78 and RESET/DSP47 are needed by SPDIF mod boards, but not by NeoPico audio capture unless reusing the mod board as a pass-through reference.
+- Lectronz TRC V2 page warns SHVC install uses 5 scraped vias in the sound module, keep wires short, and go by DSP/APU pin numbers because connector/non-connector board ordering can differ.
+
+## 2026-06-27 - SHVC blue solder-mask scraping concern
+- User clarified SNES is SHVC and asked whether there are reports of issues after scraping blue solder mask on SHVC sound module vias for the Lectronz/TRC digital audio mod. Web check found the Lectronz install explicitly instructs gently scraping 5 SHVC sound-module vias and tin/wick them; no specific public report found that scraping itself causes systematic issues. Known risk is ordinary via/pad damage, solder bridges, weak joints, exposed copper/short risk, plus SHVC cap leakage and wiring/noise/DAC-compatibility issues.
+
+## 2026-06-27 - SHVC audio-related capacitor guidance
+- User asked about SFC/SHVC audio-related caps. Researched current cap lists: SHVC-CPU-01 has C50/C51 47uF 10V inside SHVC-SOUND module with <8mm height constraint; these are the first target for analog audio-module maintenance. Full SHVC list also includes C57-C67, with C67 main bulk and optional 470uF regulator-output cap in kits.
+- Important distinction: NeoPico digital audio capture taps S-DSP DATA/WS/BCK before analog DAC/output caps, so analog caps usually will not fix digital-capture artifacts unless power/filtering is bad enough to disturb the DSP/clock.
+
+## 2026-06-27 - SHVC sound-module cap values
+- User asked cap values. Answered: SHVC audio module caps C50/C51 are 47uF 10V radial, about 6.3mm diameter, 5mm board pitch, must fit under <8mm shield height. 16V replacements are electrically fine if same capacitance and physically fit. Full SHVC-CPU-01 recap values: C57-C60 100uF 6V, C61/C65/C66 10uF 16V, C62 2.2uF 50V, C63/C64 33uF 25V, C67 1000uF 25V.
+
+## 2026-06-27 - Full SHVC-CPU-01 capacitor list shared
+- User asked to list all SHVC/SFC capacitor values. Provided SHVC-CPU-01 electrolytic list: C50/C51 47uF 10V radial in SHVC-SOUND, C57-C60 100uF 6V SMT, C61/C65/C66 10uF 16V SMT, C62 2.2uF 50V SMT, C63/C64 33uF 25V SMT, C67 1000uF 25V radial. Noted C50/C51 height constraint under shield.
+
+## 2026-06-30 - Branch check
+- User asked whether repo is already on main. Confirmed current branch is main tracking origin/main. Worktree has pending SCRATCHBOOK, hardware/KiCad dirt, build-snes-capture, and staged/modified SNES capture firmware changes.
+
+## 2026-07-06 - MV1B install no game picture report
+- User reports external MV1B install: HDMI/OSD path works perfectly, but no game picture. Installer measured signals on Pico board and says they look fine. Current hypothesis: not HDMI/output; likely MVS capture cannot parse MV1B sync/PCLK phase/source. MV1B uses different video ASIC set (NEO-GRC2-F) than MV1C assumptions, but Neo Geo MVS video clock should still be 6MHz from 24MHz/4. Most likely differences to check: CSYNC polarity/source or missing composite-vsync/equalization at the chosen tap, PCLK edge/phase, or RGB bit/tap order.
+- MV1B installer measured 12MHz on supposed PCLK. User suspects they tapped system/12MHz clock rather than the 6MHz video pixel clock. This explains no captured game picture while OSD/HDMI works. Firmware expects ~6MHz PCLK and about 384 clocks per line.
+- Neo Geo PCLK answer: the desired capture clock is the 6MHz/6MB video clock, i.e. 24MHz master divided by 4. NeoGeoDev says classic cartridge systems use NEO-D0 for 24/2, 24/4, 24/8 clocks; Signals lists 12M as 24/2 and 6MB as 24/4 inverted. MV1B uses NEO-GRC2 late video ASIC, so exact physical pin should be verified on MV1B pinout/board scans, but installer should search for 6M/6MB, not 12M.
+
+## 2026-07-06 - MV1B PCLK generation clarification
+- User asked where PCLK is generated. Answered: capture PCLK should be Neo Geo video 6M/6MB, the 24MHz master divided by 4. Classic docs attribute 24/2, 24/4, 24/8 clock generation to NEO-D0; MV1B uses NEO-GRC2-F late video ASIC, so find the board's 6M/6MB net or pinout rather than using measured 12M.
+- Exact MV1B PCLK/6MB tap found in NeoGeoDev NEO-GRC2 pinout: NEO-GRC2 pin 2, labelled 6MB. In the pinout image it is on the bottom edge, second pin from the lower-left corner, between pin 1 NC and pin 3 GND. NEO-GRC2 also has 24M on pin 190.
+- Verified MV1B/NEO-GRC2 confidence: NeoGeoDev MV1B page lists NEO-GRC2-F on MV1B1 main board; MVS board types lists MV1B and MV1B1 video chipset as NEO-GRC2. Still advise verifying the actual board photo/chip marking before giving install point, because installs may be MV1A/MV1C or odd revisions/modded boards.
+- MV1B sync clarification: NeoPico MVS firmware expects composite sync/CSYNC on GP27, active-low, not separate H/V or GRC2 H/EVEN timing pins. JAMMA/MVS edge pin P is Video sync and can be used as the source if properly level shifted/conditioned; firmware derives VSYNC from the composite sync pulse pattern.
+- MV1B sync tap warning: if U6 is a 74LS273, pin 1 is the common active-low CLR/MR input, not CSYNC. U6/U7 LS273s are color latches on MV1B-class boards; pin 1 may be RGB blanking/latch clear and can look sync-like, but it is not the composite sync signal expected by NeoPico. Preferred sync source remains JAMMA/MVS edge pin P video sync, properly level shifted/conditioned.
+- JAMMA/MVS sync pin location clarified: edge connector pin P is Video Sync on the solder side, between N=Video Green and R=Service, opposite component-side pin 13. Use this CSYNC source for NeoPico GP27 via level shifting/conditioning.
+- MV1B/YM3016 digital audio answer: MV1B has YM2610 and YM3016. YM3016 digital inputs are SD pin 4, CLK pin 5, SMP2 pin 7, SMP1 pin 8. However this is Yamaha floating DAC data, not the current MV1C/BU9480F right-justified linear PCM path, so NeoPico would need a new YM3016 decoder mode. Also YM2610 SSG/PSG audio is analog-only from YM2610 ANA and is mixed after YM3016, so YM3016 digital alone gives FM+ADPCM, not full final Neo Geo audio. For full audio on YM3016-era boards, analog ADC after the mixer is simplest/complete, or combine YM3016 digital plus ADC SSG analog.
+
+## 2026-07-06 - Trion T13 HDMI feasibility
+- T13-class FPGA can definitely feed an external HDMI TX chip for 480p/720p: generate RGB/YCbCr + HS/VS/DE + PCLK + I2S, let ADV7513/ADV7511/IT661xx handle TMDS, audio packets, DDC/HPD. Direct HDMI/TMDS from T13 LVDS is possible-ish for 480p and marginal for 720p because T13 LVDS TX is 800 Mbps max while 720p60 TMDS is 742.5 Mbps/lane, plus serializer supports up to 8:1 not native 10:1 and LVDS is not TMDS-compliant. Prefer HDMI TX chip for product-quality output.
+- Pico/RP2350 + HDMI TX chip feasibility: Pico can easily configure/control a TX over I2C and supply I2S. Driving the video side is the hard part: ADV7513-style full input is D[23:0]+CLK+HS+VS+DE, which with existing MVS 19-bit capture and 3 audio inputs exceeds/strains RP2350B pin budget. 480p or simple test patterns might be possible with a reduced-width/DDR/embedded-sync TX input, but 720p live NeoPico capture via external HDMI TX is not a clean Pico path. FPGA is the proper source for an HDMI TX chip.
+- FPGA choice for NeoPico successor with HDMI TX: recommend T20 over T13. T13 likely enough for a minimal streaming design but pin/RAM/logic margin is tight, especially with 24-bit HDMI TX input. T20 gives more LEs/RAM and, importantly, LQFP144 with 97 GPIO for a hand-assembleable 24-bit HDMI-TX bus plus MVS inputs. T20F256/BGA gives plenty GPIO in smaller area if BGA is acceptable. T13 only makes sense for cost/size if using reduced-width DDR/YCbCr HDMI TX input and minimal features.
+- User pushed back on T20 recommendation: T13 is likely more than enough when paired with RP2350/RP2040-class control and a real HDMI TX, given current single-RP2350 design already does 720p60. Adjust recommendation: T13 should be the default target if architecture stays streaming/no framebuffer and uses reduced-width or carefully budgeted HDMI TX bus. T20 is only for margin/future-proofing, not required.
+- Image IC identification: board appears to use Lattice/Silicon Image SiI9022ACNU HDMI transmitter, Efinix Trion T20F256 FPGA, ISSI IS42S32400F-7BLI SDRAM, Espressif ESP32-C3-class MCU, Silicon Labs Si5351 clock generator, plus an unreadable small SPI flash/power IC. Red-boxed chip is HDMI TX, not FPGA.
+
+## 2026-07-07 - Audio WS/frame-sync requirement
+- User asked if WS is really necessary for audio, even mono. Answer: for I2S/right-justified/MVS digital audio, a frame-sync signal is required to know word/channel boundaries. Mono can duplicate one captured channel after decoding, but still needs WS or an equivalent strobe. Without WS, BCK+DATA can bit-slip or channel-slip and is not release-quality. For YM3016, SMP1/SMP2 are the equivalent frame/sample strobes, not optional if decoding digital DAC data.
+- Online docs for WS/frame sync: NXP UM11732 I2S spec says 3-line bus uses SCK, WS, SD; WS indicates left/right and changes before MSB so receiver can store/clear words. Microchip I2S IP guide says WS/LRCK selects left/right and I2S can support mono but still has WS in receiver ports. NeoGeoDev YM3016 page lists SD, CLK, and SMP1/SMP2 alternating clocks for L/R sample-and-hold circuits from YM2610, i.e. YM3016's frame/sample strobes.
+
+## 2026-07-07 - YM3016-era digital audio tap candidates
+- Best digital audio candidates for MV1B/YM3016 boards: tap at YM3016 input side, not downstream analog. Primary pins: YM3016 pin 4 SD/DATA, pin 5 CLK/BCK, pin 8 SMP1, pin 7 SMP2. Bring both SMP1/SMP2 if possible because they are the L/R sample strobes and firmware can choose/derive frame sync. First minimal experiment can try SD+CLK+SMP1 as WS, then SMP2/invert if channel/framing is wrong. Reminder: YM3016 digital excludes YM2610 SSG/PSG analog, so full final audio still needs analog mix ADC or mixed approach.
+
+## 2026-07-07 - PCM1802 firmware location/status
+- User asked where the PCM1802 firmware is. Current local build artifacts only include build/src/neopico_hd.uf2 and build-snes-capture/src/neopico_hd.uf2, both with NEOPICO_AUDIO_PCM1802=OFF. PCM1802 support exists behind CMake option NEOPICO_AUDIO_PCM1802=ON, but no dedicated PCM1802 UF2 is currently present in the repo/build dirs. Need build a separate directory with -DNEOPICO_AUDIO_PCM1802=ON if user wants it.
+- PCM1802 hardware mode recommendation: use PCM1802 as master so it generates BCK/LRCK for Pico capture. For 12.288MHz SCKI, set MODE1=1, MODE0=1 (master 256fs = 48kHz), FMT1=0, FMT0=1 (24-bit I2S), PDWN=1, BYPAS=0 normal HPF, OSR=0 safe default. Connect DOUT pin12->GP22, LRCK pin10->GP23, BCK pin11->GP24; FSYNC pin9 unused by current firmware. ECS-100X/100AC full-size oscillator: pin1 NC, pin7 GND/case, pin8 output to PCM1802 SCKI pin15, pin14 +5V, with 0.1uF close from 14 to 7 and short output wiring/optional 33-100R series.
+
+## 2026-07-08 - PCM1802/ECS cap placement reminder
+- User asked where caps go. Oscillator: 0.1uF directly between ECS-100AC pin14 +5V and pin7 GND, physically at the oscillator legs, optional 10uF across same rails if wires are long. PCM1802: VCC pin5 to AGND pin6 needs 0.1uF + 10uF close; VDD pin14 to DGND pin13 needs 0.1uF + 10uF close; VREF1 pin3 to AGND pin6 needs 0.1uF + 10uF close; analog inputs need 1uF AC coupling in series into VINL/VINR if taking analog audio.
+
+## 2026-07-10 - MVS C2 reminder
+- User asked what C2 is for on MVS. In cps2_digiav/NeoPico install wording, C2 is the 6MHz MVS video pixel clock/PCLK input, not a capacitor. C1 is the 12MHz clock. For NeoPico the equivalent is PCLK on GP28; MV1C tap PC23 pin 11, MV1B/GRC2 tap 6MB pin 2.
+- C1 to Pico XIN guidance: technically yes, RP2350 XIN can be driven by a single-ended CMOS clock up to 50MHz and XOUT left disconnected. For NeoPico, C1=12MHz is the right frequency for existing firmware. Do not feed raw 5V MVS C1 directly into XIN; buffer/level-shift to clean 3.3V CMOS, add small series resistor, remove/disable onboard crystal and XIN/XOUT load caps if using XIN, leave XOUT floating. Still keep C2/6MHz PCLK to GP28 for capture. Risks: Pico cannot boot/use USB if MVS clock absent, power-domain backfeed if MVS clocks Pico while unpowered, and clock loss/reset can stall PLL/HSTX.
+
+## 2026-07-10 - MVS build check
+- User asked to build MVS firmware if not already. build/CMakeCache already had NEOPICO_CAPTURE_TARGET=MVS and NEOPICO_AUDIO_PCM1802=OFF. Reconfigured with -DNEOPICO_CAPTURE_TARGET=MVS and built target neopico_hd successfully. Artifact: build/src/neopico_hd.uf2.
+- Copied MVS build artifact to ~/Desktop/neopico_hd_mvs.uf2 for user.
+- Flash attempt for ~/Desktop/neopico_hd_mvs.uf2 failed: pi flash could not find an accessible RP-series device in BOOTSEL mode after reboot/load retries. Need user to connect/check USB/BOOTSEL before retrying.
+
+## 2026-07-10 - SNES target CI/release prep
+- User requested CI check, commit/push, and release for the staged NeoPico SNES capture target work.
+- Fixed `.github/workflows/build.yml` so CI builds both `NEOPICO_CAPTURE_TARGET=mvs` and `snes`, uploads target-specific UF2/ELF artifacts, and release downloads both build artifacts by pattern.
+- Local validation: YAML parsed, artifact copy paths checked, pre-commit passed, local CI-equivalent MVS and SNES Release builds passed in `build-ci-mvs` and `build-ci-snes`. KiBot CLI not installed locally, so fabrication job was not runnable outside GitHub Actions.
+- Commit/release scope should include firmware/source + workflow only. Keep SCRATCHBOOK, hardware/KiCad dirt, build dirs, and history dirs out of commit.
+
+## 2026-07-10 - Release v0.8.2 published
+- Committed staged firmware/workflow changes on main as 99b3c2b (`capture: add selectable MVS and SNES targets`) and pushed origin/main.
+- Created and pushed annotated tag `v0.8.2` from 99b3c2b. Changelog since v0.8.1 includes audio flashcart recovery, quantized DARK/SHADOW LUT, and selectable MVS/SNES capture targets.
+- GitHub Actions tag run 29114989756 passed: MVS build, SNES build, KiBot fabrication, and release publication all succeeded.
+- Published release assets include `neopico_hd_mvs.uf2`, `neopico_hd_snes.uf2`, corresponding ELF files, and `neopico-hd-jlcpcb.zip`.
+
+## 2026-07-11 - AES3-6 CJMCU PCM1802 wiring verification
+- User's AliExpress item 1005009291049868 is the CJMCU-style PCM1802 board with header order `SCK, PDW, LRCK, FSY, BCK, DOUT, GND, 3.3V, +5V` and separate `LIN`/`RIN` analog inputs.
+- For NeoPico PCM1802 firmware and a 12.288MHz ECS-100-series oscillator: configure master 256fs and 24-bit I2S with MODE1=1, MODE0=1, FMT1=0, FMT0=1, BYPAS=0, OSR=0. Open control pads are low due PCM1802 pulldowns; bridge the marked `+` side for MODE1, MODE0, and FMT0 only, after checking that the module's `+` jumper rail has continuity to 3.3V because some clones leave it disconnected.
+- Digital wiring: DOUT->GP22, LRCK->GP23, BCK->GP24, FSY unused, PDW->3.3V. Supply module +5V from regulated AES 5V, 3.3V from NeoPico 3V3, and use a common GND. ECS oscillator pin14->regulated +5V, pin7->GND, pin8->SCK, pin1 NC, with 0.1uF from pin14 to pin7. PCM1802 SCKI is specified 5V tolerant.
+- AES3-6 analog taps are the Audio L and Audio R points marked in cps2_digiav `board/neogeo/doc/aes3-6_hookup_points.jpg`; connect them to module LIN and RIN respectively. The breakout already contains input coupling/filter components, so no additional series input capacitors are normally needed.
+- ECS-100 package clarification: it has four physical legs using DIP-14 position numbers 1, 7, 8, and 14. Do not imply that it has 14 physical legs.
+- ECS-100 orientation correction: user correctly identified the top view as `14  8 / 1-dot  7`. The ECS datasheet package drawing is explicitly a bottom view (`1  7 / 14  8`). Previous assistant top-view diagram was wrong. Use pin functions, dot at pin 1, and remember the datasheet view distinction.
+
+## 2026-07-12 - AES PCM1802 harsh audio: root cause found in SRC rate servo
+- User installed NeoPico in AES 3-6 with PCM1802 (master 256fs, 12.288MHz ECS osc = exactly 48000 Hz I2S). Running v0.7.2 PCM1802 build; sound works but is harsher than real analog/emulator.
+- Root cause (code-provable, affects v0.7.2 AND main identically): `NEOPICO_AUDIO_PCM1802` only switches the PIO program and bit unpacking. The SRC still inits at 55556 (v0.7.2: hardcoded in src.h; main: CAPTURE_AUDIO_INPUT_RATE via capture_profile.h) and the DI-queue feedback servo in audio_subsystem.c clamps input_rate to 53000-58000 (MVS window). With a true 48kHz source the servo pins at the 53000 floor forever.
+- Effect: DROP-mode SRC (MVS default) emits 48000/53000 of samples = discards ~9.4% (every ~11th sample -> discontinuity fizz with ~4.3kHz-spaced sidebands), and output runs at ~43.5k samples/s vs 48k consumed, so hstx_di_queue underruns and splices pre-encoded 4-sample silence packets (~1100/s) = chopping. Tempo/pitch stay correct overall, hence "works but harsh".
+- `AUDIO_INPUT_RATE` (48000 under the flag, audio_config.h) is a dead define: nothing consumes it. SRC-mode cycle buttons (audio_pipeline_poll_buttons) are dead code on main - no runtime A/B possible.
+- Verified: main + `-DNEOPICO_AUDIO_PCM1802=ON` configures and builds clean (scratchpad build-pcm1802). Releases only ship mvs/snes UF2s, which is why v0.7.2 is the user's only I2S-capable UF2 (it was a local build).
+- Proposed fix (presented, awaiting user go; all gated on NEOPICO_AUDIO_PCM1802, MVS/SNES untouched): (1) SRC_INPUT_RATE_DEFAULT -> AUDIO_INPUT_RATE; (2) servo clamp -> 47000/49000 under the flag; (3) default SRC mode LINEAR under the flag - DROP can never emit more samples than input so it cannot compensate when the ADC crystal runs ppm-slow vs Pico, LINEAR can.
+- Secondary harshness candidates if any remains after fix: AES tap point is pre-output-filter (brighter than RCA out; could add gentle LPF later), ADC clip on hot tap level. Judge after servo fix.
+
+## 2026-07-12 - PCM1802 SRC servo fix implementation
+- User explicitly approved implementation of the flag-gated PCM1802 SRC fix.
+- Changed only PCM1802 behavior: initialize the SRC from `AUDIO_INPUT_RATE` (48 kHz), constrain its feedback servo to 47-49 kHz, and select `SRC_MODE_LINEAR` by default. MVS and SNES rate defaults and bounds remain unchanged.
+- Validation passed: rebuilt existing MVS and SNES targets, then configured and built a fresh Release MVS + `NEOPICO_AUDIO_PCM1802=ON` target. PCM1802 artifact: `/tmp/neopico-hd-pcm1802/src/neopico_hd.uf2`.
+- No hardware commands or flashing performed.
+- User acknowledged the exact flash command. `pi flash /tmp/neopico-hd-pcm1802/src/neopico_hd.uf2` completed successfully on RP2350, and the board rebooted into application mode.
+- Hardware result confirmed by user: PCM1802 audio now sounds great after the 48 kHz SRC initialization, 47-49 kHz servo bounds, and LINEAR-mode fix.
+- Committed the four PCM1802 audio source changes on `main` as `52d9375` (`audio: fix PCM1802 sample-rate conversion`). Pre-commit hooks passed. Excluded SCRATCHBOOK, hardware/KiCad changes, histories, libraries, and build artifacts.
+
+## 2026-07-12 - AES controller input plan for OSD
+- User proposes UP, DOWN, START/confirm, and SELECT/back. Recommended behavior: hold START+SELECT to open OSD, then UP/DOWN navigate, START confirms, SELECT returns, avoiding OSD activation on ordinary START presses.
+- Current firmware only reads the two physical OSD inputs GP25 MENU and GP26 BACK; four-input navigation requires firmware changes, kept entirely in the Core 1 background OSD task.
+- Existing PCB U5 (`SN74LVC245APW`, 3.3 V, A-to-B) has six unused 5 V-tolerant translator channels. Proposed safe taps: AES DB15 UP pin15 -> U5 A3/pin4 -> B3/pin16 -> GP20; DOWN pin7 -> A4/pin5 -> B4/pin15 -> GP21; START pin11 -> A5/pin6 -> B5/pin14 -> GP9; SELECT pin3 -> A6/pin7 -> B6/pin13 -> GP10. Use common GND; do not connect controller +5 V to Pico. GP9/10/20/21 are currently unconnected, preserving GP25/26 physical buttons.
+- User noted GP0-GP7 are already broken out on J5. PCB/source verification confirms J5 pins 1-8 map directly to GP0-GP7 and firmware currently does not use them. Revised preferred controller mapping: translated UP/DOWN/START/SELECT to J5 pins 1/2/3/4 (GP0/1/2/3), leaving J5 pins 5-8 free and GP25/26 physical OSD buttons unchanged.
+- Correction after user challenge: RP2350 GPIO0-GPIO7 are `Digital IO (FT)`, unlike RP2040 GPIO. The RP2350 datasheet permits up to 5.5 V on FT inputs when IOVDD is powered at 3.3 V, so AES controller lines may connect directly to J5 GP0-GP3 during normal jointly-powered operation. Previous statement that level shifting was always required was wrong. Important limit: with IOVDD unpowered, FT input maximum is 3.63 V; use translation/isolation if AES may drive 5 V while NeoPico is off. Configure as input, no internal pull, active-low; optional 1-4.7k series resistors provide fault/ESD current limiting.
+- AES3-6 controller tap recommendation: use Player 1 connector `CN1` solder tails or nearby pads, verified by continuity to the front contacts while fully unpowered. Front view looking into console port is top row `8 7 6 5 4 3 2 1`, bottom row `15 14 13 12 11 10 9`. Relevant pins: UP 15, DOWN 7, START 11, SELECT 3, GND 1. Preferred direct mapping is CN1 pins 15/7/11/3 to J5 pins 1/2/3/4 (GP0/1/2/3); do not connect controller +5 V pin 8.
+- Controller tap refinement: CN1 solder tails are on the cable side, before the AES series EMI/filter components. They work electrically for slow active-low inputs, but the preferred tap is the console/NEO-B1 side of each corresponding filter so the RP2350 benefits from the AES cable EMI/ESD filtering. The GP input is high impedance, so either side does not materially load game controls; after-filter is safer/cleaner.
+
+## 2026-07-12 - PCM1802 servo fix: user implemented, reviewed and verified
+- User implemented the proposed fix themselves (audio_config.h AUDIO_INPUT_RATE_MIN/MAX 47000-49000 under flag, src.h SRC_INPUT_RATE_DEFAULT=AUDIO_INPUT_RATE, subsystem clamp uses new macros, LINEAR default for PCM1802||SNES). Review: correct, matches proposal exactly.
+- Verified with patch applied: (1) PCM1802=ON build compiles clean; (2) flag-OFF MVS Release build is byte-identical to pre-patch build-ci-mvs UF2 except one byte, the embedded __DATE__ string (Jul 12 vs Jul 10). Zero code regression for MVS/SNES.
+- Deliverable: ~/Desktop/neopico_hd_pcm1802.uf2 (main + patch + NEOPICO_AUDIO_PCM1802=ON, Release, default MVS capture target). Awaiting hardware listen test on the AES.
+- Reminder: previous pi flash attempt (2026-07-10) failed with no BOOTSEL device; Pico is installed in the AES, user must connect USB first.
+
+## 2026-07-12 - Occasional audio drops (all fw, MVS+AES): code assessment
+- User reports rare audio drops on both consoles, both before and after the PCM1802 servo fix. Investigation only, no code changed.
+- Leading mechanism (present in ALL versions, both consoles, sink-dependent): DI scheduler paces audio by samples_per_line_fp = floor(48000*h_total*2^16/pixel_clock) (video_output_rt.c configure_audio_packets; same in video_output.c). The 16.16 floor makes delivered rate ~47999.8 samples/s, while ACR N/CTS (6144, pclk/1000) advertises exactly 48000.000 on the SAME clock. Deterministic deficit ~0.18 samples/s at 480p/240p (~0.42 at 720p, floor is always low so the sink always DRAINS). Sink buffer underflows every ~10min-hours depending on TV -> brief concealment mute = "drop every once in a while". Firmware buffers stay healthy (servo locks producer to scheduler), so no firmware counter sees it. Fix direction if confirmed: exact rational Bresenham pacing (480p is exactly 32/21 samples/line) or 32.32 accumulator; do NOT try to fix via CTS (1 CTS step = ~1.9Hz, too coarse).
+- Mechanism 2 (current main only, NEOPICO_EXP_AUDIO_REARM_ON_VIDEO_REACQUIRE=ON): one vsync gap >100ms (MVS_NO_SIGNAL_TIMEOUT_MS) -> capture reset -> on reacquire audio rearm: mute + ~0.5s REWARM. Distinct signature: half-second mute coinciding with a video hiccup. Cannot explain v0.7.2-era drops (path didn't exist).
+- Mechanism 3 (all versions): Core-1 background stall > queue cushion (target level 128 pkts = ~10.7ms) -> ISR splices 4-sample silence packets; hstx_di_queue_silence_count counts exactly this but is only displayed on the genlock diag screen (compiled out, NEOPICO_EXP_GENLOCK_DYNAMIC=OFF). Known stall sources are OSD-open snprintf redraws and flash settings writes (user-triggered), so unlikely during plain gameplay.
+- Discriminators proposed to user: (a) drop character/duration + video coincidence -> mech 2; (b) rough periodicity in attract mode + varies by TV -> mech 1; (c) tiny flag-gated diag surfacing silence_count on selftest OSD would prove/disprove mech 3 and 1 (counter climbs during audible drop = producer side; silent counter = sink side).
+
+## 2026-07-12 - Audio-drop tooling implemented via delegated agent, reviewed
+- User committed the PCM1802 servo fix as 52d9375, then asked to delegate the diag+pacing work to a Sonnet subagent and review.
+- Agent delivered two flag-gated features, both OFF by default:
+  - NEOPICO_DIAG_AUDIO_OSD (src/CMakeLists.txt + menu_diag_experiment.c): renders "AU<count>" (hstx_di_queue_silence_count) at row 14 col 2 of the selftest OSD screen, inside the existing screen-gated 1 Hz update block. Row 14 verified free in all flag combos.
+  - PICO_HDMI_EXACT_AUDIO_PACING (pico_hdmi submodule, LEFT DIRTY/uncommitted): hstx_di_queue_set_samples_per_line_exact(spl, rem, den) + Bresenham remainder in tick() (+1 accum LSB when rem_accum wraps den). RT path computes rem/den from 64-bit num = rate*h_total<<16. Long-term delivery = exactly sample_rate; correction granularity 1/65536 sample.
+- Review verdict: correct. Math verified (avg units/line = spl + rem/den = exact). ISR additions are add/compare/subtract only, state in .data like existing. Stale-state fallback rem=0/den=1 is a no-op. set_sample_rate -> exact-setter ordering in configure_audio_packets leaves consistent final state.
+- Independent verification: default MVS build byte-identical to pre-edit baseline (cmp clean); featured build (PCM1802+DIAG+PACING) compiles clean, new symbols present in featured ELF and absent in default. Featured UF2 is +12.8KB (snprintf pull-in from the diag; build is copy_to_ram so flash-alignment sensitivity does not apply).
+- Nit (accepted): diag buf[10] truncates counts >999999; harmless for a diagnostic.
+- Deliverable: ~/Desktop/neopico_hd_pcm1802_diag_pacing.uf2. Interpretation: drops vanish = sink-drift confirmed (pacing is the fix); drops persist + AU climbs at drop time = producer starvation; drops persist + AU flat = look at rearm path or the TV.
+- Pending when pacing proves out: commit pico_hdmi changes upstream (fliperama86/pico_hdmi) + submodule bump + optionally enable the pacing flag by default. Not done (no commits without explicit ask).
+
+## 2026-07-12 - Exact audio pacing made default; pico_hdmi pushed
+- User: soak looks fine so far, make exact pacing the default; also merge upstream pico_hdmi and push.
+- Upstream check: origin/2.1-dev had zero new commits; origin/main had been fast-forwarded to f8034c7 and tagged v0.0.7 upstream, and the remote 2.1-dev branch had been deleted (local tracking ref was stale, which briefly caused a push to recreate 2.1-dev; deleted it again and pushed to main instead).
+- pico_hdmi: PICO_HDMI_EXACT_AUDIO_PACING default flipped to ON, committed as b6422ee on main (fast-forward from f8034c7), pushed to fliperama86/pico_hdmi. Rollback documented: -DPICO_HDMI_EXACT_AUDIO_PACING=OFF.
+- neopico-hd: commit 267ae19 on main (submodule bump to b6422ee + NEOPICO_DIAG_AUDIO_OSD default OFF). NOT pushed, user still soaking; push/release when ready (submodule side is already pushed so CI will resolve).
+- Verified before committing: fresh no-flags MVS build contains the pacing symbol (default really ON); build with explicit OFF is byte-identical to the pre-change baseline (clean rollback); pre-commit hooks passed.
+- User's currently flashed soak UF2 (pcm1802+diag+pacing) is functionally the new default plus diag, so the soak remains representative.

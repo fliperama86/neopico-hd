@@ -1,6 +1,7 @@
 # Build artifacts
 build/
 build_*/
+build-*/
 .claude/
 
 # Temporary capture files
@@ -30,6 +31,8 @@ tmp/
 # KiCad
 # =============================================================================
 
+.history/
+build-*
 # Backup files
 *-backups/
 *.bak
