@@ -721,10 +721,10 @@ static void root_menu_buttons_tick(void)
     bool down_edge = false;
 #if NEOPICO_OSD_CONTROLLER_INPUTS
     if (s_screen == MENU_SCREEN_HIDDEN) {
-        // Controller START alone must not open the OSD. Open once when the
-        // second half of a debounced START+SELECT chord becomes active.
-        menu_edge |= s_controller_start.stable_pressed && s_controller_select.stable_pressed &&
-                     (s_controller_start.press_event || s_controller_select.press_event);
+        // Controller UP or SELECT alone must not open the OSD. Open once when
+        // the second half of a debounced UP+SELECT chord becomes active.
+        menu_edge |= s_controller_up.stable_pressed && s_controller_select.stable_pressed &&
+                     (s_controller_up.press_event || s_controller_select.press_event);
     } else {
         // Once visible, controller navigation is distinct from the legacy
         // two-button physical scheme. Each press_event is one-shot.
