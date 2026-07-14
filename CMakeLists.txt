@@ -18,7 +18,7 @@ endif()
 # Initialize the SDK
 include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
-project(neopico_hd VERSION 0.9.1 LANGUAGES C CXX ASM)
+project(neopico_hd VERSION 0.9.2 LANGUAGES C CXX ASM)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)

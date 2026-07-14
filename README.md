@@ -78,6 +78,19 @@ To ensure clean audio and video capture, follow these best practices:
 | I2S WS   | GPIO 23 | R90            |
 | I2S BCK  | GPIO 24 | R92            |
 
+#### Controller OSD Inputs (MVS/AES)
+
+| Controller input | GPIO |
+| ---------------- | ---- |
+| START / MENU     | GP0  |
+| SELECT / BACK    | GP1  |
+| DOWN             | GP2  |
+| UP               | GP3  |
+
+The inputs are active low and use weak internal pull-ups so untapped pins stay
+idle. They default to ON for MVS/AES builds and OFF for SNES builds. Override
+either default with `-DNEOPICO_OSD_CONTROLLER_INPUTS=ON` or `OFF`.
+
 ## Prebuilt Firmware
 
 GitHub Releases include ready-to-flash selector firmware. Each UF2 can switch
@@ -89,8 +102,8 @@ between 240p, 480p, and 720p from the reboot-based OSD resolution menu.
 | `neopico_hd_snes.uf2` | SNES | Digital input |
 
 Matching ELF files and the `neopico-hd-jlcpcb.zip` fabrication package are also
-attached to each release. Controller-driven AES OSD navigation is opt-in for
-custom builds because GP0-GP3 may float on installations without those taps.
+attached to each release. Controller-driven AES OSD navigation is enabled in
+the MVS release asset; the SNES asset leaves those inputs disabled.
 
 ## Building
 
@@ -110,8 +123,7 @@ cmake --build build_selftest --target neopico_selftest -j4
 
 # MVS/AES universal build with the persistent Audio menu and AES controller OSD
 cmake -S . -B build_audio_menu \
-  -DNEOPICO_AUDIO_MODE=SELECTABLE \
-  -DNEOPICO_OSD_CONTROLLER_INPUTS=ON
+  -DNEOPICO_AUDIO_MODE=SELECTABLE
 cmake --build build_audio_menu --target neopico_hd -j4
 
 # Fixed-source AES build without the Audio menu

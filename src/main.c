@@ -308,23 +308,23 @@ int main(void)
     gpio_pull_up(PIN_OSD_BTN_BACK);
 
 #if NEOPICO_OSD_CONTROLLER_INPUTS
-    // AES controller lines are externally pulled high and active low. Keep the
-    // RP2350 inputs high-impedance by leaving all internal pulls disabled.
+    // Controller taps are active low. Weak pull-ups keep untapped default MVS
+    // builds idle and sit in parallel with the external pulls when wired.
     gpio_init(NEOPICO_OSD_CONTROLLER_MENU_PIN);
     gpio_set_dir(NEOPICO_OSD_CONTROLLER_MENU_PIN, GPIO_IN);
-    gpio_disable_pulls(NEOPICO_OSD_CONTROLLER_MENU_PIN);
+    gpio_pull_up(NEOPICO_OSD_CONTROLLER_MENU_PIN);
 
     gpio_init(NEOPICO_OSD_CONTROLLER_BACK_PIN);
     gpio_set_dir(NEOPICO_OSD_CONTROLLER_BACK_PIN, GPIO_IN);
-    gpio_disable_pulls(NEOPICO_OSD_CONTROLLER_BACK_PIN);
+    gpio_pull_up(NEOPICO_OSD_CONTROLLER_BACK_PIN);
 
     gpio_init(NEOPICO_OSD_CONTROLLER_UP_PIN);
     gpio_set_dir(NEOPICO_OSD_CONTROLLER_UP_PIN, GPIO_IN);
-    gpio_disable_pulls(NEOPICO_OSD_CONTROLLER_UP_PIN);
+    gpio_pull_up(NEOPICO_OSD_CONTROLLER_UP_PIN);
 
     gpio_init(NEOPICO_OSD_CONTROLLER_DOWN_PIN);
     gpio_set_dir(NEOPICO_OSD_CONTROLLER_DOWN_PIN, GPIO_IN);
-    gpio_disable_pulls(NEOPICO_OSD_CONTROLLER_DOWN_PIN);
+    gpio_pull_up(NEOPICO_OSD_CONTROLLER_DOWN_PIN);
 #endif
 #endif
 
