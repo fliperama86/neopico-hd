@@ -20,15 +20,17 @@ The workload is strictly partitioned between the two cores to ensure determinist
 *   **Pixel Processing**:
     *   Detects `SHADOW` and `DARK` bits.
     *   Default build uses a pre-computed 32K LUT for corrected RGB555 -> RGB565 conversion.
-    *   Optional mode (`NEOPICO_ENABLE_DARK_SHADOW=ON`) uses a 128KB quantized LUT path: normal RGB555 is exact; DARK/SHADOW effects use 14-bit color indices.
-    *   In optional mode, DARK applies the fixed dark offset; SHADOW halves channels before expansion and forces DARK active.
+    *   Optional `NEOPICO_MVS_COLOR_MODEL_MENU=ON` generates 64 KiB `Digital` and `Analog` normal-color LUTs at boot. Core 0 selects one base pointer at input VSYNC, while the pixel loop remains one lookup per pixel. Both choices ignore SHADOW/DARK.
+    *   Separate `NEOPICO_ENABLE_DARK_SHADOW=ON` uses an 8,448-byte R/G-plus-B split LUT for four effect states. This timing experiment produced bottom-screen pixel jitter and remains default off.
     *   Converts raw MVS data into standard RGB565.
 *   **Frame Management**: Writes to a ping-pong buffer in RAM.
+*   **Deferred Colors Persistence**: After a completed frame, Core 0 services the rare queued flash write and resets capture for clean synchronization. This path is experimental and does not run during ordinary frames.
 
 ### Core 1: Output & Audio (The "Output" Core)
 *   **Video Output**: Drives the HSTX peripheral to generate 640x480p @ 60Hz DVI/HDMI signals.
 *   **Scanline Doubling**: Reads the 320x240 capture buffer and performs line doubling on-the-fly during DMA interrupts.
 *   **OSD Overlay**: Injects the On-Screen Display menu pixels during the scanline generation phase.
+*   **Colors Control**: Browsing previews through a frame-boundary LUT request. SELECT restores the committed model; START/MENU queues persistence without rebooting.
 *   **Audio Pipeline**:
     *   Captures I2S audio via PIO2 (Bank 0).
     *   Runs the **Closed-Loop ASRC** (Asynchronous Sample Rate Converter) to downsample ~55.5kHz to 48kHz.
@@ -53,7 +55,7 @@ We implemented a **Proportional Control Loop**:
 
 | Region | Size | Usage |
 | :--- | :--- | :--- |
-| **SRAM_STRIPED** | 64-128 KB | **Video LUT** (64 KB default RGB LUT, 128 KB with DARK/SHADOW mode) |
+| **SRAM_STRIPED** | 8.25-128 KiB | **Video LUT** (64 KiB stable table, 128 KiB dual normal-color menu, or 8.25 KiB separate four-state effect experiment) |
 | **SRAM** | 150 KB | **Framebuffer** (320x240 RGB565) |
 | **SRAM** | 16 KB | **Audio DMA Buffer** (Raw I2S capture) |
 | **SCRATCH_X** | 4 KB | **Core 1 ISRs** (HSTX/Audio critical code) |

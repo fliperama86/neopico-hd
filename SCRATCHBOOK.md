@@ -1545,3 +1545,211 @@ Working implication for this board:
 - Recommendation delivered: run E1/E2/E3 (cheap, discriminating), and independently put a level-shifter/redriver + ESD on the production board because shipping 2.5x-overclocked resistor-DAC TMDS at 742 Mbps to the field will find more picky sinks than this one Samsung. Full report in chat; no code/hardware changed this session.
 - Hardware result: user accepts the flashed 87.5% fake-translucent OSD and explicitly requests committing it.
 - Commit scope is limited to the flag-gated firmware implementation, OSD documentation, audit flag, and scratchbook. Keep the unrelated KiCad `.kicad_prl` UI-state change unstaged; do not push unless requested.
+
+## 2026-07-13 - E2a flash-torture demo built (delegated to Sonnet agent)
+- User approved the experiment ladder; coding delegated to a Sonnet subagent per user instruction.
+- E2a implemented: lib/pico_hdmi submodule working tree only (examples/bouncing_box_rt/main.c +96, CMakeLists.txt +10), nothing committed. CMake option FLASH_TORTURE (default OFF) wraps the stock box path in #ifdef/#else untouched; ON replaces content with full-field phases black -> 1px checkerboard -> black -> white, advancing every FLASH_TORTURE_PERIOD_FRAMES=30 frames at the Core 0 frame loop (whole-frame step). Scanline callback picks a precomputed line buffer (word-copy, one branch per line, no per-pixel logic; checker lines are constant-word). Timing/pins/clocks/audio/copy_to_ram untouched.
+- Verification: flag-OFF UF2 is byte-identical to pristine submodule HEAD build (same sha256; ELF delta is only DWARF build-path). ON build: +10248 .bss (4 line buffers), +24 .text. Both builds warning-free.
+- Deliverable: build-flashdemo/bouncing_box_rt.uf2 sha256 f256ef9f0e58d6c91087b1a0e01d098b117dfd3e2249ef0ac69fd8b049369c16 (OFF control: build-flashdemo-off/, sha256 2c7ca022...). NOT flashed; awaiting user ack of the exact pi flash command.
+- Interpretation contract: glitch on Samsung Game Mode => content-statistics steps alone reproduce on stock demo code (no capture involved) => transport-layer margin convicted, factory repro obtained. Clean 20-30 min => content-step demoted; next is E2b (strobe pattern inside firmware with capture running) then E3 clk_hstx PLL-sourcing builds.
+- E1 (zero-build static-screen soak protocol) handed to user earlier this session; still pending hardware time.
+
+## 2026-07-13 - E1 result: glitch on a static in-game screen (~1 in 5 min)
+- User ran E1 (720p live firmware, Samsung Game Mode, static in-game screen) and saw at least one glitch in about 5 minutes.
+- Consequence 1: frame-wide content CHANGE is NOT REQUIRED for the glitch. Content-step-as-sole-trigger is strongly disfavored (unless the "static" screen had animated elements; asked user to confirm, but even blinking text would be a small delta comparable to the clean bouncing box).
+- Consequence 2: observed static-content rate (~0.2/min) is below the ~1/min gameplay baseline, and at 0.2/min ALL historical ~2-min clean windows (frozen frame, static-pattern+capture, checkerboard) had ~67% chance of showing zero events even if affected: those controls are under-powered against the static rate and can no longer be treated as clean. The cumulative-hours bouncing-box demo cleanliness remains solid.
+- Open confound raised: whether past demo runs happened with the MVS powered/connected (in-situ) or bench/USB only. If bench-only, "demo clean" never controlled for MVS-side electrical noise (Bank 1 input switching, shared ground/rails), which is present in E1 regardless of static content. Asked user.
+- Revised plan: E2a flash-torture demo still first (built, pending flash ack): glitch => transport margin convicted regardless of E1 (content steps sufficient even if not necessary) + factory repro; clean => content axis fully dead, focus shifts to capture/MVS-domain activity. Then a LONG (30-45 min) soak of the EXISTING NEOPICO_VIDEO_TEST_PATTERN=ON 720p build (no new code, just needs a build) to redo the pattern+capture control with proper power; then E3 clock-source builds. Re-adding a capture-freeze flag (Core 0 stopped, MVS running) is the discriminator for MVS-side electrical vs firmware capture work if needed.
+
+## 2026-07-13 - E2a result: flash-torture demo CLEAN; content axis closed
+- User watched the FLASH_TORTURE demo "for a while": NO glitches, despite ~2 full-frame worst-case content steps per second (hundreds to thousands of steps, vs ~1 glitch/min gameplay baseline and ~0.2/min static-screen rate).
+- Combined with E1 (glitch on static in-game screen with capture running): content change is neither necessary (E1) nor sufficient (E2a). Content-step hypothesis REFUTED as the trigger. Trigger is capture-side (Core 0 capture work and/or MVS electrical domain), consistent with the June "frozen frame clean" direction but now with the content confound removed.
+- Assumption to confirm with user: the E2a run happened in-situ with MVS powered (board installed). If so, raw MVS-side switching EMI at the input pins (buffers not enabled by the demo) was present and clean, which narrows the trigger further toward what the firmware DOES with the inputs (PIO sampling, DMA, Core 0 conversion/ring writes) rather than mere physical proximity. Exact watch duration also not yet recorded.
+- Next: long soak (30-45 min) of static test pattern WITH capture running at 720p, existing flags only (NEOPICO_VIDEO_720P=ON + NEOPICO_VIDEO_TEST_PATTERN=ON, RT path, menus/permissions off, copy_to_ram forced by CMake). June ran this only ~2 min (under-powered at the 0.2/min static rate). If it glitches: Core 0 capture work convicted as trigger, ring-read and content fully out, E3 clock-source builds become the discriminator for coupling path. If clean long: the remaining single delta vs E1 is Core 1 reading the live ring, which would need rethinking (link-global corruption from a RAM read path is hard to construct; scope next).
+
+## 2026-07-13 - Pattern+capture soak build ready (no code changes)
+- Built build-pattern720-soak: fixed RT 720p + NEOPICO_VIDEO_TEST_PATTERN=ON + NEOPICO_AUDIO_MODE=DIGITAL (SELECTABLE requires the resolution selector, which is off per the June probe recipe), RESOLUTION_MENU/RES_CONFIRM/FIRST_BOOT_REBOOT off, copy_to_ram auto-forced by the 720p guard. Zero source changes; existing flags only.
+- audit_firmware.py: no findings; scanline callback and DI symbols in scratch_x as expected.
+- UF2: build-pattern720-soak/src/neopico_hd.uf2 sha256 fcc1ce97164730ddc1a46b72d4b76375f6b06c9ecd56d34b6958197e5d355c5d. Not flashed; awaiting user ack.
+- Purpose: redo the June "static pattern + live capture" control at proper statistical power (30-45 min vs June's ~2 min, which had ~67% false-clean odds at the observed 0.2/min static rate). Glitch => Core 0 capture work convicted (content and ring-read out). Clean => Core 1 live-ring read is the last standing firmware-side delta vs E1.
+
+## 2026-07-13 - Pattern soak 10min clean (provisional); matched live sibling built
+- User: no glitches after ~10 min on build-pattern720-soak (pattern + capture running). At the E1 rate (~0.2/min) a 10-min window has ~14% false-clean odds: suggestive, not decisive. Recommended extending to 30+ min when convenient.
+- Confound identified before conviction: E1 ran on the selector firmware (unified callback renders all 720 lines/frame from the ring), while the pattern build is compile-time 720p (renders every 3rd line). So pattern-soak vs E1 differs in render duty AND source, not just pattern-vs-ring. June's glitchy builds did include compile-time ones, but that was gameplay-content era with 2-min observation windows.
+- Built the matched sibling build-live720-fixed: identical recipe to build-pattern720-soak minus TEST_PATTERN (compile-time RT 720p, live ring render, %3-skip path, audio DIGITAL). Audit: no findings. UF2 sha256 051c24a942f7e9ff2a1c66879e370ed0d4ecd55166d7f9a98dd81d9eaf61daf7. Not flashed.
+- Decision tree: live-fixed GLITCHES on static screen => matched pair vs pattern soak convicts the live-ring read as trigger (all else equal); next = E3 clock-source builds + mechanism hunt. Live-fixed CLEAN 30-45 min => compile-time 720p path does not glitch at all; delta vs E1 becomes the selector firmware itself (3x render duty / layout); next = port %3 line-skip to the unified selector callback (also a perf win) and retest, plus re-verify June's compile-time-glitch claim at modern statistical power.
+
+## 2026-07-14 - Controller OSD open chord
+- User requested and approved changing the hidden controller OSD chord from START+SELECT to UP+SELECT.
+- Implemented one-shot debounced UP+SELECT detection in either press order. Visible-menu controls, physical buttons, and the factory-reset chord remain unchanged.
+- Fresh MVS and SNES Release builds and firmware audits pass with no findings. MVS controller inputs default ON; SNES defaults OFF. No flash, commit, or push performed.
+- Built the persistent hardware candidate with the previously tested MVS/selectable-audio/controller/87.5%-translucent feature set: `build-up-select-translucent-controller/src/neopico_hd.uf2`, SHA-256 `1a9b8be25629ae861bd4c5ddf37c9aa671757656f457216280455a1bff9f4dc9`. Audit reports no findings. User acknowledged the exact command; `pi flash` loaded the UF2 to 100% and rebooted the RP2350 into application mode successfully.
+- Released the chord change as v0.9.3 from commit `a0cd049`. Main Actions run `29369960984` and tag run `29370116889` passed MVS, SNES, fabrication, and release jobs. Verified all five downloaded assets, embedded v0.9.3 strings, MVS-only controller symbols, fabrication contents, and detailed release notes at https://github.com/fliperama86/neopico-hd/releases/tag/v0.9.3.
+
+## 2026-07-14 - Exhaustive MVS color host characterization
+- User approved a host-only exhaustive color test with no firmware behavior change, firmware build, flash, or hardware interaction. Pure conversion helpers and existing defaults moved unchanged into shared `src/video/mvs_color.h`; test runner is under `tests/` and compiles to a temporary directory.
+- The test exercised all 32,768 captured RGB555 values across all four DARK/SHADOW flag combinations (131,072 cases); input correction is one-to-one and structural checks pass.
+- Important correction to the earlier manual audit: default `mvs_pack_rgb565()` writes `g5 >> 4` into RGB565 bit 0 (blue LSB), not green bit 5. It corrupts 8,192 source codes. With the 26 nonblack clamp losses, the default LUT has 8,218 code mismatches and only 24,550 unique outputs. Default white is neutral `(248,248,248)`, not the previously reported `(248,252,248)`; eight neutral levels acquire blue bias.
+- The optional normal pack preserves RGB555 before clamping, but its effect tables still discard corrected blue LSB: DARK differs from the full-precision current formula for 15,360 colors, SHADOW for 3 clamp-edge colors, and SHADOW remains identical to DARK+SHADOW. Default builds ignore all 98,304 effect-flag cases.
+- No color behavior was fixed in this step. Next safest isolated change is correcting the default RGB565 green-bit placement, then rerunning the host test before considering the clamp or effect semantics.
+
+## 2026-07-14 - Default RGB565 pack correction verified
+- User approved the isolated default-packer fix only. `mvs_pack_rgb565()` now forms `g6 = (g5 << 1) | (g5 >> 4)` and places all six green bits at RGB565 bits 5-10; no clamp, effect, HDMI, timing, or hardware changes were included.
+- The host test now hard-fails on source-code loss or nonstandard RGB565 green expansion. All 32,768 colors and 131,072 color/effect cases pass: default pack mismatches fell from 8,192 to 0, default LUT mismatches from 8,218 to the 26 clamp-only losses, and unique default outputs rose from 24,550 to 32,742.
+- Default and optional normal LUTs are now identical (`FNV-1a 0x3ce219299565c748`). Release white is `(248,252,248)` at the current HSTX zero-fill stage; the 16 high neutral levels now expose the separate RGB565-to-HDMI green-level asymmetry rather than blue-bit corruption.
+- No firmware build or hardware action performed. Next methodical step is a default/optional target build verification before changing the black clamp.
+
+## 2026-07-14 - Corrected color packer target-build verification
+- User approved local build verification only. Fresh MVS Release builds succeeded for `NEOPICO_ENABLE_DARK_SHADOW=OFF` (`build-color-default`) and `ON` (`build-color-effects`); both use COPY_TO_RAM and the shared `mvs_color.h` without compiler errors.
+- Exhaustive host regression still passes all 32,768 RGB555 colors and 131,072 effect-state cases. Both firmware ELFs pass `scripts/audit_firmware.py` with no findings.
+- GNU size totals: default 422,088 bytes; effects 489,152 bytes. Enabling effects adds 65,536 bytes BSS plus 1,528 bytes text, consistent with replacing the 64 KiB default LUT with 128 KiB of optional LUTs; the effects build still links within RP2350B SRAM.
+- UF2 SHA-256: default `457fd610ada84a8ea207bcb1faa13fb8cb2ceba8150c3b0afe62720f0f584e38`; effects `95a579aabb3e9f431071ef946868b9a166bf3679637385a099833685a9455e6a`. Neither was flashed.
+- Next proposed isolated accuracy change: set the black clamp default from 2 to 0, make zero LUT source-code loss a strict host assertion, then rebuild/audit without changing DARK/SHADOW or HDMI behavior.
+
+## 2026-07-14 - Black clamp disabled; all normal RGB555 colors preserved
+- User approved only the clamp removal and verification. `MVS_BLACK_LEVEL_CLAMP` now defaults to 0; the dormant branch is documented as a diagnostic clamp rather than an analog-pedestal correction. DARK/SHADOW formulas and HDMI code are unchanged.
+- Host regression now hard-requires no clamped colors, no nonblack-to-black mappings, zero source-code mismatches, and 32,768 unique normal outputs in both default and optional paths. All 131,072 color/effect cases pass; normal LUT hash is `0x92048c3d9bb93983` for both paths.
+- Removing the clamp also isolates optional quantization errors: DARK differs from the full-precision current formula for 15,360 colors only on blue (max wire error 8); quantized SHADOW is now exact for the current formula. SHADOW still equals DARK+SHADOW, and release builds still ignore all effect flags.
+- Rebuilt default/effects MVS Release targets pass with no warnings; both firmware audits report no findings. GNU totals: default 422,064 bytes, effects 489,112 bytes. New UF2 SHA-256: default `21157f3cdef9ae192490255ecb588b664ad9c762489983e10046750c3e03b5b7`; effects `85f72dccd30d19e7520fa19c39a97ce5742ac1ea2f94335188107609c2a885cd`. Neither was flashed.
+- Remaining accuracy work is now cleanly separated: effect semantics/precision, RGB565-to-HDMI component expansion, and 720p quantization metadata. Do not enable the current optional effect path as the accuracy fix.
+
+## 2026-07-14 - Pinned four-state effect models and memory feasibility
+- User approved a host-only reference/modeling step; firmware behavior, target builds, and hardware were untouched. Added independent test models pinned to MiSTer Neo Geo `2325e6c` and MAME `e47c0f3`, including MAME's exact shared scaler, resistor weights, integer parallel pulldown, and `+0.5` rounding.
+- Verified white endpoints: MiSTer normal/DARK/SHADOW/both = 255/251/127/125; MAME = 255/251/142/141. Both implement four independent states, but they disagree materially on SHADOW and on most modeled normal codes because MAME emulates non-ideal resistor weights. MAME remains a model, not an MV1C measurement.
+- Exhaustive current-optional comparison confirms large effect errors: versus MiSTer, SHADOW max component error 15 and DARK+SHADOW 13; versus MAME, SHADOW max 30 and combined max 29. Current SHADOW and combined remain identical.
+- A full four-state RGB565 LUT is 262,144 bytes and a packed RGB888 LUT is 393,216 bytes, neither suitable for current SRAM. A split R/G-plus-B design supports per-pixel four-state lookup with two table reads plus OR: 8,448 bytes for RGB565 or 16,896 bytes for RGB888. Both candidates match direct MiSTer and MAME formulas across all 131,072 cases with zero mismatches.
+- Recommendation: do not select a production effect model yet. Next experimental implementation should be flag-gated and default OFF, compile only one model profile, use split tables, and benchmark the extra lookup on the RP2350 capture path before any visual test. MiSTer is the deterministic digital reference; MAME is the analog-model candidate pending real MV1C measurements. RGB565 transport still introduces up to 7/3/7 R/G/B code error even with an exact effect model.
+
+## 2026-07-14 - Four-state split LUT implementation started
+- User approved replacing the default-off optional DARK/SHADOW path with a compact branchless split-table implementation, with selectable MiSTer or MAME semantics and MiSTer as the default.
+- Added production model and LUT primitives in `src/video/mvs_effect_model.h` and `src/video/mvs_effect_lut.h`. Captured flag order is used directly: normal, SHADOW, DARK, DARK+SHADOW. The RGB565 table footprint is exactly 8,448 bytes.
+- MiSTer is implemented from the pinned bit-exact formula. MAME uses 128 precomputed channel bytes derived from the pinned resistor model, avoiding floating point in firmware.
+- Extended the host test to compile both production profiles. For each profile, all 128 channel/state entries and all 131,072 RGB555/effect cases match the independent reference with zero split-table and raw-word lookup mismatches. Capture code is not yet switched at this checkpoint.
+
+## 2026-07-14 - Four-state split LUT integrated and statically verified
+- Replaced the retired optional 128 KiB quantized LUTs with the shared 8,448-byte R/G-plus-B table. Runtime lookup uses the captured two-bit state directly, performs two halfword table reads plus OR, and has no data-dependent inner-loop branch. Default `NEOPICO_ENABLE_DARK_SHADOW=OFF` remains unchanged.
+- Added `NEOPICO_MVS_EFFECT_MODEL=MISTER|MAME`, default MISTER. Only the selected profile is compiled. The MiSTer and MAME `video_capture_run` sections are byte-identical; model choice affects boot-time table generation only. MAME adds one 128-byte constant table.
+- Removed obsolete quantization helpers and updated the host report to describe production behavior. Both profile runs pass with zero channel, split-table, raw-word, and independent-model mismatches across all 131,072 cases.
+- Fresh Release COPY_TO_RAM MVS builds pass for feature OFF, MiSTer ON, and MAME ON. Firmware audits report no findings. GNU totals: default 422,064 bytes; MiSTer 366,232; MAME 365,840. The split build reduces BSS by exactly 57,088 bytes versus default because 64 KiB is replaced by 8,448 bytes.
+- Default UF2 is byte-identical to the prior approved clamp-removal build: SHA-256 `21157f3cdef9ae192490255ecb588b664ad9c762489983e10046750c3e03b5b7`. MiSTer UF2 is `1bca7a2dac870fcb5ccd2738a891657c086d98373e18201817d14a2b97eadcfc`; MAME UF2 is `995ab81a08309dbdd82c4a7d61d57b94448cbb98178fc02d21aefc37d1a5e6a8`. No flash performed.
+- Cortex-M33 inspection: the steady split loop is 47 instructions per four pixels, versus 6 instructions per pixel for the default single-LUT loop. This is about 11.75 versus 6 retired instructions per pixel, not a cycle benchmark. It adds one 16-bit SRAM read per pixel, about 8.5 MB/s at roughly 4.24 million active pixels/s. Target timing still requires a hardware test before enabling the feature by default.
+
+## 2026-07-14 - Proposed runtime MVS color-model menu
+- User suggested exposing both working models in the OSD. Recommended a persistent `MVS Color Model` selector with Digital/MiSTer as default and Analog/MAME as the alternative.
+- Safe design: generate both 8,448-byte LUTs at boot (16,896 bytes total), cache one active LUT pointer for conversion, and change that pointer only at input VSYNC so a frame cannot mix models. This should add no per-pixel branch or material runtime cost.
+- Keep this separate from the current compile-time implementation until hardware/visual validation. Exhaustive tests prove formula fidelity, not that MAME's analog model matches the specific loaded MV1C output.
+
+## 2026-07-14 - Four-state compile-time implementation complete
+- Finished documentation for the default-off four-state split LUT, compile-time MiSTer/MAME selector, exact formulas, memory layout, runtime cost, and RGB565 transport limits. Documentation explicitly recommends MiSTer for digital RGB555 preservation and describes MAME as an unmeasured analog model.
+- Final host run passes both profiles: each tests 131,072 RGB555/effect cases with zero production channel, split-table, and raw-word mismatches. `git diff --check` passes.
+- Current local phase is complete. Runtime menu code was intentionally not added yet. The next staged step is hardware validation of the MiSTer build, followed by MAME, before implementing a persistent live model selector.
+
+## 2026-07-14 - MiSTer four-state firmware flashed
+- Operator acknowledged the exact MiSTer flash command. `pi flash build-color-effects-mister/src/neopico_hd.uf2` loaded to 100% and rebooted the RP2350 into application mode successfully.
+- Awaiting operator observation of normal color fidelity, SHADOW/DARK behavior, and capture stability before coordinating any MAME flash.
+
+## 2026-07-14 - MiSTer effect build shows bottom-screen pixel jitter
+- Operator could not confidently evaluate DARK/SHADOW because no known test scene was available, but observed pixels jiggling in the bottom portion of the screen with the MiSTer four-state build.
+- Treat the split effect path as timing-regressed and unsafe for production. Do not enable it by default or proceed to MAME hardware testing until isolated.
+- RGB accuracy fixes are already separate: corrected RGB555-to-RGB565 packing and disabled black clamp remain in the default `NEOPICO_ENABLE_DARK_SHADOW=OFF` build. Proposed restoring `build-color-default/src/neopico_hd.uf2` to verify the jitter disappears while retaining those RGB fixes; awaiting acknowledgement for that exact flash command.
+
+## 2026-07-14 - RGB-fix-only firmware restored
+- Operator acknowledged the exact restore command. `pi flash build-color-default/src/neopico_hd.uf2` rebooted the RP2350 through BOOTSEL, loaded to 100%, and rebooted into application mode successfully.
+- This build retains the corrected RGB555-to-RGB565 packer and disabled black clamp, while `NEOPICO_ENABLE_DARK_SHADOW=OFF` ignores DARK/SHADOW. Awaiting confirmation whether the bottom-screen pixel jitter disappeared.
+
+## 2026-07-14 - Stable RGB baseline confirmed; runtime menu approved
+- Operator confirmed the restored RGB-fix-only build looks perfect and the bottom-screen pixel jitter is gone. This isolates the regression to the optional effect path, not the RGB555 packer or clamp removal.
+- User approved proceeding with an OSD selector and requested avoiding the names MiSTer and MAME in the UI.
+- Planned UI: `Color Effects` with `Off` (default/stable), `Digital`, and `Analog`. Keep the entire feature compile-time gated and default OFF. Preserve the Off inner loop, switch modes only at input VSYNC, and mark both effect choices experimental until the jitter is resolved.
+
+## 2026-07-14 - Color model separated from DARK/SHADOW
+- Corrected menu design after user clarification: use `Color Model` with only `Digital` and `Analog`; `Digital` is the stable default, so a separate `Off` value is redundant.
+- The model selector must not enable or imply DARK/SHADOW. Keep DARK/SHADOW processing separate and disabled by default. Digital normal output matches the corrected RGB555-to-RGB565 baseline; Analog may alter ordinary color levels through its resistor-network model.
+
+## 2026-07-15 - Persistent normal-color model menu implemented
+- Added default-off `NEOPICO_MVS_COLOR_MODEL_MENU` with OSD values `Digital` and `Analog`. The leaf describes Digital as `Exact RGB555 mapping` / `Stable`, Analog as `Models Neo Geo DAC levels` / `Experimental`, and always shows `DARK/SHADOW disabled`.
+- Selection persists in the existing 32-byte settings payload and applies through save plus warm reboot. Boot generates one 64 KiB LUT for the chosen model; no live model switch, second LUT, per-line branch, or per-pixel branch was added. Factory reset selects Digital.
+- CMake rejects combining the normal-color menu with `NEOPICO_ENABLE_DARK_SHADOW`. The menu-enabled ELF contains no effect LUT symbols or MiSTer/MAME UI strings.
+- Exhaustive host tests pass both model choices across all 32,768 RGB555 colors: Digital differs from the stable LUT in 0 cases; Analog differs from the independent normal-state DAC reference in 0 cases.
+- Fresh Release builds pass for feature off and menu on. Both firmware audits report no findings. `video_capture_run` is 896 bytes and its normalized 297-instruction stream is identical in both builds. GNU totals: off 422,064 bytes; menu 423,200 bytes. Menu UF2 SHA-256 is `4046ca23147dff5c56c6663ccca9d12040a7cf71be50c5c38cfc46633080eecf`.
+- The new default artifact differs from the approved RGB-only artifact by only the embedded build-date byte (`Jul 14` versus `Jul 15`); the other 49,307 binary bytes are identical. No flash performed.
+- Workflow corrections: invoke `tests/run_mvs_color_exhaustive.sh` through `bash` because it is not executable. `clang-format` is unavailable in this environment, so use compiler builds, `git diff --check`, line-length/manual diff review, and do not assume the formatter exists.
+
+## 2026-07-15 - Color model OSD description simplified
+- Per user request, the Color Model leaf now shows only one dynamic description line: `Exact RGB555 mapping` for Digital or `Models Neo Geo DAC levels` for Analog.
+- Removed the extra `Stable`, `Experimental`, and `DARK/SHADOW disabled` text from the OSD only. DARK/SHADOW remains disabled and build-time separated from the normal-color menu.
+- Menu rebuild and firmware audit pass. The retained description strings are present, the removed Color Model strings are absent, and the updated UF2 SHA-256 is `5d9f21ed688d91fc005a137e147021599bb2d53af1ac8a442e54d1b538d32072`. No flash performed.
+
+## 2026-07-15 - Color menu renamed
+- Per user request, shortened all visible menu naming from `Color Model` to `Colors`: root entry, leaf heading, and `NeoPico-HD Colors` title. Internal model identifiers remain unchanged.
+- Rebuild and firmware audit pass; the old visible `Color Model` string is absent. Updated UF2 SHA-256 is `e199d10edf80c331f9d542d7dc5dd8e81fbe03deb835a06661b5ba6be0dcf4d3`. No flash performed.
+
+## 2026-07-15 - Real-time color switching assessment
+- A reset is not required by color conversion itself. Safest live design is two 64 KiB normal-color LUTs generated at boot, with one active pointer switched only at input VSYNC. This preserves the existing one-read pixel loop and prevents mixed-model frames.
+- The second LUT costs 64 KiB and would leave roughly 40 KiB free in main SRAM in the current menu build. It fits but reduces memory margin.
+- Persistence is the remaining issue: the existing flash write is intentionally coupled to immediate reboot because it runs from the Core 1 menu path and can interrupt HDMI timing. Recommended first step is live preview while browsing, restore on cancel, and retain save-plus-reboot on confirm until a separately verified live-safe persistence path exists.
+
+## 2026-07-15 - START-confirmed live Colors path implemented and statically verified
+- User explicitly chose highlight-only browsing with controller START confirmation and no firmware reset. Physical MENU remains the equivalent confirm input; SELECT cancels/returns.
+- The menu build now generates Digital and Analog as two 32,768-entry RGB565 tables. Core 1 publishes the confirmed model atomically, and Core 0 chooses one table pointer once at the next input VSYNC. A frame cannot mix models.
+- Linked Cortex-M33 inspection confirms the active-pixel loop remains one source load, one halfword LUT load, one halfword store, and loop control. There is no per-pixel model comparison or branch.
+- Persistence is queued from Core 1 and serviced by Core 0 only after a completed input frame or the no-signal timeout. Core 0 then clears queued sync state and resets both capture PIO state machines. Menu inputs are ignored until the write finishes, preventing a Core 1 XIP read during flash access.
+- The menu configuration now explicitly requires COPY_TO_RAM. Core 1 HDMI interrupts continue from SRAM while flash XIP is unavailable; capture can hold the displayed game frame briefly. This live save/resync path is experimental until hardware validation.
+- Exhaustive Digital/Analog host checks pass all 32,768 RGB555 inputs. Default and menu Release builds pass, both firmware audits report no findings, no atomic helper is unresolved, and `git diff --check` passes.
+- Menu total is 489,236 bytes with a 131,072-byte dual LUT and 43,216 bytes of address margin below scratch X. Feature-off total remains 422,064 bytes and differs from the approved RGB-only binary only at the embedded Jul 14/Jul 15 date byte.
+- Current live-menu UF2 SHA-256 is `c9f784cb58391554cb2d1c6a0352f5616a1b39c6e6c65e1d5b7d4e3f55ba544a`. No hardware command or flash was performed.
+
+## 2026-07-15 - Colors interaction changed to live preview with SELECT rollback
+- User requested that moving between Digital and Analog preview immediately, while controller SELECT restores the committed choice.
+- Colors now snapshots the committed model on leaf entry. UP/DOWN and physical BACK publish the highlighted model for the next input VSYNC; the existing `*` marker remains on the committed choice.
+- Controller SELECT republishes the entry-time committed model and returns to root. START or physical MENU persists the highlighted preview and makes it the new committed model. No firmware reset path was added.
+- Verification and a new menu UF2 are pending at this checkpoint. No hardware action performed.
+
+## 2026-07-15 - Live preview and rollback build verified
+- Exhaustive color tests and the static menu contract pass: navigation publishes the preview, SELECT publishes the committed model, START/MENU queues persistence, and the Colors case has no reboot call.
+- Feature-off and menu Release builds pass, both firmware audits report no findings, and `git diff --check` passes. The feature-off binary remains identical to the approved RGB-only baseline except for the Jul 14/Jul 15 date byte.
+- Menu total is 489,500 bytes; dual-LUT BSS and the 43,216-byte address margin below scratch X are unchanged. The small increase is Core 1 menu logic only.
+- Updated live-preview UF2 SHA-256: `bf6dc1aeb6666705164f000f6424fae1427b254cef5fe67a440231a69396d120`. No hardware command or flash performed.
+
+## 2026-07-15 - Live-preview Colors firmware flashed
+- Operator acknowledged the exact command `pi flash build-color-model-menu/src/neopico_hd.uf2`.
+- The helper needed two automatic reboot-to-BOOTSEL attempts, loaded the RP2350 ARM-S image to 100%, and rebooted the board into application mode successfully.
+- Flashed UF2 SHA-256: `bf6dc1aeb6666705164f000f6424fae1427b254cef5fe67a440231a69396d120`.
+- Awaiting operator validation of live Digital/Analog preview, SELECT rollback, START persistence, and capture stability during the deferred flash save.
+
+## 2026-07-15 - Flashed menu build uses opaque OSD
+- User observed that the OSD is not translucent. Confirmed `build-color-model-menu` has `NEOPICO_OSD_FAKE_BLEND=OFF`, which is the default.
+- This is independent of the Colors work. The optional fake-blend path is compile-time gated and experimental; when enabled, black OSD background retains 12.5% of the game image while text remains opaque. Enabling it requires a rebuild and another coordinated flash.
+
+## 2026-07-15 - Translucent OSD requested as the default
+- User requested changing `NEOPICO_OSD_FAKE_BLEND` from default OFF to default ON. The accepted 87.5%-opaque fixed blend remains unchanged: black panel pixels retain 12.5% of the game image and text/colors remain opaque.
+- User also requested the Analog Colors description spelling `Models NEOGEO DAC levels`; source, documentation, and the source-contract check were updated.
+- Menu reconfiguration, build, linked-kernel audit, and a new coordinated flash are pending at this checkpoint.
+
+## 2026-07-15 - Default translucent OSD and NEOGEO description verified
+- A clean Release configuration reports `NEOPICO_OSD_FAKE_BLEND=ON`; opaque and precomposed builds must now opt out explicitly with `OFF`.
+- Reconfigured `build-color-model-menu` with live Colors and fake blend both ON. Exhaustive color/source-contract checks pass, including presence of `Models NEOGEO DAC levels` and absence of the old description string.
+- Default-blend and Colors+blend builds pass. Both firmware audits report no findings. The audit now automatically treats all three fake-blend scale kernels as critical when the flag is ON.
+- The 2x/3x/4x blend kernels remain at `0x200810d4/0x20081148/0x200811c0`, sizes 116/120/120 bytes, and their instruction streams are identical to the previously hardware-accepted 87.5%-opaque build.
+- Colors+blend total is 489,868 bytes; scratch X/Y use 1,664/876 bytes. Updated menu UF2 SHA-256: `ed588f33d4162d61ba91875e50b8126aac55a709a974ce15d398c774b4c041d8`.
+- No new hardware action performed; the newly built UF2 has not been flashed.
+
+## 2026-07-15 - Combined firmware accepted; v0.10.0 release requested
+- User independently flashed the Colors+translucent build and reports that it looks nice.
+- User explicitly requested commit, push, and release. Repository is on cleanly tracked `main` at `v0.9.3`; unrelated `hardware/neopico-hd/neopico-hd.kicad_prl` and dirty `lib/pico_hdmi` remain excluded.
+- Selected `v0.10.0` as the next feature release. Bumped the CMake project version, configured the release workflow to enable Colors only for MVS, and added MVS host color tests plus firmware audits to CI.
+- Release-equivalent MVS/SNES validation, scoped staging review, commit, push, tag, Actions verification, and asset verification remain pending.
+
+## 2026-07-15 - v0.10.0 release-equivalent validation passed
+- Clean Release builds completed for the exact CI configurations: MVS with `NEOPICO_MVS_COLOR_MODEL_MENU=ON` and SNES with it OFF; both use `NEOPICO_COPY_TO_RAM=ON` and default translucent OSD.
+- Exhaustive RGB tests and the live-menu source contract pass. Both ELF audits report no findings. Workflow YAML parses successfully and `git diff --check` is clean.
+- MVS total is 489,876 bytes; UF2 SHA-256 is `0423727362d25f46984f5c4ab9fa616d0741bc40a3fb9568d4bfc236f7f07968`. It embeds `NeoPico-HD v0.10.0` and `Models NEOGEO DAC levels`.
+- SNES total is 417,280 bytes; UF2 SHA-256 is `26dbd3f71f3bc280e85d148d2879f9998392471d99fc442cc44361529d513052`. Colors symbols are absent as intended.
+- The dirty PicoHDMI submodule changes touch only its `examples/bouncing_box_rt` example and do not affect NeoPico-HD builds. It and the unrelated KiCad PRL remain excluded from release staging.
+
+## 2026-07-15 - Pre-commit hook recovery
+- The first release commit attempt was correctly stopped by hooks. `clang-format` made mechanical edits, while the cross-compile `clang-tidy -p=build --fix-errors` run could not resolve Pico SDK/system headers and applied unsafe fix-its, including removing a live test parameter and changing a public function to static.
+- Restored every hook-touched source from the already validated index, preserving the unrelated unstaged files. Then ran only the formatter hook deliberately and retained its mechanical formatting.
+- Do not accept clang-tidy auto-fixes from a parse-failed cross-compile run. Revalidate formatted sources and skip only the broken clang-tidy hook for this commit.
+- Post-format revalidation passed unchanged: exhaustive color/menu tests pass, MVS and SNES rebuilds pass, both audits report no findings, and both UF2 hashes exactly match the pre-format release-equivalent artifacts.
+- All remaining pre-commit hooks pass with only `clang-tidy` intentionally skipped because its parse-failed cross-compile configuration is unsafe with `--fix-errors`.

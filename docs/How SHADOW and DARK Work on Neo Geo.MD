@@ -1,103 +1,92 @@
 # How SHADOW and DARK Work on Neo Geo
 
-## Firmware Note (Current Build)
+## Firmware Status
 
-NeoPico-HD currently runs a performance-first conversion path:
+NeoPico-HD captures RGB555 plus the per-pixel SHADOW and DARK signals.
 
-- Default build (`NEOPICO_ENABLE_DARK_SHADOW=OFF`) uses RGB-only conversion.
-- Optional build (`NEOPICO_ENABLE_DARK_SHADOW=ON`) uses a 128KB quantized LUT path: normal RGB555 is exact; DARK/SHADOW effects use 14-bit color indices.
-- In that optional mode, DARK applies the fixed dark offset.
-- SHADOW halves channels before expansion and forces DARK active.
+- `NEOPICO_ENABLE_DARK_SHADOW=OFF` is still the default. It converts all 32,768 RGB555 colors exactly to RGB565 and ignores the two effect flags.
+- `NEOPICO_ENABLE_DARK_SHADOW=ON` enables four independent states: normal, SHADOW, DARK, and DARK+SHADOW.
+- `NEOPICO_MVS_EFFECT_MODEL=MISTER` selects the default digital-reference model.
+- `NEOPICO_MVS_EFFECT_MODEL=MAME` selects MAME's analog resistor-network model.
 
-The sections below describe the reference behavior of Neo Geo effects.
+The effect model is still selected at compile time. This split-LUT path produced bottom-screen pixel jitter in hardware testing and remains a separate default-off experiment.
 
-## The Basic Idea
+`NEOPICO_MVS_COLOR_MODEL_MENU=ON` is a different feature. Its OSD values, `Digital` and `Analog`, select normal-pixel conversion only. It keeps both normal-color LUTs and previews by switching one active pointer at input VSYNC. SELECT restores the committed model; START/MENU persists the preview without a firmware reboot. Both choices ignore the captured SHADOW/DARK signals, and the build system rejects enabling the menu and effect experiment together.
 
-The Neo Geo outputs **15-bit color** (5 bits each for Red, Green, Blue), giving 32 levels per channel (0-31).
+## Captured Pixel Layout
 
-But the hardware has **two extra signals** that modify brightness *after* the color is generated.
+The PIO capture word preserves all source bits:
 
----
-
-## SHADOW (50% Dimming)
-
-**What it does:** Cuts the brightness **in half**.
-
-```
-Before:  Bright red pixel = R:31, G:0, B:0
-After:   Shadowed red     = R:15, G:0, B:0
+```text
+[18:DARK][17:SHADOW][16:12:R][11:7:G][6:2:B][1:PCLK][0:CSYNC]
 ```
 
-**How:** Each color channel is divided by 2 (right-shift by 1 bit).
+After the configured wiring correction, each color component is a value from 0 through 31. The two effect signals do not replace RGB bits. They select how the three RGB555 components are converted.
 
-**Used for:**
-- Character shadows on the ground
-- Darkened background layers
-- "Behind something" effect
+## MiSTer Digital Model
 
-**Visual analogy:** Like putting sunglasses on just that pixel.
+The MiSTer profile is pinned to [Neo Geo commit `2325e6c`](https://github.com/MiSTer-devel/NeoGeo_MiSTer/blob/2325e6c4303dc9a3fd554b18d9833e992ccd444f/neogeo.sv#L2205-L2222). For each channel:
 
----
-
-## DARK (Subtle Dimming)
-
-**What it does:** Makes colors **slightly darker** - subtracts a small fixed amount.
-
-```
-Before:  R:200, G:150, B:100  (after 5-bit to 8-bit expansion)
-After:   R:196, G:146, B:96   (subtract 4 from each)
+```text
+value6 = (value5 << 1) | (value5 >> 4)
+if DARK:   value6 = max(value6 - 1, 0)
+value8 = (value6 << 2) | ((value6 >> 3) & 3)
+if SHADOW: value8 = value8 >> 1
 ```
 
-**How:** Subtract 4 from each 8-bit channel (with floor at 0, so black stays black).
+DARK and SHADOW are independent. DARK changes `value6` first, then SHADOW halves the expanded result. White endpoints before RGB565 packing are:
 
-**Used for:**
-- Subtle shading effects
-- Smooth fade transitions
-- Fine intensity control
+| State | RGB888 component |
+| :--- | ---: |
+| Normal | 255 |
+| DARK | 251 |
+| SHADOW | 127 |
+| DARK+SHADOW | 125 |
 
-**Visual analogy:** Like turning down a dimmer switch just a tiny bit (~1.5% darker).
+This profile is recommended when the goal is deterministic preservation of the digital RGB555 image and effect bits.
 
----
+## MAME Analog Model
 
-## When Both Are Active (Reference)
+The MAME profile is pinned to [MAME commit `e47c0f3`](https://github.com/mamedev/mame/blob/e47c0f33c5be3ee286ff65bed13458c2920340d2/src/mame/neogeo/neogeo_v.cpp#L23-L64). It models the Neo Geo DAC as five channel resistors of 3900, 2200, 1000, 470, and 220 ohms. It applies an 8200-ohm DARK pulldown, a 150-ohm SHADOW pulldown, or their modeled parallel combination.
 
-Reference behavior treats SHADOW and DARK as **independent controls**:
+Firmware stores the exact 128 precomputed channel results, so no floating-point math runs on the RP2350. White endpoints before RGB565 packing are:
 
-```
-Original pixel:        R:31, G:31, B:31  (white)
-                             |
-                             v
-After SHADOW (÷2):     R:15, G:15, B:15  (gray)
-                             |
-                             v
-After DARK (-4):       R:11, G:11, B:11  (darker gray)
-```
+| State | RGB888 component |
+| :--- | ---: |
+| Normal | 255 |
+| DARK | 251 |
+| SHADOW | 142 |
+| DARK+SHADOW | 141 |
 
-**Result:** Roughly **60% darker** than the original.
+MAME intentionally applies its non-ideal resistor curve to normal colors too. It is useful as an analog-emulation reference, but it is not a measurement of the specific MV1C board, DAC loading, video amplifier, display chain, or calibration target.
 
-Current staged firmware note: output conversion is keyed by both SHADOW and DARK in the optional LUT mode.
+## Compact Four-State LUT
 
----
+A flat four-state RGB565 LUT would require 262,144 bytes. NeoPico-HD splits each pixel into an R/G index and a B index:
 
-## Visual Summary
-
-```
-NORMAL pixel:   ████████████████  (100% brightness)
-
-DARK pixel:     ███████████████   (~98% - barely noticeable)
-
-SHADOW pixel:   ████████          (50% - obvious dimming)
-
-SHADOW+DARK:    ██████            (~48% - darkest)
+```text
+pixel = rg_table[state][raw_rg] | b_table[state][raw_b]
 ```
 
----
+The production table contains:
 
-## Why Two Separate Signals?
+- 4 x 1,024 R/G entries
+- 4 x 32 B entries
+- 4,224 total 16-bit entries
+- 8,448 bytes total
 
-The Neo Geo designers wanted:
+The Cortex-M33 pixel loop performs two halfword table reads plus OR. It has no data-dependent effect branch. MiSTer and MAME use identical runtime lookup code; only boot-time table generation differs.
 
-1. **SHADOW:** Cheap way to create shadow sprites without storing separate darker graphics
-2. **DARK:** Fine control for smooth fade-in/fade-out effects
+## RGB565 Transport Limit
 
-Both are **per-pixel** flags, so different parts of the screen can have different dimming applied simultaneously.
+Each selected model produces an 8-bit component, then firmware packs it as:
+
+```text
+R5 = R8 >> 3
+G6 = G8 >> 2
+B5 = B8 >> 3
+```
+
+The current HSTX path expands those fields by zero-filling their low bits. This introduces at most 7, 3, and 7 code values of transport error for red, green, and blue. It also means two distinct modeled states can occasionally produce the same RGB565 code even though their 8-bit model values differ.
+
+The exhaustive host test checks every one of the 32,768 RGB555 values in all four effect states for both profiles. It proves formula and table fidelity. It does not replace measurement or visual validation on the target MV1C and HDMI sink.

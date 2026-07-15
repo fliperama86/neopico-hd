@@ -73,6 +73,8 @@ FLAGS_TO_SHOW = (
     "NEOPICO_RESOLUTION_MENU_720P",
     "NEOPICO_FIRST_BOOT_REBOOT",
     "NEOPICO_SETTINGS_FLASH",
+    "NEOPICO_MVS_COLOR_MODEL_MENU",
+    "NEOPICO_ENABLE_DARK_SHADOW",
     "NEOPICO_EXP_PRECOMPOSED_HDMI",
     "NEOPICO_EXP_GENLOCK_DYNAMIC",
     "NEOPICO_DIAG_COUNTERS",
@@ -366,6 +368,45 @@ def audit_report(
         if in_flash(symbol.addr):
             findings.append(Finding("WARN", f"background/Core1 symbol is flash-resident: {symbol_line(symbol)}"))
 
+    color_menu_flag = flags.get("NEOPICO_MVS_COLOR_MODEL_MENU")
+    if color_menu_flag == "ON":
+        if flags.get("NEOPICO_COPY_TO_RAM") != "ON":
+            findings.append(Finding("FAIL", "live Colors menu is not a COPY_TO_RAM build"))
+
+        color_lut = symbols.get("g_color_correct_lut")
+        if color_lut is None:
+            findings.append(Finding("FAIL", "live Colors menu is missing g_color_correct_lut"))
+        else:
+            if color_lut.size != 2 * 32768 * 2:
+                findings.append(
+                    Finding(
+                        "FAIL",
+                        f"live Colors LUT is {color_lut.size} bytes, expected 131072 bytes",
+                    )
+                )
+            if color_lut.size is not None and color_lut.addr + color_lut.size > SCRATCH_X_BASE:
+                findings.append(Finding("FAIL", "live Colors LUT overlaps reserved scratch SRAM"))
+
+        for name in (
+            "video_capture_set_color_model",
+            "video_capture_get_color_model",
+            "settings_request_save",
+            "settings_service_pending_save",
+            "settings_save_pending",
+        ):
+            symbol = symbols.get(name)
+            if symbol is None:
+                findings.append(Finding("FAIL", f"live Colors symbol missing: {name}"))
+            elif not in_sram(symbol.addr):
+                findings.append(Finding("FAIL", f"live Colors symbol is not in SRAM: {symbol_line(symbol)}"))
+
+        if "g_capture_effect_lut" in symbols:
+            findings.append(Finding("FAIL", "live Colors build unexpectedly contains the DARK/SHADOW effect LUT"))
+    elif color_menu_flag == "OFF":
+        for name in ("settings_request_save", "settings_service_pending_save", "settings_save_pending"):
+            if name in symbols:
+                findings.append(Finding("FAIL", f"feature-off build unexpectedly contains live Colors symbol: {name}"))
+
     return Report(elf=elf, sections=sections, symbols=symbols, disasm=disasm, flags=flags, findings=findings)
 
 
@@ -458,6 +499,14 @@ def main(argv: list[str]) -> int:
     flags = parse_flags(elf)
     if flags.get("NEOPICO_RESOLUTION_MENU_720P") == "ON":
         for symbol in ("rt_build_line_with_di", "build_line_with_di_backporch"):
+            if symbol not in critical_list:
+                critical_list.append(symbol)
+    if flags.get("NEOPICO_OSD_FAKE_BLEND") == "ON":
+        for symbol in (
+            "video_pipeline_double_pixels_osd_fake_blend",
+            "video_pipeline_triple_pixels_osd_fake_blend",
+            "video_pipeline_quadruple_pixels_osd_fake_blend",
+        ):
             if symbol not in critical_list:
                 critical_list.append(symbol)
     if flags.get("NEOPICO_EXP_PRECOMPOSED_HDMI") != "ON":

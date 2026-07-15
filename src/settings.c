@@ -24,6 +24,18 @@ typedef struct {
 
 _Static_assert(sizeof(settings_record_t) <= FLASH_PAGE_SIZE, "settings record must fit one flash page");
 
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+enum {
+    SETTINGS_PENDING_IDLE = 0,
+    SETTINGS_PENDING_WRITING,
+    SETTINGS_PENDING_READY,
+    SETTINGS_PENDING_SAVING,
+};
+
+static neopico_settings_t g_pending_settings;
+static uint32_t g_pending_settings_state;
+#endif
+
 static uint32_t settings_crc32(const void *data, size_t len)
 {
     const uint8_t *p = (const uint8_t *)data;
@@ -77,11 +89,49 @@ void __no_inline_not_in_flash_func(settings_save)(const neopico_settings_t *s)
     restore_interrupts(saved);
 }
 
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+bool settings_request_save(const neopico_settings_t *s)
+{
+    uint32_t expected = SETTINGS_PENDING_IDLE;
+    if (!__atomic_compare_exchange_n(&g_pending_settings_state, &expected, SETTINGS_PENDING_WRITING, false,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return false;
+    }
+
+    g_pending_settings = *s;
+    __atomic_store_n(&g_pending_settings_state, SETTINGS_PENDING_READY, __ATOMIC_RELEASE);
+    return true;
+}
+
+bool settings_service_pending_save(void)
+{
+    uint32_t expected = SETTINGS_PENDING_READY;
+    if (!__atomic_compare_exchange_n(&g_pending_settings_state, &expected, SETTINGS_PENDING_SAVING, false,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return false;
+    }
+
+    const neopico_settings_t pending = g_pending_settings;
+    settings_save(&pending);
+    __atomic_store_n(&g_pending_settings_state, SETTINGS_PENDING_IDLE, __ATOMIC_RELEASE);
+    return true;
+}
+
+bool settings_save_pending(void)
+{
+    return __atomic_load_n(&g_pending_settings_state, __ATOMIC_ACQUIRE) != SETTINGS_PENDING_IDLE;
+}
+#endif
+
 void __no_inline_not_in_flash_func(settings_factory_reset)(void)
 {
     neopico_settings_t defaults;
     settings_defaults(&defaults);
     defaults.audio_source = (uint8_t)AUDIO_SOURCE_MV1C_DIGITAL;
     defaults.audio_source_valid = NEOPICO_SETTINGS_AUDIO_SOURCE_VALID;
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+    defaults.color_model = 0U; // MVS_COLOR_MODEL_DIGITAL
+    defaults.color_model_valid = NEOPICO_SETTINGS_COLOR_MODEL_VALID;
+#endif
     settings_save(&defaults);
 }

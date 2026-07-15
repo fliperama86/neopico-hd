@@ -56,13 +56,18 @@ else()
     set(_NEOPICO_OSD_CONTROLLER_INPUTS_DEFAULT OFF)
 endif()
 option(NEOPICO_OSD_CONTROLLER_INPUTS "Use active-low controller taps as additional OSD inputs (default ON for MVS/AES, OFF for SNES)" ${_NEOPICO_OSD_CONTROLLER_INPUTS_DEFAULT})
-option(NEOPICO_OSD_FAKE_BLEND "EXPERIMENTAL: fake a translucent OSD panel by dimming game pixels where OSD background pixels are black; OSD text/colors remain opaque" OFF)
+option(NEOPICO_OSD_FAKE_BLEND "Use a translucent OSD panel by dimming game pixels where OSD background pixels are black; OSD text/colors remain opaque" ON)
 set(NEOPICO_OSD_CONTROLLER_MENU_PIN "0" CACHE STRING "GPIO for controller START/MENU when controller OSD inputs are enabled")
 set(NEOPICO_OSD_CONTROLLER_BACK_PIN "1" CACHE STRING "GPIO for controller SELECT/BACK when controller OSD inputs are enabled")
 set(NEOPICO_OSD_CONTROLLER_UP_PIN "3" CACHE STRING "GPIO for controller UP when controller OSD inputs are enabled")
 set(NEOPICO_OSD_CONTROLLER_DOWN_PIN "2" CACHE STRING "GPIO for controller DOWN when controller OSD inputs are enabled")
 set(NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS "20" CACHE STRING "Controller OSD stable-release debounce time in milliseconds")
-option(NEOPICO_ENABLE_DARK_SHADOW "Enable true DARK/SHADOW LUT path in capture (128KB quantized LUT)" OFF)
+option(NEOPICO_ENABLE_DARK_SHADOW "Enable experimental four-state DARK/SHADOW split LUT in MVS capture (8.25 KiB)" OFF)
+set(NEOPICO_MVS_EFFECT_MODEL "MISTER" CACHE STRING
+    "MVS DARK/SHADOW color model when enabled: MISTER (digital reference) or MAME (analog resistor model)")
+set_property(CACHE NEOPICO_MVS_EFFECT_MODEL PROPERTY STRINGS MISTER MAME)
+option(NEOPICO_MVS_COLOR_MODEL_MENU
+    "Live persistent MVS Digital/Analog normal-color selector; does not enable DARK/SHADOW" OFF)
 option(NEOPICO_EXP_GENLOCK_STATIC "Enable static boot-time genlock sysclk target" OFF)
 set(NEOPICO_GENLOCK_TARGET_FPS_X100 "5920" CACHE STRING "Static genlock target FPS x100 (e.g. 5920 = 59.20)")
 option(NEOPICO_EXP_VTOTAL_MATCH "Enable fixed-pixel-clock output with custom V total for near-source frame rate" OFF)
@@ -88,6 +93,15 @@ set(NEOPICO_AUDIO_MODE "${_NEOPICO_AUDIO_MODE_DEFAULT}" CACHE STRING
 set_property(CACHE NEOPICO_AUDIO_MODE PROPERTY STRINGS DIGITAL PCM1802 SELECTABLE)
 option(NEOPICO_DIAG_AUDIO_OSD "Show HDMI audio underrun (silence splice) counter on the selftest OSD screen" OFF)
 set(NEOPICO_LINE_RING_SIZE "256" CACHE STRING "Number of 320px lines in the capture/display ring")
+
+string(TOUPPER "${NEOPICO_MVS_EFFECT_MODEL}" NEOPICO_MVS_EFFECT_MODEL_UPPER)
+if(NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "MISTER")
+    set(MVS_EFFECT_MODEL_VALUE 1)
+elseif(NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "MAME")
+    set(MVS_EFFECT_MODEL_VALUE 2)
+else()
+    message(FATAL_ERROR "NEOPICO_MVS_EFFECT_MODEL must be MISTER or MAME")
+endif()
 
 string(TOUPPER "${NEOPICO_AUDIO_MODE}" NEOPICO_AUDIO_MODE_UPPER)
 if(NEOPICO_AUDIO_MODE_UPPER STREQUAL "DIGITAL")
@@ -146,6 +160,28 @@ if(NEOPICO_ENABLE_DARK_SHADOW)
     set(ENABLE_DARK_SHADOW_VALUE 1)
 else()
     set(ENABLE_DARK_SHADOW_VALUE 0)
+endif()
+
+if(NEOPICO_MVS_COLOR_MODEL_MENU)
+    if(NOT NEOPICO_CAPTURE_TARGET_UPPER STREQUAL "MVS")
+        message(FATAL_ERROR "NEOPICO_MVS_COLOR_MODEL_MENU supports only the MVS capture target")
+    endif()
+    if(NEOPICO_ENABLE_DARK_SHADOW)
+        message(FATAL_ERROR
+            "NEOPICO_MVS_COLOR_MODEL_MENU is separate from NEOPICO_ENABLE_DARK_SHADOW; disable DARK/SHADOW")
+    endif()
+    if(NOT NEOPICO_ENABLE_OSD OR NOT NEOPICO_OSD_ROOT_MENU)
+        message(FATAL_ERROR "NEOPICO_MVS_COLOR_MODEL_MENU requires NEOPICO_ENABLE_OSD and NEOPICO_OSD_ROOT_MENU")
+    endif()
+    if(NOT NEOPICO_SETTINGS_FLASH)
+        message(FATAL_ERROR "NEOPICO_MVS_COLOR_MODEL_MENU requires NEOPICO_SETTINGS_FLASH")
+    endif()
+    if(NOT NEOPICO_RESOLUTION_MENU OR NEOPICO_USE_NONRT_HDMI)
+        message(FATAL_ERROR "NEOPICO_MVS_COLOR_MODEL_MENU requires the runtime HDMI reboot-mode selector")
+    endif()
+    set(MVS_COLOR_MODEL_MENU_VALUE 1)
+else()
+    set(MVS_COLOR_MODEL_MENU_VALUE 0)
 endif()
 
 if(NEOPICO_EXP_GENLOCK_STATIC)
@@ -252,6 +288,13 @@ if(_neopico_overclocked AND NOT NEOPICO_COPY_TO_RAM)
         "Copy the entire binary to SRAM at boot and execute from RAM" FORCE)
 endif()
 
+# Live Colors persistence temporarily makes XIP unavailable while Core 1 keeps
+# HDMI running. Every instruction and constant used by either core must
+# therefore reside in SRAM for this configuration.
+if(NEOPICO_MVS_COLOR_MODEL_MENU AND NOT NEOPICO_COPY_TO_RAM)
+    message(FATAL_ERROR "NEOPICO_MVS_COLOR_MODEL_MENU requires NEOPICO_COPY_TO_RAM")
+endif()
+
 if(NEOPICO_VIDEO_DVI_ONLY)
     set(VIDEO_DVI_ONLY_VALUE 1)
 else()
@@ -341,7 +384,7 @@ if(NEOPICO_OSD_ROOT_MENU)
     if(NOT NEOPICO_ENABLE_OSD)
         message(FATAL_ERROR "NEOPICO_OSD_ROOT_MENU requires NEOPICO_ENABLE_OSD=ON")
     endif()
-    if(NOT NEOPICO_ENABLE_SELFTEST AND NOT NEOPICO_RESOLUTION_MENU
+    if(NOT NEOPICO_ENABLE_SELFTEST AND NOT NEOPICO_RESOLUTION_MENU AND NOT NEOPICO_MVS_COLOR_MODEL_MENU
        AND NOT NEOPICO_AUDIO_MODE_UPPER STREQUAL "SELECTABLE")
         message(FATAL_ERROR "NEOPICO_OSD_ROOT_MENU needs at least one enabled entry")
     endif()
@@ -407,6 +450,8 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_OSD_CONTROLLER_DOWN_PIN=${NEOPICO_OSD_CONTROLLER_DOWN_PIN}
     NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS=${NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS}
     ENABLE_DARK_SHADOW=${ENABLE_DARK_SHADOW_VALUE}
+    MVS_EFFECT_MODEL=${MVS_EFFECT_MODEL_VALUE}
+    NEOPICO_MVS_COLOR_MODEL_MENU=${MVS_COLOR_MODEL_MENU_VALUE}
     NEOPICO_EXP_GENLOCK_STATIC=${GENLOCK_STATIC_VALUE}
     NEOPICO_GENLOCK_TARGET_FPS_X100=${NEOPICO_GENLOCK_TARGET_FPS_X100}
     NEOPICO_EXP_VTOTAL_MATCH=${VTOTAL_MATCH_VALUE}

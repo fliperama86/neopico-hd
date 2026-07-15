@@ -9,7 +9,8 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 - **Native 240p HDMI output** at 60fps (via 480p line doubling for audio compatibility)
 - **Experimental 720p HDMI output** - `NEOPICO_VIDEO_720P=ON`, centered 3x 4:3 scale; release builds use the non-RT PicoHDMI path for the best 720p stability
 - **15-bit RGB + SHADOW/DARK capture** - 19-bit capture path includes SHADOW and DARK control lines
-- **Pixel Conversion Modes** - Default 32K RGB LUT, optional 64K SHADOW LUT path via `NEOPICO_ENABLE_DARK_SHADOW=ON`
+- **Pixel Conversion Modes** - Stable 32K-entry RGB LUT, plus an optional live and persistent `Digital`/`Analog` normal-color selector that remains separate from DARK/SHADOW processing
+- **Translucent OSD Panel** - Enabled by default; game pixels under the black panel retain 12.5% brightness while text and menu colors remain opaque
 - **Digital audio capture** from I2S bus (before DAC) with 48kHz HDMI output
 - **Zero-overhead DMA video capture** - uses PIO + DMA with ping-pong buffering for perfect stability
 - **PicoHDMI Output** - Powered by the [PicoHDMI](https://github.com/fliperama86/pico_hdmi) library for efficient, hardware-native TMDS encoding via RP2350 HSTX.
@@ -21,9 +22,10 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 | 480p HDMI video         | Working                                    |
 | 720p HDMI video         | Experimental (`NEOPICO_VIDEO_720P=ON`, non-RT release build) |
 | 60fps capture           | Working                                    |
-| RGB555 video path       | Working                                    |
+| RGB555 Digital path     | Working                                    |
+| Live Colors selector    | Optional and experimental (`NEOPICO_MVS_COLOR_MODEL_MENU=ON`) |
 | SHADOW/DARK capture     | Working                                    |
-| SHADOW conversion mode  | Optional (`NEOPICO_ENABLE_DARK_SHADOW=ON`) |
+| SHADOW/DARK conversion  | Experimental, default off; split-LUT hardware test showed bottom-screen pixel jitter |
 | HDMI audio (48kHz)      | Working                                    |
 | OSD Diagnostics         | Working                                    |
 | Morhph4K, RetroTink 4K  | Tested                                     |
@@ -94,12 +96,13 @@ either default with `-DNEOPICO_OSD_CONTROLLER_INPUTS=ON` or `OFF`.
 ## Prebuilt Firmware
 
 GitHub Releases include ready-to-flash selector firmware. Each UF2 can switch
-between 240p, 480p, and 720p from the reboot-based OSD resolution menu.
+between 240p, 480p, and 720p from the reboot-based OSD resolution menu. The MVS
+asset also includes persistent Audio and live-preview Colors menus.
 
-| Asset | Capture | Audio |
-| ----- | ------- | ----- |
-| `neopico_hd_mvs.uf2` | Neo Geo MVS/AES | Persistent MV1C Digital / PCM1802 I2S menu |
-| `neopico_hd_snes.uf2` | SNES | Digital input |
+| Asset | Capture | OSD choices |
+| ----- | ------- | ----------- |
+| `neopico_hd_mvs.uf2` | Neo Geo MVS/AES | Resolution, Audio, and Digital/Analog Colors |
+| `neopico_hd_snes.uf2` | SNES | Resolution |
 
 Matching ELF files and the `neopico-hd-jlcpcb.zip` fabrication package are also
 attached to each release. Controller-driven AES OSD navigation is enabled in
@@ -129,6 +132,22 @@ cmake --build build_audio_menu --target neopico_hd -j4
 # Fixed-source AES build without the Audio menu
 cmake -S . -B build_pcm1802 -DNEOPICO_AUDIO_MODE=PCM1802
 cmake --build build_pcm1802 --target neopico_hd -j4
+
+# Live persistent normal-color selector. The OSD values are Digital (stable
+# default) and Analog (experimental). Moving previews live, SELECT reverts, and
+# START confirms without rebooting. Both choices ignore DARK/SHADOW.
+cmake -S . -B build_color_menu \
+  -DNEOPICO_MVS_COLOR_MODEL_MENU=ON \
+  -DNEOPICO_ENABLE_DARK_SHADOW=OFF
+cmake --build build_color_menu --target neopico_hd -j4
+
+# Separate DARK/SHADOW timing experiment. This path produced bottom-screen
+# pixel jitter in hardware testing and must not be combined with the color menu.
+cmake -S . -B build_effects \
+  -DNEOPICO_ENABLE_DARK_SHADOW=ON \
+  -DNEOPICO_MVS_COLOR_MODEL_MENU=OFF \
+  -DNEOPICO_MVS_EFFECT_MODEL=MISTER
+cmake --build build_effects --target neopico_hd -j4
 ```
 
 ## Architecture
@@ -137,7 +156,7 @@ cmake --build build_pcm1802 --target neopico_hd -j4
 Core 0: Video Capture               Core 1: Audio Pipeline + HSTX
 +--------------------------+       +--------------------------+
 | Video: PIO1 -> DMA (PP)  |       | Audio: PIO2 -> processing|
-| Conv: 32K LUT (64K opt)  |       | [ PicoHDMI Library ]     |
+| Conv: 32K LUT (dual opt) |       | [ PicoHDMI Library ]     |
 | Main loop: Control       |       | - 640x480 @ 60Hz         |
 | Heartbeat LED            |       | - HDMI Data Islands      |
 +--------------------------+       +--------------------------+

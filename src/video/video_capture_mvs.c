@@ -70,8 +70,8 @@ static void video_capture_diag_tick(uint32_t input_frames)
 // =============================================================================
 
 // DARK/SHADOW processing.
-// When enabled, uses an exact normal RGB555 LUT plus quantized DARK/SHADOW LUTs.
-// SHADOW is applied before expansion and also forces DARK active, matching Neo Geo reference behavior.
+// When enabled, uses a compact four-state split LUT with a compile-time color
+// model. The feature remains default-off until its capture timing is verified.
 #ifndef ENABLE_DARK_SHADOW
 #define ENABLE_DARK_SHADOW 0
 #endif
@@ -127,185 +127,58 @@ static semaphore_t g_vsync_sem;
 // Pixel Conversion
 // =============================================================================
 
-// Custom PCB color correction (try combinations if colors are wrong)
-// - Invert: channel logic inverted on PCB (XOR with 0x1F)
-// - Reverse: MSB/LSB swapped on PCB (reverse bit order within 5-bit channel)
-// - Raw mask: XOR with 15-bit color before extracting R/G/B. Bit layout in mask:
-//     bits 0-4: B (1=invert B0, 2=B1, 4=B2, 8=B3, 16=B4)
-//     bits 5-9: G (0x20=G0 .. 0x200=G4)
-//     bits 10-14: R (0x400=R0 .. 0x4000=R4)
-//   Examples: 0x001F=invert B, 0x03E0=invert G, 0x7C00=invert R
-#define MVS_INVERT_R 0
-#define MVS_INVERT_G 0
-#define MVS_INVERT_B 0
-// PCB wires MSB (R4/G4/B4) to lower GPIO → capture has MSB in LSB of each 5-bit field; reverse all three
-#define MVS_REVERSE_R 1
-#define MVS_REVERSE_G 1
-#define MVS_REVERSE_B 1
-#define MVS_RAW_COLOR_MASK 0
-// Reverse entire 15-bit color word (bus wired MSB↔LSB on PCB)
-#define MVS_REVERSE_15BIT 0
-// Black level: clamp 5-bit R/G/B at or below this to 0 (fixes gray blacks from MVS pedestal). 0 = off, 1–3 = clamp.
-#define MVS_BLACK_LEVEL_CLAMP 2
+#include "mvs_color.h"
 
-static inline uint32_t mvs_reverse_15(uint32_t x)
-{
-    x &= 0x7FFF;
-    return ((x & 0x0001U) << 14) | ((x & 0x0002U) << 12) | ((x & 0x0004U) << 10) | ((x & 0x0008U) << 8) |
-           ((x & 0x0010U) << 6) | ((x & 0x0020U) << 4) | ((x & 0x0040U) << 2) | ((x & 0x0080U) << 0) |
-           ((x & 0x0100U) >> 2) | ((x & 0x0200U) >> 4) | ((x & 0x0400U) >> 6) | ((x & 0x0800U) >> 8) |
-           ((x & 0x1000U) >> 10) | ((x & 0x2000U) >> 12) | ((x & 0x4000U) >> 14);
-}
-
-static inline uint32_t mvs_correct_5bit(uint32_t x, int invert, int reverse)
-{
-    if (reverse) {
-        x = ((x & 1U) << 4) | ((x & 2U) << 2) | (x & 4U) | ((x & 8U) >> 2) | ((x & 16U) >> 4);
-    }
-    if (invert) {
-        x ^= 0x1F;
-    }
-    return x & 0x1F;
-}
-
-static inline uint16_t mvs_pack_rgb565(uint32_t r5, uint32_t g5, uint32_t b5)
-{
-    return (uint16_t)((r5 << 11) | (g5 << 6) | (g5 >> 4) | b5);
-}
-
-static inline uint32_t mvs_expand_5_to_8(uint32_t x)
-{
-    return (x << 3U) | (x >> 2U);
-}
-
-static inline uint32_t mvs_apply_dark_8(uint32_t x)
-{
-    return (x > 4U) ? (x - 4U) : 0U;
-}
-
-static inline uint16_t mvs_pack_rgb888_to_rgb565(uint32_t r8, uint32_t g8, uint32_t b8)
-{
-    return (uint16_t)(((r8 >> 3U) << 11) | ((g8 >> 2U) << 5) | (b8 >> 3U));
-}
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+#include "mvs_color_model.h"
+#include "settings.h"
 
 #if ENABLE_DARK_SHADOW
-static inline uint16_t mvs_pack_shadow_dark_rgb565(uint32_t r5, uint32_t g5, uint32_t b5, bool shadow, bool dark)
-{
-    if (shadow) {
-        r5 >>= 1U;
-        g5 >>= 1U;
-        b5 >>= 1U;
-    }
-
-    uint32_t r8 = mvs_expand_5_to_8(r5);
-    uint32_t g8 = mvs_expand_5_to_8(g5);
-    uint32_t b8 = mvs_expand_5_to_8(b5);
-
-    // On Neo Geo, SHADOW implies the DARK stage too.
-    if (dark || shadow) {
-        r8 = mvs_apply_dark_8(r8);
-        g8 = mvs_apply_dark_8(g8);
-        b8 = mvs_apply_dark_8(b8);
-    }
-
-    return mvs_pack_rgb888_to_rgb565(r8, g8, b8);
-}
-
-#define MVS_CAPTURE_COLOR_BITS 15U
-#define MVS_CAPTURE_COLOR_SIZE (1U << MVS_CAPTURE_COLOR_BITS)
-#define MVS_CAPTURE_COLOR_MASK (MVS_CAPTURE_COLOR_SIZE - 1U)
-#define MVS_EFFECT_QUANT_COLOR_BITS 14U
-#define MVS_EFFECT_QUANT_COLOR_SIZE (1U << MVS_EFFECT_QUANT_COLOR_BITS)
-#define MVS_EFFECT_QUANT_COLOR_MASK (MVS_EFFECT_QUANT_COLOR_SIZE - 1U)
-#if MVS_REVERSE_B
-#define MVS_EFFECT_QUANT_DROP_BIT 4U // raw B0, corrected blue LSB when B bits are reversed
-#else
-#define MVS_EFFECT_QUANT_DROP_BIT 0U // corrected blue LSB when B bits are already ordered
-#endif
-#define MVS_EFFECT_QUANT_DROP_MASK (1U << MVS_EFFECT_QUANT_DROP_BIT)
-
-// Exact normal RGB LUT plus quantized effect LUTs. DARK/SHADOW lose only the corrected blue LSB.
-static uint16_t g_capture_lut_normal[MVS_CAPTURE_COLOR_SIZE] __attribute__((aligned(4)));
-static uint16_t g_capture_lut_dark[MVS_EFFECT_QUANT_COLOR_SIZE] __attribute__((aligned(4)));
-static uint16_t g_capture_lut_shadow[MVS_EFFECT_QUANT_COLOR_SIZE] __attribute__((aligned(4)));
-
-static inline uint32_t mvs_effect_quant_index(uint32_t color_idx)
-{
-    const uint32_t low = color_idx & (MVS_EFFECT_QUANT_DROP_MASK - 1U);
-    const uint32_t high = (color_idx >> 1U) & ~(MVS_EFFECT_QUANT_DROP_MASK - 1U);
-    return (low | high) & MVS_EFFECT_QUANT_COLOR_MASK;
-}
-
-static inline uint32_t mvs_effect_dequant_color_idx(uint32_t quant_idx)
-{
-    const uint32_t low = quant_idx & (MVS_EFFECT_QUANT_DROP_MASK - 1U);
-    const uint32_t high = (quant_idx & ~(MVS_EFFECT_QUANT_DROP_MASK - 1U)) << 1U;
-    return (low | high) & MVS_CAPTURE_COLOR_MASK;
-}
-
-static inline void mvs_correct_color_idx(uint32_t color_idx, uint32_t *r5, uint32_t *g5, uint32_t *b5)
-{
-    uint32_t color15 = color_idx ^ (MVS_RAW_COLOR_MASK & 0x7FFFU);
-#if MVS_REVERSE_15BIT
-    color15 = mvs_reverse_15(color15);
+#error "The normal-color model selector must remain separate from DARK/SHADOW processing"
 #endif
 
-    *r5 = mvs_correct_5bit((color15 >> 10) & 0x1F, MVS_INVERT_R, MVS_REVERSE_R);
-    *g5 = mvs_correct_5bit((color15 >> 5) & 0x1F, MVS_INVERT_G, MVS_REVERSE_G);
-    *b5 = mvs_correct_5bit(color15 & 0x1F, MVS_INVERT_B, MVS_REVERSE_B);
+static uint32_t g_requested_color_model = MVS_COLOR_MODEL_DIGITAL;
+static volatile bool g_sync_decoder_reset_requested;
+
+void video_capture_set_color_model(mvs_color_model_t model)
+{
+    const uint32_t requested = mvs_color_model_is_valid(model) ? (uint32_t)model : MVS_COLOR_MODEL_DIGITAL;
+    __atomic_store_n(&g_requested_color_model, requested, __ATOMIC_RELEASE);
 }
 
-static inline bool mvs_is_clamped_black(uint32_t r5, uint32_t g5, uint32_t b5)
+mvs_color_model_t video_capture_get_color_model(void)
 {
-    return MVS_BLACK_LEVEL_CLAMP > 0 && r5 <= MVS_BLACK_LEVEL_CLAMP && g5 <= MVS_BLACK_LEVEL_CLAMP &&
-           b5 <= MVS_BLACK_LEVEL_CLAMP;
+    const uint32_t requested = __atomic_load_n(&g_requested_color_model, __ATOMIC_ACQUIRE);
+    return mvs_color_model_is_valid(requested) ? (mvs_color_model_t)requested : MVS_COLOR_MODEL_DIGITAL;
 }
+#endif
+
+#if ENABLE_DARK_SHADOW
+#include "mvs_effect_lut.h"
+
+// Four independent states in captured-bit order: normal, SHADOW, DARK, both.
+// The split R/G-plus-B layout is exact for the selected model and uses 8,448
+// bytes instead of a 256 KiB flat four-state RGB565 LUT.
+static mvs_effect_lut_t g_capture_effect_lut __attribute__((aligned(4)));
 
 static void generate_capture_lut(void)
 {
-    for (uint32_t color_idx = 0; color_idx < MVS_CAPTURE_COLOR_SIZE; color_idx++) {
-        uint32_t r5;
-        uint32_t g5;
-        uint32_t b5;
-        mvs_correct_color_idx(color_idx, &r5, &g5, &b5);
-        if (mvs_is_clamped_black(r5, g5, b5)) {
-            // Black-level clamp: MVS often has a slight pedestal so "black" is a few LSB above 0.
-            g_capture_lut_normal[color_idx] = 0;
-        } else {
-            g_capture_lut_normal[color_idx] = mvs_pack_shadow_dark_rgb565(r5, g5, b5, false, false);
-        }
-    }
-
-    for (uint32_t quant_idx = 0; quant_idx < MVS_EFFECT_QUANT_COLOR_SIZE; quant_idx++) {
-        uint32_t r5;
-        uint32_t g5;
-        uint32_t b5;
-        mvs_correct_color_idx(mvs_effect_dequant_color_idx(quant_idx), &r5, &g5, &b5);
-        if (mvs_is_clamped_black(r5, g5, b5)) {
-            g_capture_lut_dark[quant_idx] = 0;
-            g_capture_lut_shadow[quant_idx] = 0;
-        } else {
-            g_capture_lut_dark[quant_idx] = mvs_pack_shadow_dark_rgb565(r5, g5, b5, false, true);
-            g_capture_lut_shadow[quant_idx] = mvs_pack_shadow_dark_rgb565(r5, g5, b5, true, true);
-        }
-    }
+    mvs_effect_lut_generate(&g_capture_effect_lut);
 }
 
 static inline uint16_t mvs_capture_lut_lookup(uint32_t raw)
 {
-    const uint32_t color_idx = (raw >> 2U) & MVS_CAPTURE_COLOR_MASK;
-    const uint32_t flags = (raw >> 17U) & 0x3U; // bit 0 = SHADOW, bit 1 = DARK
-    if ((flags & 1U) != 0U) {
-        return g_capture_lut_shadow[mvs_effect_quant_index(color_idx)];
-    }
-    if ((flags & 2U) != 0U) {
-        return g_capture_lut_dark[mvs_effect_quant_index(color_idx)];
-    }
-    return g_capture_lut_normal[color_idx];
+    return mvs_effect_lut_lookup_raw(&g_capture_effect_lut, raw);
 }
 #else
-// 32K LUT: corrected RGB555 -> RGB565 (DARK/SHADOW disabled build)
+// 32K LUT: corrected RGB555 -> RGB565 (DARK/SHADOW disabled build).
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+// Keep both normal-color tables so Core 0 can switch one base pointer at VSYNC
+// without adding work to the per-pixel loop.
+static uint16_t g_color_correct_lut[MVS_COLOR_MODEL_COUNT][32768] __attribute__((aligned(4)));
+#else
 static uint16_t g_color_correct_lut[32768] __attribute__((aligned(4)));
+#endif
 
 static void generate_color_correct_lut(void)
 {
@@ -315,33 +188,34 @@ static void generate_color_correct_lut(void)
         uint32_t b5 = mvs_correct_5bit(idx & 0x1F, MVS_INVERT_B, MVS_REVERSE_B);
         if (MVS_BLACK_LEVEL_CLAMP > 0 && r5 <= MVS_BLACK_LEVEL_CLAMP && g5 <= MVS_BLACK_LEVEL_CLAMP &&
             b5 <= MVS_BLACK_LEVEL_CLAMP) {
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+            g_color_correct_lut[MVS_COLOR_MODEL_DIGITAL][idx] = 0;
+            g_color_correct_lut[MVS_COLOR_MODEL_ANALOG][idx] = 0;
+#else
             g_color_correct_lut[idx] = 0;
+#endif
         } else {
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+            g_color_correct_lut[MVS_COLOR_MODEL_DIGITAL][idx] =
+                mvs_color_model_pack_rgb565(MVS_COLOR_MODEL_DIGITAL, r5, g5, b5);
+            g_color_correct_lut[MVS_COLOR_MODEL_ANALOG][idx] =
+                mvs_color_model_pack_rgb565(MVS_COLOR_MODEL_ANALOG, r5, g5, b5);
+#else
             g_color_correct_lut[idx] = mvs_pack_rgb565(r5, g5, b5);
+#endif
         }
     }
 }
 #endif
 
-// Direct conversion: RGB555 (from PIO) -> RGB565 (for HDMI)
-// PIO capture layout: [18:DARK][17:SHADOW][16-12:R][11-7:G][6-2:B][1:PCLK][0:CSYNC]
-// DARK/SHADOW mode keeps normal pixels exact and uses quantized effect LUTs.
+#if ENABLE_DARK_SHADOW
 static inline uint16_t convert_pixel(uint32_t raw)
 {
-#if ENABLE_DARK_SHADOW
     return mvs_capture_lut_lookup(raw);
-#else
-    uint32_t color15 = ((raw >> 2) & 0x7FFF) ^ (MVS_RAW_COLOR_MASK & 0x7FFF);
-#if MVS_REVERSE_15BIT
-    color15 = mvs_reverse_15(color15);
-#endif
-    return g_color_correct_lut[color15];
-#endif
 }
 
 static inline void convert_active_pixels(uint16_t *dst, const uint32_t *src, int count)
 {
-#if ENABLE_DARK_SHADOW
     int remaining = count;
     while (remaining >= 4) {
         dst[0] = mvs_capture_lut_lookup(src[0]);
@@ -355,12 +229,40 @@ static inline void convert_active_pixels(uint16_t *dst, const uint32_t *src, int
     while (remaining-- > 0) {
         *dst++ = mvs_capture_lut_lookup(*src++);
     }
+}
+#elif NEOPICO_MVS_COLOR_MODEL_MENU
+static inline uint16_t convert_pixel(const uint16_t *color_lut, uint32_t raw)
+{
+    uint32_t color15 = ((raw >> 2) & 0x7FFF) ^ (MVS_RAW_COLOR_MASK & 0x7FFF);
+#if MVS_REVERSE_15BIT
+    color15 = mvs_reverse_15(color15);
+#endif
+    return color_lut[color15];
+}
+
+static inline void convert_active_pixels(uint16_t *dst, const uint32_t *src, int count, const uint16_t *color_lut)
+{
+    for (int i = 0; i < count; i++) {
+        dst[i] = convert_pixel(color_lut, src[i]);
+    }
+}
 #else
+static inline uint16_t convert_pixel(uint32_t raw)
+{
+    uint32_t color15 = ((raw >> 2) & 0x7FFF) ^ (MVS_RAW_COLOR_MASK & 0x7FFF);
+#if MVS_REVERSE_15BIT
+    color15 = mvs_reverse_15(color15);
+#endif
+    return g_color_correct_lut[color15];
+}
+
+static inline void convert_active_pixels(uint16_t *dst, const uint32_t *src, int count)
+{
     for (int i = 0; i < count; i++) {
         dst[i] = convert_pixel(src[i]);
     }
-#endif
 }
+#endif
 
 // =============================================================================
 // MVS Sync Detection
@@ -385,6 +287,14 @@ static void sync_irq_handler(void)
 
     static uint32_t equ_count = 0;
     static bool in_vsync = false;
+
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+    if (g_sync_decoder_reset_requested) {
+        equ_count = 0;
+        in_vsync = false;
+        g_sync_decoder_reset_requested = false;
+    }
+#endif
 
     if (!in_vsync) {
         if (is_short_pulse) {
@@ -441,6 +351,20 @@ static void video_capture_reset_hardware(void)
     pio_interrupt_clear(g_pio_mvs, 4);
     pio_interrupt_clear(g_pio_mvs, MVS_SYNC_IRQ_INDEX);
 }
+
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+static void video_capture_resync_after_settings_save(void)
+{
+    // Core 0 was paused while flash XIP was unavailable. Discard any queued
+    // sync lines and restart both capture state machines from a clean phase.
+    irq_set_enabled(PIO1_IRQ_0, false);
+    sem_reset(&g_vsync_sem, 0);
+    g_sync_decoder_reset_requested = true;
+    __dmb();
+    video_capture_reset_hardware();
+    irq_set_enabled(PIO1_IRQ_0, true);
+}
+#endif
 
 // =============================================================================
 // Public API
@@ -545,6 +469,9 @@ void video_capture_init(uint mvs_height)
 void video_capture_run(void)
 {
     bool audio_rearm_on_next_signal = false;
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+    const uint16_t *frame_color_lut = g_color_correct_lut[MVS_COLOR_MODEL_DIGITAL];
+#endif
 
     // One-time: wait for first vsync (IRQ-driven) then drain FIFO for clean phase
     if (sem_acquire_timeout_ms(&g_vsync_sem, 500)) {
@@ -559,7 +486,15 @@ void video_capture_run(void)
             g_line_ring_diag.sync_resets++;
 #endif
             audio_rearm_on_next_signal = true;
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+            if (settings_service_pending_save()) {
+                video_capture_resync_after_settings_save();
+            } else {
+                video_capture_reset_hardware();
+            }
+#else
             video_capture_reset_hardware();
+#endif
             tud_task();
             continue;
         }
@@ -568,6 +503,16 @@ void video_capture_run(void)
             audio_subsystem_request_rearm();
             audio_rearm_on_next_signal = false;
         }
+
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+        // Read the cross-core request exactly once per frame. All active lines
+        // in this frame therefore use the same LUT base pointer.
+        uint32_t frame_color_model = __atomic_load_n(&g_requested_color_model, __ATOMIC_ACQUIRE);
+        if (!mvs_color_model_is_valid(frame_color_model)) {
+            frame_color_model = MVS_COLOR_MODEL_DIGITAL;
+        }
+        frame_color_lut = g_color_correct_lut[frame_color_model];
+#endif
 
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
         g_mvs_vsync_timestamp = timer_hw->timerawl;
@@ -613,7 +558,11 @@ void video_capture_run(void)
 
             // Convert pixels directly to ring buffer
             uint32_t *src = buf + g_skip_start_words;
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+            convert_active_pixels(dst, src, g_active_words, frame_color_lut);
+#else
             convert_active_pixels(dst, src, g_active_words);
+#endif
 
             // Signal line ready
             line_ring_commit(line + 1);
@@ -627,13 +576,24 @@ void video_capture_run(void)
             dma_channel_wait_for_finish_blocking(g_dma_chan);
 
             uint32_t *src = g_line_buffers[buf_idx] + g_skip_start_words;
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+            convert_active_pixels(dst, src, g_active_words, frame_color_lut);
+#else
             convert_active_pixels(dst, src, g_active_words);
+#endif
 
             line_ring_commit(g_mvs_height);
         }
 
 #if NEOPICO_DIAG_COUNTERS
         video_capture_diag_tick(g_frame_count);
+#endif
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+        // Persist only after a complete input frame. This pauses capture for a
+        // rare flash operation while Core 1 continues outputting the last frame.
+        if (settings_service_pending_save()) {
+            video_capture_resync_after_settings_save();
+        }
 #endif
     }
 }

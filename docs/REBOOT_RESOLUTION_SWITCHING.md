@@ -7,6 +7,10 @@ NeoPico-HD uses a reboot-based OSD selector for 240p, 480p, and 720p. It is enab
 - `NEOPICO_SETTINGS_FLASH=ON`
 - `NEOPICO_OSD_RES_CONFIRM=ON`
 
+This reboot behavior is specific to resolution changes. The optional MVS
+`Colors` selector applies its Digital/Analog LUT at input VSYNC and persists it
+without rebooting the firmware.
+
 No extra CMake flags are required for the standard MVS or SNES build.
 
 ## Behavior
@@ -28,7 +32,7 @@ Production builds use the hardware-validated conservative VIC-0 AVI payload for 
 
 ## Factory Reset
 
-Hold the physical MENU and BACK buttons together for at least 5 seconds. The gesture works independently of OSD visibility so it can recover from an unusable video mode. Firmware persists the factory defaults, 480p output and MV1C Digital audio, then immediately reboots into 480p.
+Hold the physical MENU and BACK buttons together for at least 5 seconds. The gesture works independently of OSD visibility so it can recover from an unusable video mode. Firmware persists the factory defaults, 480p output, MV1C Digital audio, and Digital MVS color when that selector is compiled, then immediately reboots into 480p.
 
 ## Fixed-Mode Builds
 

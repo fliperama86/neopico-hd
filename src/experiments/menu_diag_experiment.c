@@ -6,7 +6,7 @@
 #include "audio_source.h"
 
 #if (NEOPICO_SETTINGS_FLASH && NEOPICO_RESOLUTION_MENU) || NEOPICO_OSD_RES_CONFIRM ||                                  \
-    NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
+    NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE || NEOPICO_MVS_COLOR_MODEL_MENU
 #include "settings.h"
 #endif
 
@@ -22,6 +22,9 @@
 #include "capture_pins.h"
 #include "osd/fast_osd.h"
 #include "video_pipeline.h"
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+#include "video_capture.h"
+#endif
 #if NEOPICO_ENABLE_SELFTEST
 #include "osd/selftest_layout.h"
 
@@ -135,6 +138,77 @@ static void audio_selector_render_full(void)
 }
 #endif
 
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+#define COLOR_MODEL_SELECTOR_TITLE_ROW 1
+#define COLOR_MODEL_SELECTOR_FIRST_OPTION_ROW 6
+#define COLOR_MODEL_SELECTOR_DESCRIPTION_ROW 11
+
+static mvs_color_model_t s_selected_color_model;
+static mvs_color_model_t s_committed_color_model;
+
+static const char *color_model_label(mvs_color_model_t model)
+{
+    return model == MVS_COLOR_MODEL_ANALOG ? "Analog" : "Digital";
+}
+
+static const char *color_model_description(mvs_color_model_t model)
+{
+    return model == MVS_COLOR_MODEL_ANALOG ? "Models NEOGEO DAC levels" : "Exact RGB555 mapping";
+}
+
+static mvs_color_model_t color_model_next(mvs_color_model_t model)
+{
+    return model == MVS_COLOR_MODEL_ANALOG ? MVS_COLOR_MODEL_DIGITAL : MVS_COLOR_MODEL_ANALOG;
+}
+
+static uint8_t color_model_selector_option_row(mvs_color_model_t model)
+{
+    return model == MVS_COLOR_MODEL_ANALOG ? COLOR_MODEL_SELECTOR_FIRST_OPTION_ROW + 2
+                                           : COLOR_MODEL_SELECTOR_FIRST_OPTION_ROW;
+}
+
+static void color_model_selector_render_option(mvs_color_model_t model)
+{
+    const bool selected = s_selected_color_model == model;
+    const bool committed = s_committed_color_model == model;
+    const uint16_t color = selected ? OSD_COLOR_YELLOW : committed ? OSD_COLOR_GREEN : OSD_COLOR_FG;
+    const uint8_t row = color_model_selector_option_row(model);
+    const char *label = color_model_label(model);
+    fast_osd_putc_color(row, 3, selected ? '>' : ' ', color);
+    fast_osd_puts_color(row, 5, label, color);
+    if (committed) {
+        fast_osd_putc_color(row, (uint8_t)(5 + strlen(label)), '*', color);
+    }
+}
+
+static void color_model_selector_render_description(void)
+{
+    fast_osd_puts_color(COLOR_MODEL_SELECTOR_DESCRIPTION_ROW, 2, "                          ", OSD_COLOR_GRAY);
+    fast_osd_puts_color(COLOR_MODEL_SELECTOR_DESCRIPTION_ROW, 2, color_model_description(s_selected_color_model),
+                        OSD_COLOR_GRAY);
+}
+
+static void color_model_selector_update_selection(mvs_color_model_t previous_model)
+{
+    if (previous_model == s_selected_color_model) {
+        return;
+    }
+    color_model_selector_render_option(previous_model);
+    color_model_selector_render_option(s_selected_color_model);
+    color_model_selector_render_description();
+}
+
+static void color_model_selector_render_full(void)
+{
+    fast_osd_clear();
+    fast_osd_puts_color(COLOR_MODEL_SELECTOR_TITLE_ROW, 2, "NeoPico-HD Colors", OSD_COLOR_YELLOW);
+    fast_osd_puts_color(COLOR_MODEL_SELECTOR_FIRST_OPTION_ROW - 2, 2, "Colors", OSD_COLOR_FG);
+    color_model_selector_render_option(MVS_COLOR_MODEL_DIGITAL);
+    color_model_selector_render_option(MVS_COLOR_MODEL_ANALOG);
+    color_model_selector_render_description();
+}
+#endif
+
 #if NEOPICO_OSD_ROOT_MENU
 // Root menu hosts both leaf screens, so the selector UI no longer excludes
 // the selftest layout.
@@ -190,6 +264,12 @@ static uint32_t s_factory_reset_hold_start_ms;
 
 static void factory_reset_buttons_tick(void)
 {
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+    if (settings_save_pending()) {
+        s_factory_reset_chord_active = false;
+        return;
+    }
+#endif
     const bool chord_pressed = osd_physical_menu_pressed() && osd_physical_back_pressed();
     if (!chord_pressed) {
         s_factory_reset_chord_active = false;
@@ -445,6 +525,9 @@ typedef enum {
 #if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
     MENU_SCREEN_AUDIO,
 #endif
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+    MENU_SCREEN_COLOR_MODEL,
+#endif
     MENU_SCREEN_SELFTEST,
 #if NEOPICO_OSD_RES_CONFIRM
     MENU_SCREEN_RES_CONFIRM,
@@ -484,6 +567,9 @@ static const char *const s_root_entry_labels[] = {
 #if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
     "Audio",
 #endif
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+    "Colors",
+#endif
 #if NEOPICO_ENABLE_SELFTEST
     "Self Test",
 #endif
@@ -493,7 +579,8 @@ static const char *const s_root_entry_labels[] = {
 };
 #define ROOT_ENTRY_COUNT (sizeof(s_root_entry_labels) / sizeof(s_root_entry_labels[0]))
 
-#if NEOPICO_REBOOT_SELECTOR_UI || NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE || NEOPICO_ENABLE_SELFTEST
+#if NEOPICO_REBOOT_SELECTOR_UI || NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE ||                               \
+    NEOPICO_MVS_COLOR_MODEL_MENU || NEOPICO_ENABLE_SELFTEST
 #else
 #error NEOPICO_OSD_ROOT_MENU needs at least one enabled root-menu feature
 #endif
@@ -510,6 +597,11 @@ static menu_screen_t root_entry_screen(uint8_t idx)
 #if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
     if (idx == i++) {
         return MENU_SCREEN_AUDIO;
+    }
+#endif
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+    if (idx == i++) {
+        return MENU_SCREEN_COLOR_MODEL;
     }
 #endif
 #if NEOPICO_ENABLE_SELFTEST
@@ -620,6 +712,14 @@ static void root_menu_enter_leaf(void)
             s_selected_audio_source = audio_subsystem_get_source();
             audio_selector_render_full();
             s_screen = MENU_SCREEN_AUDIO;
+            break;
+#endif
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+        case MENU_SCREEN_COLOR_MODEL:
+            s_committed_color_model = video_capture_get_color_model();
+            s_selected_color_model = s_committed_color_model;
+            color_model_selector_render_full();
+            s_screen = MENU_SCREEN_COLOR_MODEL;
             break;
 #endif
 #if NEOPICO_ENABLE_SELFTEST
@@ -743,6 +843,15 @@ static void root_menu_buttons_tick(void)
     s_btn_was_pressed = menu_pressed;
     s_back_was_pressed = back_pressed;
 
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+    // A queued live Colors save owns the flash settings record. Continue
+    // sampling buttons, but ignore actions until Core 0 finishes the write so
+    // no Core 1 path can read XIP while flash is unavailable.
+    if (settings_save_pending()) {
+        return;
+    }
+#endif
+
     switch (s_screen) {
         case MENU_SCREEN_HIDDEN:
             if (menu_edge) {
@@ -851,6 +960,35 @@ static void root_menu_buttons_tick(void)
                     s_screen = MENU_SCREEN_HIDDEN;
                     settings_save(&persisted);
                     video_pipeline_request_reboot_mode(video_pipeline_reboot_requested_mode());
+                }
+            }
+            break;
+#endif
+
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+        case MENU_SCREEN_COLOR_MODEL:
+            if (controller_select_edge) {
+                video_capture_set_color_model(s_committed_color_model);
+                root_menu_enter_root(now_ms);
+            } else if ((up_edge != down_edge) || back_edge) {
+                const mvs_color_model_t previous_model = s_selected_color_model;
+                s_selected_color_model = color_model_next(s_selected_color_model);
+                video_capture_set_color_model(s_selected_color_model);
+                color_model_selector_update_selection(previous_model);
+            } else if (menu_edge) {
+                if (s_selected_color_model == s_committed_color_model) {
+                    root_menu_enter_root(now_ms);
+                } else {
+                    neopico_settings_t persisted;
+                    settings_load(&persisted);
+                    persisted.resolution = (uint8_t)video_pipeline_reboot_requested_mode();
+                    persisted.color_model = (uint8_t)s_selected_color_model;
+                    persisted.color_model_valid = NEOPICO_SETTINGS_COLOR_MODEL_VALID;
+                    if (settings_request_save(&persisted)) {
+                        video_capture_set_color_model(s_selected_color_model);
+                        s_committed_color_model = s_selected_color_model;
+                        root_menu_enter_root(now_ms);
+                    }
                 }
             }
             break;

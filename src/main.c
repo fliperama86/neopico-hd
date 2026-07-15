@@ -231,6 +231,14 @@ int main(void)
         audio_subsystem_set_source((audio_source_t)persisted.audio_source);
     }
 #endif
+#if NEOPICO_MVS_COLOR_MODEL_MENU
+    // Load the persisted model before capture starts. The capture module builds
+    // both LUTs and publishes this initial selection before its first frame.
+    if (persisted.color_model_valid == NEOPICO_SETTINGS_COLOR_MODEL_VALID &&
+        mvs_color_model_is_valid(persisted.color_model)) {
+        video_capture_set_color_model((mvs_color_model_t)persisted.color_model);
+    }
+#endif
     // Cold boot (power-on): the warm-reboot scratch is gone, so recover the
     // last-selected resolution from flash. A warm reboot already carries the
     // chosen mode in the scratch, so only apply flash resolution on cold boot.

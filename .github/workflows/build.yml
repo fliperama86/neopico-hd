@@ -39,15 +39,25 @@ jobs:
         git submodule update --init
 
     # Single baseline firmware: the resolution selector. One build switches
-    # between 240p / 480p / 720p live from the OSD menu (reboot-based). The
-    # selector is the project default, so the no-arg build is the selector;
-    # 480p runs at 252 MHz and 720p at 372 MHz, so COPY_TO_RAM auto-forces
-    # (the overclock would corrupt XIP flash); see CMakeLists.
+    # between 240p / 480p / 720p from the reboot-based OSD menu. The MVS asset
+    # also enables the live Digital/Analog Colors menu; SNES leaves it off.
+    # 480p runs at 252 MHz and 720p at 372 MHz, so COPY_TO_RAM auto-forces.
+
+    - name: Run MVS color tests
+      if: matrix.target == 'mvs'
+      run: bash tests/run_mvs_color_exhaustive.sh
 
     - name: Build NeoPico-HD
       run: |
-        cmake -S . -B build -DPICO_SDK_PATH=$HOME/pico-sdk -DCMAKE_BUILD_TYPE=Release -DNEOPICO_CAPTURE_TARGET=${{ matrix.target }}
+        COLOR_MENU=OFF
+        if [ "${{ matrix.target }}" = "mvs" ]; then COLOR_MENU=ON; fi
+        cmake -S . -B build \
+          -DPICO_SDK_PATH=$HOME/pico-sdk \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DNEOPICO_CAPTURE_TARGET=${{ matrix.target }} \
+          -DNEOPICO_MVS_COLOR_MODEL_MENU=$COLOR_MENU
         cmake --build build -j$(nproc)
+        python3 scripts/audit_firmware.py build/src/neopico_hd.elf
         cp build/src/neopico_hd.uf2 neopico_hd_${{ matrix.target }}.uf2
         cp build/src/neopico_hd.elf neopico_hd_${{ matrix.target }}.elf
 
