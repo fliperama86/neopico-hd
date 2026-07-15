@@ -75,6 +75,34 @@ This document tracks known hardware and software limitations of the NeoPico-HD p
 - A real video sync loss (>100 ms without vsync) triggers an audio re-arm: ~0.5 s mute coinciding with a visible video hiccup. Intentional recovery behavior.
 - A Core 1 background stall longer than the queue cushion (~10 ms) splices silence packets. Build with `-DNEOPICO_DIAG_AUDIO_OSD=ON` to watch the `AU<n>` counter on the selftest screen; it climbing during an audible drop indicates this mechanism.
 
+### 6. 720p Transient Corruption on Direct Low-Latency Sinks (Open)
+
+**Issue**: At 720p only, rare split-second bursts of whole-frame TMDS
+corruption (purple/green scanline noise, including over the black pillarbox
+bars) on sinks that consume the signal directly without re-clocking. Observed
+on a Samsung Q80 in Game Mode; the same TV in Normal mode, gaming monitors,
+and all scalers (RetroTINK 4K, Morph4K) are clean.
+
+**Rates**: roughly one event per minute during gameplay, roughly one per five
+minutes on a static screen. 480p is unconditionally clean in every setup.
+
+**What is known** (2026-07): the transmitted bitstream is digitally correct
+during glitch conditions (buffered/re-clocking sinks stay clean), so the
+failure is analog link margin at the sink. Displayed-content changes are
+neither necessary nor sufficient as a trigger; the surviving correlation is
+that only builds rendering the live capture ring have glitched. Context: 720p
+drives clk_hstx at 372 MHz against a 150 MHz datasheet rating (2.48x
+overclock of the HSTX serializer and pads) through a resistor-DAC output
+stage, so 720p operates with no electrical margin by construction. This is
+why 720p is labeled Experimental in the resolution OSD.
+
+**Workarounds**: use 480p for direct TV connections, or run 720p through any
+scaler or the TV's standard (non-game) mode.
+
+**Tracking**: investigation log, experiment queue, and production mitigation
+analysis in [`720P_PURPLE_GLITCH.md`](720P_PURPLE_GLITCH.md) and
+[`720P_SAMSUNG_GAME_MODE_INVESTIGATION.md`](720P_SAMSUNG_GAME_MODE_INVESTIGATION.md).
+
 ---
 
 ## OSD & UI

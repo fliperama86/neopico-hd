@@ -115,8 +115,46 @@ switching:
 5. If electrical disturbance is confirmed, investigate input conditioning,
    grounding, cable routing, and isolation around CSYNC/PCLK and the video bus.
 
+## 2026-07 Update
+
+A second investigation round (2026-07-13, driven by the mass-production
+decision) added three experiments and revised the picture. Full detail and the
+living log now live in [`720P_PURPLE_GLITCH.md`](720P_PURPLE_GLITCH.md); the
+summary:
+
+- **E1, static-screen soak**: the selector firmware at 720p glitched on a
+  static in-game screen (at least one event in ~5 minutes, versus roughly one
+  per minute during play). Content change is therefore not required.
+- **E2a, flash-torture demo**: the stock bouncing-box demo, modified only to
+  step the whole frame between black, a 1-pixel checkerboard, and white every
+  30 frames (about two worst-case content steps per second, Core 0 idle),
+  stayed clean. Content steps are therefore not sufficient either.
+- **Pattern plus capture soak**: the static-test-pattern-with-live-capture
+  configuration from this document's original round was re-run for ~10 minutes
+  and stayed clean (provisional; the observed static-screen rate of ~0.2/min
+  means ~14% odds of a false clean at 10 minutes).
+
+Consequences for this document's conclusions:
+
+- The observed static rate retroactively weakens every ~2-minute clean window
+  reported above: each had roughly two-in-three odds of showing nothing even
+  if affected. Only the bouncing-box demo cleanliness (cumulative hours)
+  remains load-bearing.
+- The transmitted bitstream is provably correct during glitch conditions
+  (scalers and the TV's Normal mode stay clean and would faithfully display
+  corrupted input), so the failure is analog margin at the sink, not data.
+- The surviving correlation is that only builds where Core 1 renders the live
+  capture ring have ever glitched. A matched pair to convict or clear that
+  variable is built and pending: `build-live720-fixed` (live render) versus
+  `build-pattern720-soak` (pattern render), identical in all else.
+- Relevant hardware context established: the RP2350 datasheet rates clk_hstx
+  at 150 MHz; 720p runs it at 372 MHz, so 720p output is a 2.48x overclock of
+  the HSTX serializer and pads by construction. 480p is in spec.
+
 ## Status
 
-No production firmware change was made from this investigation. The current
-release remains the known-good baseline plus the PicoHDMI non-RT audio cadence
-fix.
+No production firmware change has been made from this investigation. 720p
+remains labeled Experimental in the resolution OSD. The active experiment
+queue, mechanism ranking, and mitigation analysis (including level-shifter/
+redriver parts research for the production board) are maintained in
+[`720P_PURPLE_GLITCH.md`](720P_PURPLE_GLITCH.md).
