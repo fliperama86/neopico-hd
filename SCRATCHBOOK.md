@@ -1753,3 +1753,11 @@ Working implication for this board:
 - Do not accept clang-tidy auto-fixes from a parse-failed cross-compile run. Revalidate formatted sources and skip only the broken clang-tidy hook for this commit.
 - Post-format revalidation passed unchanged: exhaustive color/menu tests pass, MVS and SNES rebuilds pass, both audits report no findings, and both UF2 hashes exactly match the pre-format release-equivalent artifacts.
 - All remaining pre-commit hooks pass with only `clang-tidy` intentionally skipped because its parse-failed cross-compile configuration is unsafe with `--fix-errors`.
+
+## 2026-07-15 - v0.10.0 published and verified
+- Firmware release commit `00eea4d` (`firmware: add accurate live Colors selector`) was pushed directly to `main`. Main Actions run `29388208224` passed MVS, SNES, exhaustive color tests, firmware audits, and fabrication.
+- Annotated tag `v0.10.0` points to `00eea4d`. Tagged Actions run `29388302854` passed all firmware, fabrication, and release jobs and published https://github.com/fliperama86/neopico-hd/releases/tag/v0.10.0 as the latest release.
+- Replaced the generated one-line changelog with detailed Highlights, Validation, and Assets notes covering exact RGB555 conversion, live Digital/Analog preview and persistence, default translucent OSD, and default-off DARK/SHADOW separation.
+- Downloaded and verified every published asset. SHA-256: MVS UF2 `b143226eb911d4c11f1bc1a34e5d6111fa0e7a08fc56d9d78986abaf9a7c3757`; MVS ELF `9a386344de7758f0645504009a0baa9160b30b9b113c541a094c580284849d29`; SNES UF2 `098484c191fc3e64ced13de1c18c6394030a1773b227b8e5d24427be0820a2df`; SNES ELF `aa009cb0adf44f44bdd202d48f03d1b196ddd287fccd814fb440f6cc4ab7bd59`; fabrication ZIP `1d1ca644c5a8f3252c39d537aab286947067dbb328dbcaf2ed218b77be44d05a`.
+- Post-publication checks: fabrication ZIP passes `unzip -t`; both downloaded ELFs pass the firmware audit with no findings; MVS contains the 128 KiB dual LUT, live-save symbols, v0.10.0 title, and NEOGEO description; SNES contains no Colors UI or symbols.
+- Unrelated `hardware/neopico-hd/neopico-hd.kicad_prl` and local PicoHDMI example edits remain untouched and excluded.
