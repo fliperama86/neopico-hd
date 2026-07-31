@@ -54,6 +54,8 @@ typedef enum {
     VIDEO_PIPELINE_REBOOT_MODE_480P = 0,
     VIDEO_PIPELINE_REBOOT_MODE_240P = 1,
     VIDEO_PIPELINE_REBOOT_MODE_720P = 2,
+    VIDEO_PIPELINE_REBOOT_MODE_960X720 = 3,
+    VIDEO_PIPELINE_REBOOT_MODE_1024X768 = 4,
 } video_pipeline_reboot_mode_t;
 
 /**
@@ -63,6 +65,7 @@ typedef enum {
  */
 void video_pipeline_request_reboot_mode(video_pipeline_reboot_mode_t mode);
 video_pipeline_reboot_mode_t video_pipeline_reboot_requested_mode(void);
+bool video_pipeline_reboot_mode_available(uint8_t mode);
 bool video_pipeline_take_reboot_mode_boot_request(video_pipeline_reboot_mode_t *mode);
 
 // Resolution-change safety net: reboot into `mode` flagged PENDING confirmation,
@@ -81,7 +84,7 @@ bool video_pipeline_take_reboot_240p_boot_request(bool *enabled);
 /**
  * Scanline callback for HDMI output.
  * Called by Core 1 DMA ISR for every active video line.
- * Mode-aware: 480p uses 2x, 240p uses 4x, 720p uses centered 3x.
+ * Mode-aware: 480p uses 2x, 240p uses 4x, and HDTV/PC modes use 3x.
  */
 void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint32_t active_line, uint32_t *dst);
 

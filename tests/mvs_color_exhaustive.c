@@ -8,6 +8,7 @@
 #include "mvs_color.h"
 #include "mvs_color_model.h"
 #include "mvs_color_reference.h"
+#include "mvs_digital_effect.h"
 #include "mvs_effect_lut.h"
 
 enum {
@@ -452,6 +453,9 @@ int main(void)
     uint32_t mame_split_rgb888_mismatches = 0;
     uint32_t production_split_rgb565_mismatches = 0;
     uint32_t production_raw_lookup_mismatches = 0;
+    uint32_t digital_processing_color_mismatches = 0;
+    uint32_t digital_processing_raw_mismatches = 0;
+    uint32_t digital_processing_shadow_identity_mismatches = 0;
 
     for (uint32_t color_idx = 0; color_idx < MVS_CAPTURE_COLOR_SIZE; color_idx++) {
         uint32_t r5;
@@ -475,6 +479,7 @@ int main(void)
                 mvs_effect_lut_lookup_color(&g_production_effect_lut, color_idx, flags);
             const uint32_t synthesized_raw = (color_idx << 2U) | (flags << 17U);
             const uint16_t production_raw_rgb565 = mvs_effect_lut_lookup_raw(&g_production_effect_lut, synthesized_raw);
+            const uint16_t digital_processing_color = mvs_digital_effect_rgb565_color(color_idx, flags);
 
             mister_split_rgb565_mismatches += (mister_split_rgb565 != mister_expected_rgb565);
             mame_split_rgb565_mismatches += (mame_split_rgb565 != mame_expected_rgb565);
@@ -482,6 +487,26 @@ int main(void)
             mame_split_rgb888_mismatches += (mame_split_rgb888 != reference_pack_rgb888(mame_exact));
             production_split_rgb565_mismatches += (production_split_rgb565 != production_expected_rgb565);
             production_raw_lookup_mismatches += (production_raw_rgb565 != production_expected_rgb565);
+            digital_processing_color_mismatches += (digital_processing_color != mister_expected_rgb565);
+
+            // CSYNC and PCLK are captured in raw bits 0 and 1. Exercise every
+            // combination so neither signal can leak into the blue field.
+            for (uint32_t captured_low_bits = 0; captured_low_bits < 4U; captured_low_bits++) {
+                const uint32_t raw_with_capture_bits = synthesized_raw | captured_low_bits;
+                const uint16_t digital_processing_raw = mvs_digital_effect_rgb565_raw(raw_with_capture_bits);
+                const uint16_t digital_processing_normal = mvs_digital_effect_normal_rgb565_raw(raw_with_capture_bits);
+                digital_processing_raw_mismatches += (digital_processing_raw != mister_expected_rgb565);
+                if (flags == 0U) {
+                    digital_processing_raw_mismatches += (digital_processing_normal != mister_expected_rgb565);
+                }
+            }
+
+            if ((flags & MVS_FLAG_SHADOW) != 0U) {
+                const uint32_t unshadowed_flags = flags & ~MVS_FLAG_SHADOW;
+                const uint16_t unshadowed = mvs_digital_effect_rgb565_color(color_idx, unshadowed_flags);
+                const uint16_t packed_shadow = (uint16_t)((unshadowed >> 1U) & 0x7BEFU);
+                digital_processing_shadow_identity_mismatches += digital_processing_color != packed_shadow;
+            }
 
             comparison_add(&mister_vs_mame[flags], mister_exact, mame_exact);
             comparison_add(&mister_rgb565_transport[flags], hstx_rgb565_to_rgb888(mister_split_rgb565), mister_exact);
@@ -505,6 +530,14 @@ int main(void)
     CHECK(production_raw_lookup_mismatches == 0U,
           "%s production raw-word lookup differs from its direct reference in %" PRIu32 " cases", MVS_EFFECT_MODEL_NAME,
           production_raw_lookup_mismatches);
+    CHECK(digital_processing_color_mismatches == 0U,
+          "Digital arithmetic color conversion differs from the direct reference in %" PRIu32 " cases",
+          digital_processing_color_mismatches);
+    CHECK(digital_processing_raw_mismatches == 0U,
+          "Digital arithmetic raw conversion differs from the direct reference in %" PRIu32 " cases",
+          digital_processing_raw_mismatches);
+    CHECK(digital_processing_shadow_identity_mismatches == 0U,
+          "Digital packed SHADOW identity differs in %" PRIu32 " cases", digital_processing_shadow_identity_mismatches);
 
     uint32_t neutral_green_bias_levels = 0;
     for (uint32_t level = 0; level < 32U; level++) {
@@ -539,6 +572,9 @@ int main(void)
     printf("  Production channel mismatches:          %" PRIu32 "\n", production_channel_mismatches);
     printf("  Production split/raw mismatches:        %" PRIu32 "/%" PRIu32 "\n", production_split_rgb565_mismatches,
            production_raw_lookup_mismatches);
+    printf("  Digital processing color/raw mismatch: %" PRIu32 "/%" PRIu32 "\n", digital_processing_color_mismatches,
+           digital_processing_raw_mismatches);
+    printf("  Digital packed SHADOW mismatches:       %" PRIu32 "\n", digital_processing_shadow_identity_mismatches);
     printf("  Raw RGB555 colors tested:              %u\n", MVS_CAPTURE_COLOR_SIZE);
     printf("  Color/effect combinations tested:      %" PRIu64 "\n", state_cases);
     printf("  Input correction duplicates:           %" PRIu32 "\n", corrected_duplicates);

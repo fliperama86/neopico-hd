@@ -1,9 +1,11 @@
 # 720p Purple-Scanline Glitch — Investigation Tracker
 
+**2026-07-31 resolved-profile update:** The normal runtime selector now uses exact-clock 1280x720 reduced blanking at a 64 MHz pixel clock, 320 MHz clk_hstx, 1440x741 totals, and 59.979 Hz. Historical 372 MHz and 74.4 MHz results below describe the former timing. A separately observed orange top-line artifact was identified as a not-ready capture-ring read and was removed by the default-off zero-commit frame guard. The corrected MVS release profile with exact-clock 720p and that guard enabled also fixed the rare magenta event on the previously affected Samsung. Since both changes were present, the test does not isolate which one was necessary.
+
 > ⚠️ **2026-06-15 CORRECTION — this doc over-claimed and partially duplicated [`720P_SAMSUNG_GAME_MODE_INVESTIGATION.md`](720P_SAMSUNG_GAME_MODE_INVESTIGATION.md) (which predates it and was better calibrated). Read that one too; these should be merged.** The decisive new/old result: **test pattern + full live capture = CLEAN.** Same Core 0 load as live firmware, no glitch ⇒ **Core-0-load power/clock noise is largely refuted.** The real differentiator is **Core 1 rendering *live* captured MVS video** (reading the live line-ring while Core 0 writes it). The glitch is also **content/event-dependent** (button presses, gameplay transitions per the prior doc) — earlier "content-independent" conflated *trigger* with *effect*.
 
-**Status:** 🟠 open; trigger narrowed, mechanism not yet convicted. The 2026-07 experiments (below) closed the content axis entirely: content change is neither necessary (E1) nor sufficient (E2a). They also showed the June ~2-min "clean" controls were statistically under-powered. Surviving correlation: glitches appear only in builds where Core 1 renders the LIVE capture ring. Pending gate: matched-pair static-screen soak of `build-live720-fixed` vs `build-pattern720-soak`; then the E3 clk_hstx clock-source builds.
-**Last updated:** 2026-07-15 (see "2026-07 update" section)
+**Status:** Fixed on the affected Samsung with the 2026-07-31 exact-clock 720p plus zero-commit frame-guard profile. Historical experiments below remain useful, but their former timing is no longer main.
+**Last updated:** 2026-07-31
 
 > ⚠️ **Localization UNRESOLVED (2026-06-15).** Eyeballing a split-second glitch's spatial extent is unreliable. Observations conflicted within a single run (sometimes content-only, sometimes bars too), so we CANNOT yet say content-side vs global. Both stay open. **To resolve: film a glitch in slow-mo and inspect the frame** — bars affected? and is the corruption a horizontal *tear* (→ ring race) vs uniform *noise/color-shift* (→ bad captured line / CSYNC-PCLK)?
 >

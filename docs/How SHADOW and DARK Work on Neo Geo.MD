@@ -77,6 +77,21 @@ The production table contains:
 
 The Cortex-M33 pixel loop performs two halfword table reads plus OR. It has no data-dependent effect branch. MiSTer and MAME use identical runtime lookup code; only boot-time table generation differs.
 
+## Digital Register-Processing Experiment
+
+`NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING=ON` is a separate, default-off backend for the Digital reference model. It requires `NEOPICO_ENABLE_DARK_SHADOW=ON`, rejects the Analog effect model, and removes both the split effect LUT and normal-color LUT from the firmware.
+
+The RP2350 path uses:
+
+- one `RBIT` per source pixel to correct the three reversed five-bit PCB fields;
+- explicit five-bit field extraction so captured CSYNC/PCLK cannot affect blue;
+- a four-pixel fast path when none of those pixels carries DARK or SHADOW;
+- `SUBS` plus `USAT` for fixed-latency saturating DARK arithmetic;
+- the exact packed SHADOW identity `(pixel >> 1) & 0x7BEF` after RGB565 packing;
+- paired 32-bit output stores after four pixels are converted.
+
+The arithmetic result is exhaustively identical to the pinned Digital reference after RGB565 packing. This proves conversion accuracy, not real-time stability. The backend remains unvalidated on hardware until it passes the same bottom-screen jitter test that failed the split-LUT experiment.
+
 ## RGB565 Transport Limit
 
 Each selected model produces an 8-bit component, then firmware packs it as:

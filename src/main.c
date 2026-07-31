@@ -16,6 +16,9 @@
 #include "pico/stdlib.h"
 
 #include "hardware/clocks.h"
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+#include "hardware/pll.h"
+#endif
 #include "hardware/vreg.h"
 
 #include <stdint.h>
@@ -55,6 +58,10 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 #define NEOPICO_RESOLUTION_MENU_720P 0
 #endif
 
+#ifndef NEOPICO_RESOLUTION_MENU_PC_MODES
+#define NEOPICO_RESOLUTION_MENU_PC_MODES 0
+#endif
+
 #if NEOPICO_EXP_GENLOCK_DYNAMIC && (NEOPICO_EXP_GENLOCK_STATIC || NEOPICO_EXP_VTOTAL_MATCH)
 #error "GENLOCK_DYNAMIC is mutually exclusive with GENLOCK_STATIC and VTOTAL_MATCH"
 #endif
@@ -89,12 +96,52 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 
 #define SYS_CLK_60HZ_KHZ 126000U
 #define SYS_CLK_720P_KHZ 372000U
+#define SYS_CLK_720P_RUNTIME_KHZ 320000U
 // 480p is line-doubled (31.5 kHz scanline IRQ): at 126 MHz that is only ~4000
 // cyc/line and the per-line ISR occasionally underruns -> desync. Run 480p at
 // 252 MHz (~8000 cyc/line, matching the stable 240p/720p budgets). The HSTX
 // divider is doubled in video_mode_480_p so the pixel clock stays 25.2 MHz
 // (picture identical); requires VREG 1.30V and copy_to_ram (252 MHz overclock).
 #define SYS_CLK_480P_KHZ 252000U
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+// Both PC modes keep Core 0/1 at 384 MHz for approximately 8k CPU cycles per
+// output line. Their lower, exact HSTX clocks come from a repurposed PLL_USB;
+// USB and ADC instead receive exactly 48 MHz from PLL_SYS / 8.
+#define SYS_CLK_PC_KHZ 384000U
+#define PC_AUX_CLK_DIV 8U
+#define HSTX_960X720_HZ 280000000U
+#define HSTX_1024X768_HZ 324000000U
+#define PLL_USB_960X720_VCO_HZ 840000000U
+#define PLL_USB_960X720_POSTDIV1 3U
+#define PLL_USB_1024X768_VCO_HZ 1296000000U
+#define PLL_USB_1024X768_POSTDIV1 4U
+
+static void configure_pc_mode_clocks(video_pipeline_reboot_mode_t mode)
+{
+    const bool xga = mode == VIDEO_PIPELINE_REBOOT_MODE_1024X768;
+    const uint32_t hstx_hz = xga ? HSTX_1024X768_HZ : HSTX_960X720_HZ;
+    const uint32_t pll_vco_hz = xga ? PLL_USB_1024X768_VCO_HZ : PLL_USB_960X720_VCO_HZ;
+    const uint32_t pll_postdiv1 = xga ? PLL_USB_1024X768_POSTDIV1 : PLL_USB_960X720_POSTDIV1;
+
+    vreg_set_voltage(VREG_VOLTAGE_1_30);
+    sleep_ms(10);
+    set_sys_clock_khz(SYS_CLK_PC_KHZ, true);
+
+    const uint32_t sys_hz = clock_get_hz(clk_sys);
+    hard_assert(sys_hz == SYS_CLK_PC_KHZ * 1000U);
+    clock_configure_int_divider(clk_usb, 0, CLOCKS_CLK_USB_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS, sys_hz, PC_AUX_CLK_DIV);
+    clock_configure_int_divider(clk_adc, 0, CLOCKS_CLK_ADC_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS, sys_hz, PC_AUX_CLK_DIV);
+    // clk_peri has only a 2-bit divider on RP2350. Move it to the crystal so
+    // PLL_USB can be changed without overclocking or interrupting peripherals.
+    clock_configure_undivided(clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_XOSC_CLKSRC, XOSC_HZ);
+
+    hard_assert(clock_get_hz(clk_usb) == USB_CLK_HZ);
+    hard_assert(clock_get_hz(clk_adc) == USB_CLK_HZ);
+    pll_deinit(pll_usb);
+    pll_init(pll_usb, 1, pll_vco_hz, pll_postdiv1, 1);
+    video_output_set_hstx_source(VIDEO_OUTPUT_HSTX_SOURCE_PLL_USB, hstx_hz);
+}
+#endif
 
 static inline uint32_t compute_sysclk_khz_for_fps_x100(uint32_t fps_x100)
 {
@@ -106,10 +153,10 @@ static inline uint32_t get_current_pixel_clock_hz(void)
 {
 #if NEOPICO_USE_NONRT_HDMI
     // Compile-time path: hstx_clk_div=1, hstx_csr_clkdiv=5 across all modes.
-    return clock_get_hz(clk_sys) / 5U;
+    return clock_get_hz(clk_hstx) / 5U;
 #else
     const video_mode_t *mode = video_output_active_mode;
-    return clock_get_hz(clk_sys) / ((uint32_t)mode->hstx_clk_div * (uint32_t)mode->hstx_csr_clkdiv);
+    return clock_get_hz(clk_hstx) / (uint32_t)mode->hstx_csr_clkdiv;
 #endif
 }
 
@@ -137,6 +184,14 @@ static const video_mode_t *build_vtotal_match_mode(void)
 #if NEOPICO_RESOLUTION_MENU && !NEOPICO_USE_NONRT_HDMI
 static const video_mode_t *video_output_mode_for_reboot_mode(video_pipeline_reboot_mode_t mode)
 {
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+    if (mode == VIDEO_PIPELINE_REBOOT_MODE_960X720) {
+        return &video_mode_960x720_p;
+    }
+    if (mode == VIDEO_PIPELINE_REBOOT_MODE_1024X768) {
+        return &video_mode_1024x768_p;
+    }
+#endif
 #if NEOPICO_RESOLUTION_MENU_720P
     if (mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
         return &video_mode_720_p;
@@ -243,7 +298,7 @@ int main(void)
     // last-selected resolution from flash. A warm reboot already carries the
     // chosen mode in the scratch, so only apply flash resolution on cold boot.
     if (!warm_reboot) {
-        if (persisted.resolution <= (uint8_t)VIDEO_PIPELINE_REBOOT_MODE_720P) {
+        if (video_pipeline_reboot_mode_available(persisted.resolution)) {
             reboot_boot_mode = (video_pipeline_reboot_mode_t)persisted.resolution;
         }
     }
@@ -267,17 +322,30 @@ int main(void)
 
     // Set system clock before starting video pipeline.
 #if NEOPICO_VIDEO_720P
+#if NEOPICO_USE_NONRT_HDMI
     // 720p60 needs ~74.25 MHz pixel clock; closest on 12 MHz XOSC is 372 MHz sysclk.
     // 1.30V VREG is required for stable operation above 150 MHz.
     vreg_set_voltage(VREG_VOLTAGE_1_30);
     sleep_ms(10);
     set_sys_clock_khz(SYS_CLK_720P_KHZ, true);
 #else
+    // Runtime 720p uses exact-clock CVT reduced blanking: 320 MHz / 5 = 64 MHz.
+    vreg_set_voltage(VREG_VOLTAGE_1_20);
+    sleep_ms(10);
+    set_sys_clock_khz(SYS_CLK_720P_RUNTIME_KHZ, true);
+#endif
+#else
+#if NEOPICO_RESOLUTION_MENU && !NEOPICO_USE_NONRT_HDMI && NEOPICO_RESOLUTION_MENU_PC_MODES
+    if (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_960X720 ||
+        reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_1024X768) {
+        configure_pc_mode_clocks(reboot_boot_mode);
+    } else
+#endif
 #if NEOPICO_RESOLUTION_MENU && !NEOPICO_USE_NONRT_HDMI && NEOPICO_RESOLUTION_MENU_720P
-    if (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
-        vreg_set_voltage(VREG_VOLTAGE_1_30);
+        if (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
+        vreg_set_voltage(VREG_VOLTAGE_1_20);
         sleep_ms(10);
-        set_sys_clock_khz(SYS_CLK_720P_KHZ, true);
+        set_sys_clock_khz(SYS_CLK_720P_RUNTIME_KHZ, true);
     } else
 #endif
     {

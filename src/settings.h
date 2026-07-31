@@ -14,7 +14,7 @@
 // Core 0 write after a completed input frame. Keep the payload small; the
 // reserved bytes give room to add fields without a format/version bump.
 typedef struct {
-    uint8_t resolution;         // video_pipeline_reboot_mode_t (0=480p, 1=240p, 2=720p)
+    uint8_t resolution;         // video_pipeline_reboot_mode_t; existing values 0=480p, 1=240p, 2=1280x720
     uint8_t audio_source;       // audio_source_t; used only when the marker below is valid
     uint8_t audio_source_valid; // NEOPICO_SETTINGS_AUDIO_SOURCE_VALID after explicit selection
     uint8_t color_model;        // mvs_color_model_t; used only when the marker below is valid

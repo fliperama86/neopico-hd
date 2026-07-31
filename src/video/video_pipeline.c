@@ -52,6 +52,10 @@
 #define NEOPICO_RESOLUTION_MENU_720P 0
 #endif
 
+#ifndef NEOPICO_RESOLUTION_MENU_PC_MODES
+#define NEOPICO_RESOLUTION_MENU_PC_MODES 0
+#endif
+
 #ifndef NEOPICO_OSD_FAKE_BLEND
 #define NEOPICO_OSD_FAKE_BLEND 0
 #endif
@@ -83,11 +87,12 @@ typedef void (*pixel_scale_osd_fn_t)(uint32_t *dst, const uint16_t *game, const 
 #endif
 // Overscan/background outside active 224-line image area (RGB565): black.
 #define OVERSCAN_COLOR_RGB565 0x0000
-// No-signal fallback color (RGB565): mid gray.
-#define NO_SIGNAL_COLOR_RGB565 0x7BEF
+// Missing/not-ready capture-line fallback: International Orange
+// (aerospace), #FF4F00, converted to RGB565.
+#define NO_SIGNAL_COLOR_RGB565 0xFA60
 
 #if NEOPICO_RESOLUTION_MENU
-#if NEOPICO_RESOLUTION_MENU_720P
+#if NEOPICO_RESOLUTION_MENU_720P || NEOPICO_RESOLUTION_MENU_PC_MODES
 static void __scratch_x("000_video_pipeline_modes")
     video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst);
 #endif
@@ -106,11 +111,26 @@ static video_pipeline_reboot_mode_t reboot_requested_mode =
 // The new mode is NOT persisted to flash until the user confirms; cancel/timeout
 // reboots to the previous mode (flash still holds the last confirmed resolution).
 #define REBOOT_PENDING_MAGIC 0x4e505000U // "NPP" in bits [31:8]
+
+bool video_pipeline_reboot_mode_available(uint8_t mode)
+{
+    switch ((video_pipeline_reboot_mode_t)mode) {
+        case VIDEO_PIPELINE_REBOOT_MODE_480P:
+        case VIDEO_PIPELINE_REBOOT_MODE_240P:
+            return true;
 #if NEOPICO_RESOLUTION_MENU_720P
-#define REBOOT_MODE_MAX VIDEO_PIPELINE_REBOOT_MODE_720P
-#else
-#define REBOOT_MODE_MAX VIDEO_PIPELINE_REBOOT_MODE_240P
+        case VIDEO_PIPELINE_REBOOT_MODE_720P:
+            return true;
 #endif
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+        case VIDEO_PIPELINE_REBOOT_MODE_960X720:
+        case VIDEO_PIPELINE_REBOOT_MODE_1024X768:
+            return true;
+#endif
+        default:
+            return false;
+    }
+}
 
 static inline uint32_t reboot_mode_boot_check(uint32_t mode)
 {
@@ -538,14 +558,18 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
     video_output_init(frame_width, frame_height);
     video_output_set_vsync_callback(video_pipeline_vsync_callback);
 #if NEOPICO_RESOLUTION_MENU
-    if (video_output_active_mode->v_active_lines == 720U) {
+    if (video_output_active_mode->h_active_pixels == 960U && video_output_active_mode->v_active_lines == 720U) {
+        reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_960X720;
+    } else if (video_output_active_mode->h_active_pixels == 1024U && video_output_active_mode->v_active_lines == 768U) {
+        reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_1024X768;
+    } else if (video_output_active_mode->h_active_pixels == 1280U && video_output_active_mode->v_active_lines == 720U) {
         reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_720P;
     } else if (video_output_active_mode->v_active_lines == 240U) {
         reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_240P;
     } else {
         reboot_requested_mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
     }
-#if NEOPICO_RESOLUTION_MENU_720P
+#if NEOPICO_RESOLUTION_MENU_720P || NEOPICO_RESOLUTION_MENU_PC_MODES
     video_output_set_scanline_callback(video_pipeline_scanline_callback_reboot_modes);
 #else
     video_output_set_scanline_callback(video_pipeline_scanline_callback);
@@ -583,7 +607,7 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
 
 void VIDEO_PIPELINE_REBOOT_REQUEST_RAM(video_pipeline_request_reboot_mode)(video_pipeline_reboot_mode_t mode)
 {
-    if (mode > REBOOT_MODE_MAX) {
+    if (!video_pipeline_reboot_mode_available((uint8_t)mode)) {
         mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
     }
     reboot_requested_mode = mode;
@@ -608,10 +632,10 @@ void VIDEO_PIPELINE_REBOOT_REQUEST_RAM(video_pipeline_request_reboot_mode)(video
 void VIDEO_PIPELINE_REBOOT_REQUEST_RAM(video_pipeline_request_reboot_mode_pending)(
     video_pipeline_reboot_mode_t mode, video_pipeline_reboot_mode_t previous)
 {
-    if (mode > REBOOT_MODE_MAX) {
+    if (!video_pipeline_reboot_mode_available((uint8_t)mode)) {
         mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
     }
-    if (previous > REBOOT_MODE_MAX) {
+    if (!video_pipeline_reboot_mode_available((uint8_t)previous)) {
         previous = VIDEO_PIPELINE_REBOOT_MODE_480P;
     }
     reboot_requested_mode = mode;
@@ -634,7 +658,7 @@ bool video_pipeline_take_pending_confirmation(video_pipeline_reboot_mode_t *prev
 
     const uint32_t mode = (packed >> 4) & 0xFU;
     const uint32_t check = packed & 0xFU;
-    if (((packed & 0xFFFFFF00U) != REBOOT_PENDING_MAGIC) || (mode > (uint32_t)REBOOT_MODE_MAX) ||
+    if (((packed & 0xFFFFFF00U) != REBOOT_PENDING_MAGIC) || !video_pipeline_reboot_mode_available((uint8_t)mode) ||
         (check != ((mode ^ 0xAU) & 0xFU))) {
         return false;
     }
@@ -658,7 +682,7 @@ bool video_pipeline_take_reboot_mode_boot_request(video_pipeline_reboot_mode_t *
     watchdog_hw->scratch[1] = 0;
     watchdog_hw->scratch[2] = 0;
 
-    if ((magic != REBOOT_MODE_BOOT_MAGIC) || (mode > (uint32_t)REBOOT_MODE_MAX) ||
+    if ((magic != REBOOT_MODE_BOOT_MAGIC) || !video_pipeline_reboot_mode_available((uint8_t)mode) ||
         (check != reboot_mode_boot_check(mode))) {
         return false;
     }
@@ -682,7 +706,8 @@ bool video_pipeline_reboot_requested_240p(void)
 bool video_pipeline_take_reboot_240p_boot_request(bool *enabled)
 {
     video_pipeline_reboot_mode_t mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
-    if (!video_pipeline_take_reboot_mode_boot_request(&mode) || mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
+    if (!video_pipeline_take_reboot_mode_boot_request(&mode) ||
+        (mode != VIDEO_PIPELINE_REBOOT_MODE_480P && mode != VIDEO_PIPELINE_REBOOT_MODE_240P)) {
         return false;
     }
 
@@ -842,10 +867,9 @@ void video_pipeline_scale_selftest(void)
 //   240p: 25.2M / (1600 * 266) = 59.21 Hz  (±1 → 58.99–59.43 Hz)
 #define GENLOCK_NOMINAL_VTOTAL_480 532
 #define GENLOCK_NOMINAL_VTOTAL_240 266
-//   720p: pixel clock is sys/5 = 372/5 = 74.4 MHz (NOT the CEA 74.25!):
-//   74.4M / (1650 * 762) = 59.187 Hz (+2 us/frame vs MVS 59.1856) —
-//   nominal creeps the phase UP very slowly; 761 (-20 us/frame) pulls back.
-#define GENLOCK_NOMINAL_VTOTAL_720 762
+//   720p RB: pixel clock is exactly 64 MHz from 320 MHz / 5:
+//   64M / (1440 * 751) = 59.180 Hz, close to MVS 59.1856 Hz.
+#define GENLOCK_NOMINAL_VTOTAL_720 751
 #define GENLOCK_PHASE_THRESHOLD_US 200
 #define GENLOCK_PHASE_MAX_US 5000
 // Output vsyncs landing shortly after the MVS vsync sample a frame base no
@@ -979,7 +1003,7 @@ void __scratch_x("") video_pipeline_vsync_callback(void)
 }
 
 #if !NEOPICO_EXP_PRECOMPOSED_HDMI
-#if NEOPICO_RESOLUTION_MENU && NEOPICO_RESOLUTION_MENU_720P
+#if NEOPICO_RESOLUTION_MENU && (NEOPICO_RESOLUTION_MENU_720P || NEOPICO_RESOLUTION_MENU_PC_MODES)
 static void __scratch_x("000_video_pipeline_modes")
     video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
 #else
@@ -989,25 +1013,44 @@ void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint3
     (void)v_scanline;
 
 #if NEOPICO_RESOLUTION_MENU
-    const bool mode_is_240p = (video_output_active_mode->v_active_lines == 240U);
-#if NEOPICO_RESOLUTION_MENU_720P
-    const bool mode_is_720p = (video_output_active_mode->v_active_lines == 720U);
-    const uint32_t h_words = (mode_is_240p || mode_is_720p) ? (1280U / 2U) : (640U / 2U);
-    const uint32_t h_scale = mode_is_720p ? 3U : mode_is_240p ? 4U : 2U;
+    const uint32_t active_width = video_output_active_mode->h_active_pixels;
+    const uint32_t active_height = video_output_active_mode->v_active_lines;
+    const bool mode_is_240p = active_width == 1280U && active_height == 240U;
+#if NEOPICO_RESOLUTION_MENU_720P || NEOPICO_RESOLUTION_MENU_PC_MODES
+    const bool mode_is_3x = (active_width == 1280U && active_height == 720U) ||
+                            (active_width == 960U && active_height == 720U) ||
+                            (active_width == 1024U && active_height == 768U);
+    const bool mode_is_xga = active_width == 1024U && active_height == 768U;
+    const uint32_t h_words = active_width / 2U;
+    const uint32_t h_scale = mode_is_3x ? 3U : mode_is_240p ? 4U : 2U;
     const uint32_t image_words = (LINE_WIDTH * h_scale) / 2U;
     const uint32_t x_margin_words = (h_words > image_words) ? ((h_words - image_words) / 2U) : 0U;
-    const pixel_scale_fn_t scale_pixels = mode_is_720p   ? video_pipeline_triple_pixels_fast
+    const pixel_scale_fn_t scale_pixels = mode_is_3x     ? video_pipeline_triple_pixels_fast
                                           : mode_is_240p ? video_pipeline_quadruple_pixels_fast
                                                          : video_pipeline_double_pixels_fast;
 #if NEOPICO_ENABLE_OSD && NEOPICO_OSD_FAKE_BLEND
-    const pixel_scale_osd_fn_t scale_osd_pixels = mode_is_720p   ? video_pipeline_triple_pixels_osd_fake_blend
+    const pixel_scale_osd_fn_t scale_osd_pixels = mode_is_3x     ? video_pipeline_triple_pixels_osd_fake_blend
                                                   : mode_is_240p ? video_pipeline_quadruple_pixels_osd_fake_blend
                                                                  : video_pipeline_double_pixels_osd_fake_blend;
 #endif
-    if (mode_is_720p && ((active_line % 3U) != 0U)) {
+    uint32_t image_active_line = active_line;
+    if (mode_is_xga) {
+        // Center 960x720 inside 1024x768. Fill only the first line of each
+        // constant black region; skipped callbacks intentionally reuse it.
+        if (active_line < 24U || active_line >= 744U) {
+            if (active_line == 0U || active_line == 744U) {
+                video_pipeline_fill_rgb565(dst, h_words, OVERSCAN_COLOR_RGB565);
+            }
+            return;
+        }
+        image_active_line -= 24U;
+    }
+    if (mode_is_3x && ((image_active_line % 3U) != 0U)) {
         return;
     }
-    const uint32_t fb_line = mode_is_720p ? (active_line / 3U) : mode_is_240p ? active_line : (active_line >> 1);
+    const uint32_t fb_line = mode_is_3x     ? (image_active_line / 3U)
+                             : mode_is_240p ? image_active_line
+                                            : (image_active_line >> 1);
 #else
     const uint32_t h_words = mode_is_240p ? (1280U / 2U) : (640U / 2U);
     const uint32_t h_scale = mode_is_240p ? 4U : 2U;

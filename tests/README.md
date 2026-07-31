@@ -21,6 +21,11 @@ must match the stable RGB555-to-RGB565 LUT for every source color. `Analog`
 must match the independent normal-state DAC reference for every source color.
 The normal-color API has no DARK/SHADOW input.
 
+It also checks the default-off Digital register-processing backend against the
+independent Digital reference for every color and effect state. Raw-word tests
+repeat all cases with every CSYNC/PCLK bit combination to ensure captured bits
+1:0 cannot leak into the RGB555 fields.
+
 The runner also checks the live menu source contract: moving the selection
 requests a preview, SELECT requests the committed model, START queues
 persistence, both 64 KiB LUTs exist, and the Colors case contains no

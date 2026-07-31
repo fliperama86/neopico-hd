@@ -7,7 +7,8 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 ## Features
 
 - **Native 240p HDMI output** at 60fps (via 480p line doubling for audio compatibility)
-- **Experimental 720p HDMI output** - `NEOPICO_VIDEO_720P=ON`, centered 3x 4:3 scale; release builds use the non-RT PicoHDMI path for the best 720p stability
+- **Experimental exact-clock 720p HDMI output** - the normal selector uses a 64.000 MHz, 1440x741 reduced-blanking raster at 59.979 Hz and centers the source at 3x scale
+- **Optional PC monitor modes** - `NEOPICO_RESOLUTION_MENU_PC_MODES=ON` adds native 960x720 and 960x720 centered in a 1024x768 raster without replacing 1280x720
 - **15-bit RGB + SHADOW/DARK capture** - 19-bit capture path includes SHADOW and DARK control lines
 - **Pixel Conversion Modes** - Stable 32K-entry RGB LUT, plus an optional live and persistent `Digital`/`Analog` normal-color selector that remains separate from DARK/SHADOW processing
 - **Translucent OSD Panel** - Enabled by default; game pixels under the black panel retain 12.5% brightness while text and menu colors remain opaque
@@ -20,7 +21,8 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 | Feature                 | Status                                     |
 | ----------------------- | ------------------------------------------ |
 | 480p HDMI video         | Working                                    |
-| 720p HDMI video         | Experimental (`NEOPICO_VIDEO_720P=ON`, non-RT release build) |
+| 720p HDMI video         | Experimental (exact-clock runtime selector mode) |
+| PC monitor modes        | Optional, compile-tested, not hardware-validated (`NEOPICO_RESOLUTION_MENU_PC_MODES=ON`) |
 | 60fps capture           | Working                                    |
 | RGB555 Digital path     | Working                                    |
 | Live Colors selector    | Optional and experimental (`NEOPICO_MVS_COLOR_MODEL_MENU=ON`) |
@@ -97,7 +99,11 @@ either default with `-DNEOPICO_OSD_CONTROLLER_INPUTS=ON` or `OFF`.
 
 GitHub Releases include ready-to-flash selector firmware. Each UF2 can switch
 between 240p, 480p, and 720p from the reboot-based OSD resolution menu. The MVS
-asset also includes persistent Audio and live-preview Colors menus.
+asset also includes persistent Audio and live-preview Colors menus. The optional
+PC monitor modes are default-off and are not included in those release choices.
+The selector's 720p entry uses the exact 64.000 MHz reduced-blanking timing;
+because it is non-CTA and advertises VIC 0, sink compatibility still needs broad
+testing.
 
 | Asset | Capture | OSD choices |
 | ----- | ------- | ----------- |
@@ -116,9 +122,22 @@ Requires [Pico SDK](https://github.com/raspberrypi/pico-sdk) with `PICO_SDK_PATH
 # Build and flash
 ./flash
 
-# Experimental 720p non-RT build
+# Experimental fixed 720p non-RT build. Unlike the normal selector's exact
+# 64 MHz reduced-blanking mode, this retains PicoHDMI's 74.4 MHz CTA-style
+# timing for controlled comparisons.
 cmake -S . -B build_720p_nonrt -DNEOPICO_VIDEO_720P=ON -DNEOPICO_USE_NONRT_HDMI=ON
 cmake --build build_720p_nonrt --target neopico_hd -j4
+
+# Experimental protection against selecting a newly published capture frame
+# before line 0 has been committed. Default off for an easy A/B rollback.
+cmake -S . -B build_frame_guard -DNEOPICO_EXP_RING_FRAME_GUARD=ON
+cmake --build build_frame_guard --target neopico_hd -j4
+
+# Optional PC-monitor selector modes. This retains the normal 1280x720 HDTV
+# entry and adds native 960x720 plus bordered 1024x768. Hardware validation is
+# still required before treating either added mode as stable.
+cmake -S . -B build_pc_modes -DNEOPICO_RESOLUTION_MENU_PC_MODES=ON
+cmake --build build_pc_modes --target neopico_hd -j4
 
 # Optional standalone HDMI/OSD self-test firmware
 cmake -S . -B build_selftest -DNEOPICO_BUILD_SELFTEST=ON
@@ -148,6 +167,17 @@ cmake -S . -B build_effects \
   -DNEOPICO_MVS_COLOR_MODEL_MENU=OFF \
   -DNEOPICO_MVS_EFFECT_MODEL=MISTER
 cmake --build build_effects --target neopico_hd -j4
+
+# Digital-only register-processing experiment. This replaces the split effect
+# LUT with RBIT, bitfield, saturating DARK, and packed SHADOW operations. It is
+# default off and must be hardware-validated before use in release firmware.
+cmake -S . -B build_effects_processing \
+  -DNEOPICO_COPY_TO_RAM=ON \
+  -DNEOPICO_ENABLE_DARK_SHADOW=ON \
+  -DNEOPICO_MVS_DIGITAL_EFFECT_PROCESSING=ON \
+  -DNEOPICO_MVS_COLOR_MODEL_MENU=OFF \
+  -DNEOPICO_MVS_EFFECT_MODEL=MISTER
+cmake --build build_effects_processing --target neopico_hd -j4
 ```
 
 ## Architecture
@@ -180,9 +210,10 @@ The project leverages the [PicoHDMI](https://github.com/fliperama86/pico_hdmi) l
 - **[System Architecture](docs/ARCHITECTURE.md)**: High-level design, core partitioning, and the closed-loop audio sync.
 - **[Video Implementation](docs/MVS_MV1C_DIGITAL_VIDEO.md)**: Tap points, signal logic, and PIO capture.
 - **[Audio Implementation](docs/MVS_MV1C_DIGITAL_AUDIO.md)**: I2S format, ASRC strategy, and drift control.
+- **[Standalone PCM1802 USB Capture](docs/PCM1802_USB_CAPTURE.md)**: Raw ADC diagnostic firmware and host capture tool.
 - **[HSTX & HDMI](docs/HSTX_IMPLEMENTATION.md)**: Output timing, TMDS, and Data Islands.
 - **[OSD](docs/OSD_IMPLEMENTATION.md)**: On-Screen Display rendering.
-- **[Reboot Resolution Switching](docs/REBOOT_RESOLUTION_SWITCHING.md)**: Stable 480p/240p/720p BACK-button cycler notes.
+- **[Reboot Resolution Switching](docs/REBOOT_RESOLUTION_SWITCHING.md)**: Reboot selector modes, including the optional PC-monitor timings.
 - **[720p Samsung Game Mode Investigation](docs/720P_SAMSUNG_GAME_MODE_INVESTIGATION.md)**: Current findings on Samsung Game Mode 720p glitches.
 - **[Known Issues](docs/KNOWN_ISSUES.md)**: Current limitations and compatibility notes.
 

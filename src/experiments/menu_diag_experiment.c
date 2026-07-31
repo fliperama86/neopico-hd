@@ -59,6 +59,10 @@ static void selftest_draw_resync_count(void)
 #define NEOPICO_RESOLUTION_MENU_720P 0
 #endif
 
+#ifndef NEOPICO_RESOLUTION_MENU_PC_MODES
+#define NEOPICO_RESOLUTION_MENU_PC_MODES 0
+#endif
+
 #ifndef NEOPICO_OSD_ROOT_MENU
 #define NEOPICO_OSD_ROOT_MENU 0
 #endif
@@ -218,10 +222,15 @@ static void color_model_selector_render_full(void)
 #endif
 
 #if NEOPICO_REBOOT_SELECTOR_UI
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+#define RES_SELECTOR_TITLE_ROW 0
+#define RES_SELECTOR_FIRST_OPTION_ROW 4
+#define RES_SELECTOR_HINT_ROW 15
+#else
 #define RES_SELECTOR_TITLE_ROW 1
-#define RES_SELECTOR_CURRENT_ROW 4
 #define RES_SELECTOR_FIRST_OPTION_ROW 7
 #define RES_SELECTOR_HINT_ROW 13
+#endif
 #endif
 
 // Global frame counter from video output runtime.
@@ -372,7 +381,17 @@ static const char *SELECTOR_UI_RAM(resolution_label)(video_pipeline_reboot_mode_
         case VIDEO_PIPELINE_REBOOT_MODE_240P:
             return "240p";
         case VIDEO_PIPELINE_REBOOT_MODE_720P:
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+            return "1280x720 HDTV";
+#else
             return "720p";
+#endif
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+        case VIDEO_PIPELINE_REBOOT_MODE_960X720:
+            return "960x720 PC";
+        case VIDEO_PIPELINE_REBOOT_MODE_1024X768:
+            return "1024x768 PC";
+#endif
         default:
             return "480p";
     }
@@ -385,7 +404,17 @@ static const char *SELECTOR_UI_RAM(resolution_description)(video_pipeline_reboot
         case VIDEO_PIPELINE_REBOOT_MODE_240P:
             return "Direct Mode";
         case VIDEO_PIPELINE_REBOOT_MODE_720P:
-            return "Experimental (3x)"; // 720p has a rare Game-Mode glitch; see docs/720P_PURPLE_GLITCH.md
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+            return "3x, HDTV pillarbox"; // Rare Game-Mode glitch; see docs/720P_PURPLE_GLITCH.md.
+#else
+            return "Experimental (3x)"; // Rare Game-Mode glitch; see docs/720P_PURPLE_GLITCH.md.
+#endif
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+        case VIDEO_PIPELINE_REBOOT_MODE_960X720:
+            return "3x, no active bars";
+        case VIDEO_PIPELINE_REBOOT_MODE_1024X768:
+            return "3x, 32/24 border";
+#endif
         default:
             return "2x Integer Scaling";
     }
@@ -393,20 +422,25 @@ static const char *SELECTOR_UI_RAM(resolution_description)(video_pipeline_reboot
 
 static void SELECTOR_UI_RAM(resolution_selector_render_description)(void)
 {
-    // Clear the row (longest description is 18 chars) then draw the hovered one.
-    fast_osd_puts_color(RES_SELECTOR_HINT_ROW, 2, "                    ", OSD_COLOR_GRAY);
+    fast_osd_puts_color(RES_SELECTOR_HINT_ROW, 2, "                      ", OSD_COLOR_GRAY);
     fast_osd_puts_color(RES_SELECTOR_HINT_ROW, 2, resolution_description(s_selected_mode), OSD_COLOR_GRAY);
 }
 
 static video_pipeline_reboot_mode_t SELECTOR_UI_RAM(resolution_next)(video_pipeline_reboot_mode_t mode)
 {
-    // Cycle in display order: 240p -> 480p -> 720p -> 240p.
+    // Cycle in display order: 240p -> 480p -> HDTV -> native PC -> XGA PC.
     switch (mode) {
         case VIDEO_PIPELINE_REBOOT_MODE_240P:
             return VIDEO_PIPELINE_REBOOT_MODE_480P;
 #if NEOPICO_RESOLUTION_MENU_720P
         case VIDEO_PIPELINE_REBOOT_MODE_480P:
             return VIDEO_PIPELINE_REBOOT_MODE_720P;
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+        case VIDEO_PIPELINE_REBOOT_MODE_720P:
+            return VIDEO_PIPELINE_REBOOT_MODE_960X720;
+        case VIDEO_PIPELINE_REBOOT_MODE_960X720:
+            return VIDEO_PIPELINE_REBOOT_MODE_1024X768;
+#endif
 #endif
         default:
             return VIDEO_PIPELINE_REBOOT_MODE_240P;
@@ -415,15 +449,25 @@ static video_pipeline_reboot_mode_t SELECTOR_UI_RAM(resolution_next)(video_pipel
 
 static video_pipeline_reboot_mode_t SELECTOR_UI_RAM(resolution_previous)(video_pipeline_reboot_mode_t mode)
 {
-    // Cycle opposite the display order: 240p -> 720p/480p -> 480p -> 240p.
+    // Cycle opposite the display order.
     switch (mode) {
         case VIDEO_PIPELINE_REBOOT_MODE_480P:
             return VIDEO_PIPELINE_REBOOT_MODE_240P;
 #if NEOPICO_RESOLUTION_MENU_720P
         case VIDEO_PIPELINE_REBOOT_MODE_240P:
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+            return VIDEO_PIPELINE_REBOOT_MODE_1024X768;
+#else
             return VIDEO_PIPELINE_REBOOT_MODE_720P;
+#endif
         case VIDEO_PIPELINE_REBOOT_MODE_720P:
             return VIDEO_PIPELINE_REBOOT_MODE_480P;
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+        case VIDEO_PIPELINE_REBOOT_MODE_960X720:
+            return VIDEO_PIPELINE_REBOOT_MODE_720P;
+        case VIDEO_PIPELINE_REBOOT_MODE_1024X768:
+            return VIDEO_PIPELINE_REBOOT_MODE_960X720;
+#endif
 #endif
         default:
             return VIDEO_PIPELINE_REBOOT_MODE_480P;
@@ -443,6 +487,14 @@ static bool SELECTOR_UI_RAM(resolution_selector_option_row)(video_pipeline_reboo
         case VIDEO_PIPELINE_REBOOT_MODE_720P:
             *row = RES_SELECTOR_FIRST_OPTION_ROW + 4;
             return true;
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+        case VIDEO_PIPELINE_REBOOT_MODE_960X720:
+            *row = RES_SELECTOR_FIRST_OPTION_ROW + 6;
+            return true;
+        case VIDEO_PIPELINE_REBOOT_MODE_1024X768:
+            *row = RES_SELECTOR_FIRST_OPTION_ROW + 8;
+            return true;
+#endif
 #endif
         default:
             return false;
@@ -490,6 +542,10 @@ static void SELECTOR_UI_RAM(resolution_selector_render_full)(void)
     resolution_selector_render_option(RES_SELECTOR_FIRST_OPTION_ROW + 2, VIDEO_PIPELINE_REBOOT_MODE_480P);
 #if NEOPICO_RESOLUTION_MENU_720P
     resolution_selector_render_option(RES_SELECTOR_FIRST_OPTION_ROW + 4, VIDEO_PIPELINE_REBOOT_MODE_720P);
+#endif
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+    resolution_selector_render_option(RES_SELECTOR_FIRST_OPTION_ROW + 6, VIDEO_PIPELINE_REBOOT_MODE_960X720);
+    resolution_selector_render_option(RES_SELECTOR_FIRST_OPTION_ROW + 8, VIDEO_PIPELINE_REBOOT_MODE_1024X768);
 #endif
     resolution_selector_render_description();
 }
@@ -1179,6 +1235,14 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
             case VIDEO_PIPELINE_REBOOT_MODE_240P:
                 next_mode = VIDEO_PIPELINE_REBOOT_MODE_720P;
                 break;
+#if NEOPICO_RESOLUTION_MENU_PC_MODES
+            case VIDEO_PIPELINE_REBOOT_MODE_720P:
+                next_mode = VIDEO_PIPELINE_REBOOT_MODE_960X720;
+                break;
+            case VIDEO_PIPELINE_REBOOT_MODE_960X720:
+                next_mode = VIDEO_PIPELINE_REBOOT_MODE_1024X768;
+                break;
+#endif
             default:
                 next_mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
                 break;

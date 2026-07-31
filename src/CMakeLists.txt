@@ -16,6 +16,59 @@ else()
     message(FATAL_ERROR "NEOPICO_CAPTURE_TARGET must be MVS or SNES")
 endif()
 
+# =============================================================================
+# Standalone PCM1802 to USB Capture Diagnostic (no video or HDMI)
+# =============================================================================
+option(NEOPICO_BUILD_PCM1802_USB_CAPTURE "Build standalone framed PCM1802 USB capture firmware" OFF)
+set(NEOPICO_PCM1802_USB_BITS_PER_SAMPLE "24" CACHE STRING
+    "Standalone PCM1802 USB payload width: 24 (full samples) or 16 (reduced-bandwidth diagnostic)")
+set_property(CACHE NEOPICO_PCM1802_USB_BITS_PER_SAMPLE PROPERTY STRINGS 24 16)
+
+if(NEOPICO_BUILD_PCM1802_USB_CAPTURE)
+    if(NOT NEOPICO_PCM1802_USB_BITS_PER_SAMPLE STREQUAL "24" AND
+       NOT NEOPICO_PCM1802_USB_BITS_PER_SAMPLE STREQUAL "16")
+        message(FATAL_ERROR "NEOPICO_PCM1802_USB_BITS_PER_SAMPLE must be 24 or 16")
+    endif()
+
+    add_executable(neopico_pcm1802_usb_capture
+        diagnostics/pcm1802_usb_capture/main.c
+        diagnostics/pcm1802_usb_capture/usb_descriptors.c
+    )
+
+    target_include_directories(neopico_pcm1802_usb_capture PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/diagnostics/pcm1802_usb_capture
+    )
+
+    target_compile_options(neopico_pcm1802_usb_capture PRIVATE
+        -Wall
+        -Wextra
+        -Werror
+    )
+
+    target_compile_definitions(neopico_pcm1802_usb_capture PRIVATE
+        NEOPICO_PCM1802_USB_BITS_PER_SAMPLE=${NEOPICO_PCM1802_USB_BITS_PER_SAMPLE}
+    )
+
+    pico_generate_pio_header(neopico_pcm1802_usb_capture
+        ${CMAKE_CURRENT_LIST_DIR}/audio/i2s_capture.pio
+    )
+
+    target_link_libraries(neopico_pcm1802_usb_capture
+        pico_stdlib
+        pico_unique_id
+        tinyusb_device
+        tinyusb_board
+        hardware_pio
+        hardware_dma
+        hardware_irq
+        hardware_gpio
+    )
+
+    pico_enable_stdio_usb(neopico_pcm1802_usb_capture 0)
+    pico_enable_stdio_uart(neopico_pcm1802_usb_capture 0)
+    pico_add_extra_outputs(neopico_pcm1802_usb_capture)
+endif()
+
 add_executable(neopico_hd
     main.c
     experiments/menu_diag_experiment.c
@@ -36,7 +89,7 @@ add_executable(neopico_hd
 
 # Product configuration and active experiments
 option(NEOPICO_VIDEO_240P "Start HDMI output in 240p mode via runtime mode API" OFF)
-option(NEOPICO_VIDEO_720P "Build HDMI output in 1280x720 @ 60Hz mode (requires sys_clk 372 MHz / 1.30V)" OFF)
+option(NEOPICO_VIDEO_720P "Build fixed HDMI output in 1280x720 mode (runtime: exact 320 MHz; non-RT: CTA-style 372 MHz)" OFF)
 # When ON, link the compile-time pico_hdmi path (video_output.c). Loses the
 # rt-only API surface (set_mode, update_acr, dynamic vtotal genlock, etc.) —
 # code that uses those is #ifdef'd out. Use as an A/B against the rt path
@@ -47,6 +100,8 @@ option(NEOPICO_EXP_PRECOMPOSED_HDMI "EXPERIMENTAL: pico_hdmi 2.0 precomposed sca
 option(NEOPICO_VIDEO_DVI_ONLY "Disable HDMI Data Islands/audio output for video isolation tests" OFF)
 option(NEOPICO_VIDEO_TEST_PATTERN "Render a static Core 1 video test pattern instead of captured video" OFF)
 option(NEOPICO_DIAG_COUNTERS "Capture-health counters dumped over USB-serial (720p glitch diagnosis)" OFF)
+option(NEOPICO_EXP_RING_FRAME_GUARD
+    "EXPERIMENTAL: retain the previous complete input frame when the newest frame has committed zero lines" OFF)
 option(NEOPICO_ENABLE_OSD "Enable OSD overlay and button handling" ON)
 option(NEOPICO_ENABLE_SELFTEST "Enable self-test diagnostic layout (requires OSD)" ON)
 option(NEOPICO_OSD_ROOT_MENU "Root OSD menu for enabled settings and diagnostics (requires OSD and at least one entry feature)" ON)
@@ -62,10 +117,12 @@ set(NEOPICO_OSD_CONTROLLER_BACK_PIN "1" CACHE STRING "GPIO for controller SELECT
 set(NEOPICO_OSD_CONTROLLER_UP_PIN "3" CACHE STRING "GPIO for controller UP when controller OSD inputs are enabled")
 set(NEOPICO_OSD_CONTROLLER_DOWN_PIN "2" CACHE STRING "GPIO for controller DOWN when controller OSD inputs are enabled")
 set(NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS "20" CACHE STRING "Controller OSD stable-release debounce time in milliseconds")
-option(NEOPICO_ENABLE_DARK_SHADOW "Enable experimental four-state DARK/SHADOW split LUT in MVS capture (8.25 KiB)" OFF)
+option(NEOPICO_ENABLE_DARK_SHADOW "Enable experimental four-state DARK/SHADOW conversion in MVS capture" OFF)
 set(NEOPICO_MVS_EFFECT_MODEL "MISTER" CACHE STRING
     "MVS DARK/SHADOW color model when enabled: MISTER (digital reference) or MAME (analog resistor model)")
 set_property(CACHE NEOPICO_MVS_EFFECT_MODEL PROPERTY STRINGS MISTER MAME)
+option(NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING
+    "EXPERIMENTAL: process the Digital DARK/SHADOW model with register operations instead of the split LUT" OFF)
 option(NEOPICO_MVS_COLOR_MODEL_MENU
     "Live persistent MVS Digital/Analog normal-color selector; does not enable DARK/SHADOW" OFF)
 option(NEOPICO_EXP_GENLOCK_STATIC "Enable static boot-time genlock sysclk target" OFF)
@@ -77,9 +134,12 @@ option(NEOPICO_TRIPLE_ASM "Use hand-written M33 asm for the 3x/4x pixel-scale ke
 # Baseline: the resolution selector (reboot-based 240p/480p/720p switching via
 # the OSD) is the default firmware. One build does all three modes; pass these
 # OFF for a fixed-resolution build (then select a single mode with VIDEO_240P /
-# VIDEO_720P, which are mutually exclusive with the selector).
+# VIDEO_720P, which are mutually exclusive with the selector). The two PC
+# monitor modes are separately gated until they have been hardware-validated.
 option(NEOPICO_RESOLUTION_MENU "Reboot-based 240p/480p/720p HDMI mode switching via the OSD resolution menu" ON)
 option(NEOPICO_RESOLUTION_MENU_720P "Let the OSD resolution menu cycle through 720p" ON)
+option(NEOPICO_RESOLUTION_MENU_PC_MODES
+    "EXPERIMENTAL: add native 960x720 and bordered 1024x768 PC-monitor modes to the resolution menu" OFF)
 option(NEOPICO_FIRST_BOOT_REBOOT "Auto-reboot once on cold power-on (cold-boot scratchy-audio workaround: re-establishes the HDMI link warm); requires the reboot-mode path. ~1-2s extra on cold boot." ON)
 option(NEOPICO_SETTINGS_FLASH "Persist settings to flash so they survive power-off; written only at reboot points" ON)
 option(NEOPICO_OSD_RES_CONFIRM "Resolution-change safety net: after switching, show a 10s keep/revert countdown (MENU keeps + persists, BACK/timeout reverts). Requires the reboot-mode path + OSD." ON)
@@ -162,6 +222,23 @@ else()
     set(ENABLE_DARK_SHADOW_VALUE 0)
 endif()
 
+if(NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING)
+    if(NOT NEOPICO_CAPTURE_TARGET_UPPER STREQUAL "MVS")
+        message(FATAL_ERROR "NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING supports only the MVS capture target")
+    endif()
+    if(NOT NEOPICO_ENABLE_DARK_SHADOW)
+        message(FATAL_ERROR
+            "NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING requires NEOPICO_ENABLE_DARK_SHADOW=ON")
+    endif()
+    if(NOT NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "MISTER")
+        message(FATAL_ERROR
+            "NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING supports only NEOPICO_MVS_EFFECT_MODEL=MISTER")
+    endif()
+    set(MVS_DIGITAL_EFFECT_PROCESSING_VALUE 1)
+else()
+    set(MVS_DIGITAL_EFFECT_PROCESSING_VALUE 0)
+endif()
+
 if(NEOPICO_MVS_COLOR_MODEL_MENU)
     if(NOT NEOPICO_CAPTURE_TARGET_UPPER STREQUAL "MVS")
         message(FATAL_ERROR "NEOPICO_MVS_COLOR_MODEL_MENU supports only the MVS capture target")
@@ -220,6 +297,12 @@ else()
     set(RESOLUTION_MENU_720P_VALUE 0)
 endif()
 
+if(NEOPICO_RESOLUTION_MENU_PC_MODES)
+    set(RESOLUTION_MENU_PC_MODES_VALUE 1)
+else()
+    set(RESOLUTION_MENU_PC_MODES_VALUE 0)
+endif()
+
 if(NEOPICO_DIAG_AUDIO_OSD)
     set(DIAG_AUDIO_OSD_VALUE 1)
 else()
@@ -268,14 +351,25 @@ if(NEOPICO_RESOLUTION_MENU_720P AND NOT NEOPICO_RESOLUTION_MENU)
     message(FATAL_ERROR "NEOPICO_RESOLUTION_MENU_720P requires NEOPICO_RESOLUTION_MENU=ON")
 endif()
 
+if(NEOPICO_RESOLUTION_MENU_PC_MODES)
+    if(NOT NEOPICO_RESOLUTION_MENU)
+        message(FATAL_ERROR "NEOPICO_RESOLUTION_MENU_PC_MODES requires NEOPICO_RESOLUTION_MENU=ON")
+    endif()
+    if(NOT NEOPICO_RESOLUTION_MENU_720P)
+        message(FATAL_ERROR
+            "NEOPICO_RESOLUTION_MENU_PC_MODES adds to, rather than replaces, the 1280x720 mode; NEOPICO_RESOLUTION_MENU_720P must remain ON")
+    endif()
+endif()
+
 # Overclock builds MUST execute from RAM. Above ~150 MHz sys_clk, XIP flash
 # reads corrupt (the boot-clock QMI timing samples too early) -> the next
 # instruction fetch faults -> hard crash with no recovery. copy_to_ram reads
 # flash once at the safe boot clock, then runs from RAM. Overclocked modes:
-#   - 720p:    372 MHz (VIDEO_720P, or the reboot-switch 720p mode)
+#   - 720p:    320 MHz for runtime exact-clock mode; 372 MHz for fixed non-RT
+#   - PC modes: 384 MHz CPU with independent 280/324 MHz clk_hstx
 #   - RT 480p: 252 MHz (scanline-IRQ headroom; default 480p + the selector)
 set(_neopico_overclocked OFF)
-if(NEOPICO_VIDEO_720P OR NEOPICO_RESOLUTION_MENU_720P)
+if(NEOPICO_VIDEO_720P OR NEOPICO_RESOLUTION_MENU_720P OR NEOPICO_RESOLUTION_MENU_PC_MODES)
     set(_neopico_overclocked ON)
 endif()
 if((NOT NEOPICO_USE_NONRT_HDMI) AND (NOT NEOPICO_VIDEO_240P) AND (NOT NEOPICO_VIDEO_720P))
@@ -311,6 +405,12 @@ if(NEOPICO_DIAG_COUNTERS)
     set(DIAG_COUNTERS_VALUE 1)
 else()
     set(DIAG_COUNTERS_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_RING_FRAME_GUARD)
+    set(EXP_RING_FRAME_GUARD_VALUE 1)
+else()
+    set(EXP_RING_FRAME_GUARD_VALUE 0)
 endif()
 
 if(NEOPICO_EXP_PRECOMPOSED_HDMI)
@@ -354,15 +454,15 @@ if(NEOPICO_VIDEO_720P)
     endif()
 endif()
 
-if(NEOPICO_RESOLUTION_MENU_720P)
+if(NEOPICO_RESOLUTION_MENU_720P OR NEOPICO_RESOLUTION_MENU_PC_MODES)
     target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_RT_RUNTIME_MODE_ATTRS=1)
 endif()
 
 # 240p uses a non-CEA VIC-0 timing. Keep the conservative AVI payload that was
 # hardware-validated with the normal HDMI audio stream: PB1=0x00, PB2=0x08,
 # and PR=0. The newer active-format/aspect/PR=3 payload causes black video on
-# tested scaler paths. This define changes only VIC-0/240p metadata; 480p and
-# 720p keep their standard AVI payloads.
+# tested scaler paths. This define changes only the 240p descriptor; runtime
+# exact-clock 720p independently uses VIC 0 with an explicit 16:9 aspect.
 target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_LEGACY_240P_AVI_INFOFRAME=1)
 
 # RT 480p runs at 252 MHz for scanline-IRQ headroom (see main.c SYS_CLK_480P_KHZ).
@@ -425,6 +525,7 @@ target_link_libraries(neopico_hd
     pico_multicore
     hardware_pio
     hardware_clocks
+    hardware_pll
     hardware_dma
     hardware_irq
     hardware_gpio
@@ -440,6 +541,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_VIDEO_DVI_ONLY=${VIDEO_DVI_ONLY_VALUE}
     NEOPICO_VIDEO_TEST_PATTERN=${VIDEO_TEST_PATTERN_VALUE}
     NEOPICO_DIAG_COUNTERS=${DIAG_COUNTERS_VALUE}
+    NEOPICO_EXP_RING_FRAME_GUARD=${EXP_RING_FRAME_GUARD_VALUE}
     NEOPICO_ENABLE_OSD=${ENABLE_OSD_VALUE}
     NEOPICO_OSD_FAKE_BLEND=${OSD_FAKE_BLEND_VALUE}
     NEOPICO_ENABLE_SELFTEST=${ENABLE_SELFTEST_VALUE}
@@ -451,6 +553,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS=${NEOPICO_OSD_CONTROLLER_DEBOUNCE_MS}
     ENABLE_DARK_SHADOW=${ENABLE_DARK_SHADOW_VALUE}
     MVS_EFFECT_MODEL=${MVS_EFFECT_MODEL_VALUE}
+    NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING=${MVS_DIGITAL_EFFECT_PROCESSING_VALUE}
     NEOPICO_MVS_COLOR_MODEL_MENU=${MVS_COLOR_MODEL_MENU_VALUE}
     NEOPICO_EXP_GENLOCK_STATIC=${GENLOCK_STATIC_VALUE}
     NEOPICO_GENLOCK_TARGET_FPS_X100=${NEOPICO_GENLOCK_TARGET_FPS_X100}
@@ -460,6 +563,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_TRIPLE_ASM=${TRIPLE_ASM_VALUE}
     NEOPICO_RESOLUTION_MENU=${RESOLUTION_MENU_VALUE}
     NEOPICO_RESOLUTION_MENU_720P=${RESOLUTION_MENU_720P_VALUE}
+    NEOPICO_RESOLUTION_MENU_PC_MODES=${RESOLUTION_MENU_PC_MODES_VALUE}
     NEOPICO_AUDIO_MODE=${AUDIO_MODE_VALUE}
     NEOPICO_DIAG_AUDIO_OSD=${DIAG_AUDIO_OSD_VALUE}
     NEOPICO_LINE_RING_SIZE=${NEOPICO_LINE_RING_SIZE}

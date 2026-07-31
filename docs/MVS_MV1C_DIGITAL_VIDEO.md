@@ -32,6 +32,14 @@ The MVS MV1C generates 15-bit RGB video digitally, clocked at 6 MHz with composi
 -   **Ping-Pong Buffering**: DMA moves raw pixel words to RAM in the background. While DMA captures Line N into `buffer[0]`, the CPU processes Line N-1 from `buffer[1]`.
 -   **Capture Headroom**: This offloads pixel transfer from the CPU while Core 0 performs conversion and frame management. OSD work remains on Core 1.
 
+### Capture Ring Handoff
+
+-   Core 0 publishes a new frame base at input VSYNC, then commits converted lines into the generation-tagged line ring.
+-   Core 1 selects a frame base at output VSYNC. The source and HDMI frame rates are independent, so repeating a complete source frame is normal.
+-   `NEOPICO_EXP_RING_FRAME_GUARD=ON` is a default-off mitigation for the narrow interval where the new frame base is visible but line 0 is not committed yet. In that case Core 1 retains the preceding complete 224-line frame instead of selecting the empty frame.
+-   A missing or generation-mismatched capture line is rendered as International Orange (`#FF4F00`, RGB565 `0xFA60`). Normal overscan remains black, so the two cases are visually distinguishable.
+-   `NEOPICO_DIAG_COUNTERS=ON` reports not-written, overwritten, and resync counts over USB serial. Continuous USB logging has disturbed video in hardware testing, so diagnostic counts must be treated as intrusive measurements rather than a clean performance baseline.
+
 ### Hardware-Accelerated Pixel Conversion
 
 The Neo Geo uses two special signals, **DARK** and **SHADOW**, to modify pixel brightness. To handle this with minimum CPU overhead, NeoPico-HD uses a runtime-generated LUT in Core 0 capture.
@@ -57,7 +65,13 @@ The Neo Geo uses two special signals, **DARK** and **SHADOW**, to modify pixel b
     -   `NEOPICO_MVS_EFFECT_MODEL=MAME` follows MAME's pinned Neo Geo resistor-network model. This is an analog emulation model, not a measurement of the target MV1C.
     -   The selected model is exact in the generated table. RGB565 transport still truncates the modeled 8-bit components to 5/6/5 bits.
     -   This path produced bottom-screen pixel jitter in hardware testing. It remains default off and cannot be combined with the normal-color menu.
-4.  **Capture Width**:
+4.  **Digital Register-Processing Experiment** (`NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING=ON`):
+    -   Requires the separate effect experiment and the Digital reference model. It remains default off and cannot be combined with the Colors menu.
+    -   Replaces the split effect LUT with Cortex-M33 register operations. One `RBIT` corrects all three reversed five-bit PCB fields, and explicit five-bit extracts prevent captured CSYNC/PCLK from leaking into blue.
+    -   Four-pixel blocks without effect flags take a dedicated normal path. DARK uses fixed-latency `SUBS` plus `USAT` saturation, while SHADOW uses the exact packed RGB565 shift-and-mask identity.
+    -   The host test exhaustively matches the Digital reference across all 32,768 colors, all four effect states, and all four captured CSYNC/PCLK bit combinations.
+    -   The processing build contains neither the 8,448-byte effect LUT nor a 64 KiB normal-color LUT. Hardware timing and capture stability are not yet validated.
+5.  **Capture Width**:
     -   Capture uses 19 bits (RGB555 + SHADOW + DARK).
 
 The model references are pinned to [MiSTer Neo Geo commit `2325e6c`](https://github.com/MiSTer-devel/NeoGeo_MiSTer/blob/2325e6c4303dc9a3fd554b18d9833e992ccd444f/neogeo.sv#L2205-L2222) and [MAME commit `e47c0f3`](https://github.com/mamedev/mame/blob/e47c0f33c5be3ee286ff65bed13458c2920340d2/src/mame/neogeo/neogeo_v.cpp#L23-L64).
@@ -84,5 +98,9 @@ Capturing from GPIO 27-45 requires using the RP2350's **Bank 1** features and ma
 
 ## 4. Implementation Constraints
 
--   **Clock**: The system runs at **126 MHz** to provide a perfect 25.2 MHz pixel clock (div 5) for HDMI.
+-   **Clock**: Clocking is output-mode dependent. Runtime 480p uses a 252 MHz
+    CPU with a divided 126 MHz HSTX clock for a 25.2 MHz pixel clock. The
+    exact-clock runtime 720p mode uses 320 MHz CPU/HSTX and a 64 MHz pixel
+    clock. Optional PC modes run the CPU at 384 MHz and source HSTX from
+    PLL_USB.
 -   **Grounding**: A solid shared ground between MVS and Pico is mandatory to prevent digital noise.

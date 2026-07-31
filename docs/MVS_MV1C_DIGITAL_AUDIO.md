@@ -77,7 +77,7 @@ At boot, the selected source controls all source-dependent behavior as one unit:
 - SRC initial input rate and DROP/LINEAR mode
 - Feedback-servo minimum and maximum input-rate bounds
 
-The selectable mode supports MVS-target runtime-HDMI builds. Existing settings records remain compatible. Until a source is explicitly saved, it defaults to `MV1C Digital`. SNES builds default to `DIGITAL`; fixed-source AES builds use `PCM1802`.
+The selectable mode supports MVS-target runtime-HDMI builds. Existing settings records remain compatible. Until a source is explicitly saved, it defaults to `MV1C Digital`. An explicitly saved source continues to take precedence. Factory reset also selects `MV1C Digital`. SNES builds default to `DIGITAL`; fixed-source AES builds use `PCM1802`.
 
 ## Implementation Status (Verified)
 

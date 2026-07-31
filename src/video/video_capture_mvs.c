@@ -154,6 +154,20 @@ mvs_color_model_t video_capture_get_color_model(void)
 #endif
 
 #if ENABLE_DARK_SHADOW
+#if NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING
+#include "mvs_digital_effect.h"
+
+// Experimental Digital-only processing path. It replaces the effect LUT with
+// register operations, including one RBIT for the board's channel wiring.
+static inline void generate_capture_lut(void)
+{
+}
+
+static inline uint16_t mvs_capture_effect_convert(uint32_t raw)
+{
+    return mvs_digital_effect_rgb565_raw(raw);
+}
+#else
 #include "mvs_effect_lut.h"
 
 // Four independent states in captured-bit order: normal, SHADOW, DARK, both.
@@ -166,10 +180,11 @@ static void generate_capture_lut(void)
     mvs_effect_lut_generate(&g_capture_effect_lut);
 }
 
-static inline uint16_t mvs_capture_lut_lookup(uint32_t raw)
+static inline uint16_t mvs_capture_effect_convert(uint32_t raw)
 {
     return mvs_effect_lut_lookup_raw(&g_capture_effect_lut, raw);
 }
+#endif
 #else
 // 32K LUT: corrected RGB555 -> RGB565 (DARK/SHADOW disabled build).
 #if NEOPICO_MVS_COLOR_MODEL_MENU
@@ -211,24 +226,61 @@ static void generate_color_correct_lut(void)
 #if ENABLE_DARK_SHADOW
 static inline uint16_t convert_pixel(uint32_t raw)
 {
-    return mvs_capture_lut_lookup(raw);
+    return mvs_capture_effect_convert(raw);
 }
 
 static inline void convert_active_pixels(uint16_t *dst, const uint32_t *src, int count)
 {
+#if NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING
     int remaining = count;
     while (remaining >= 4) {
-        dst[0] = mvs_capture_lut_lookup(src[0]);
-        dst[1] = mvs_capture_lut_lookup(src[1]);
-        dst[2] = mvs_capture_lut_lookup(src[2]);
-        dst[3] = mvs_capture_lut_lookup(src[3]);
+        const uint32_t raw0 = src[0];
+        const uint32_t raw1 = src[1];
+        const uint32_t raw2 = src[2];
+        const uint32_t raw3 = src[3];
+        uint16_t pixel0;
+        uint16_t pixel1;
+        uint16_t pixel2;
+        uint16_t pixel3;
+
+        if (((raw0 | raw1 | raw2 | raw3) & MVS_DIGITAL_EFFECT_RAW_MASK) == 0U) {
+            pixel0 = mvs_digital_effect_normal_rgb565_raw(raw0);
+            pixel1 = mvs_digital_effect_normal_rgb565_raw(raw1);
+            pixel2 = mvs_digital_effect_normal_rgb565_raw(raw2);
+            pixel3 = mvs_digital_effect_normal_rgb565_raw(raw3);
+        } else {
+            pixel0 = mvs_digital_effect_rgb565_raw(raw0);
+            pixel1 = mvs_digital_effect_rgb565_raw(raw1);
+            pixel2 = mvs_digital_effect_rgb565_raw(raw2);
+            pixel3 = mvs_digital_effect_rgb565_raw(raw3);
+        }
+
+        const uint32_t pair01 = (uint32_t)pixel0 | ((uint32_t)pixel1 << 16U);
+        const uint32_t pair23 = (uint32_t)pixel2 | ((uint32_t)pixel3 << 16U);
+        __builtin_memcpy(dst, &pair01, sizeof pair01);
+        __builtin_memcpy(dst + 2, &pair23, sizeof pair23);
         dst += 4;
         src += 4;
         remaining -= 4;
     }
     while (remaining-- > 0) {
-        *dst++ = mvs_capture_lut_lookup(*src++);
+        *dst++ = mvs_digital_effect_rgb565_raw(*src++);
     }
+#else
+    int remaining = count;
+    while (remaining >= 4) {
+        dst[0] = mvs_capture_effect_convert(src[0]);
+        dst[1] = mvs_capture_effect_convert(src[1]);
+        dst[2] = mvs_capture_effect_convert(src[2]);
+        dst[3] = mvs_capture_effect_convert(src[3]);
+        dst += 4;
+        src += 4;
+        remaining -= 4;
+    }
+    while (remaining-- > 0) {
+        *dst++ = mvs_capture_effect_convert(*src++);
+    }
+#endif
 }
 #elif NEOPICO_MVS_COLOR_MODEL_MENU
 static inline uint16_t convert_pixel(const uint16_t *color_lut, uint32_t raw)

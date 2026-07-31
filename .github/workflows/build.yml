@@ -41,7 +41,7 @@ jobs:
     # Single baseline firmware: the resolution selector. One build switches
     # between 240p / 480p / 720p from the reboot-based OSD menu. The MVS asset
     # also enables the live Digital/Analog Colors menu; SNES leaves it off.
-    # 480p runs at 252 MHz and 720p at 372 MHz, so COPY_TO_RAM auto-forces.
+    # 480p runs at 252 MHz and exact-clock 720p at 320 MHz, so COPY_TO_RAM auto-forces.
 
     - name: Run MVS color tests
       if: matrix.target == 'mvs'

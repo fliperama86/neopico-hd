@@ -2,10 +2,9 @@
 
 ## Summary
 
-NeoPico-HD 720p output can show split-second video glitches on at least one
-Samsung TV when Game Mode is enabled. The same firmware is stable on tested
-high-end gaming monitors, and the Samsung TV is stable when Game Mode is
-disabled.
+NeoPico-HD 720p output previously showed split-second video glitches on at
+least one Samsung TV when Game Mode was enabled. The corrected 2026-07-31 MVS
+test profile is now clean on that affected TV.
 
 The current evidence points away from a generic PicoHDMI 720p signal problem and
 toward a live-capture sensitivity that Samsung Game Mode exposes more readily
@@ -153,8 +152,25 @@ Consequences for this document's conclusions:
 
 ## Status
 
-No production firmware change has been made from this investigation. 720p
-remains labeled Experimental in the resolution OSD. The active experiment
-queue, mechanism ranking, and mitigation analysis (including level-shifter/
-redriver parts research for the production board) are maintained in
+Main now uses an exact-clock 64 MHz reduced-blanking runtime 720p descriptor at
+59.979 Hz instead of the former 74.4 MHz, 372 MHz-HSTX timing. The standalone
+PicoHDMI bouncing-box version passed an initial smoke test on the picky Samsung.
+The timing is non-CTA, advertises VIC 0 with explicit 16:9, and may be less
+compatible with other TVs, so 720p remains Experimental.
+
+A NeoPico test then exposed a different top-of-frame artifact. Changing only
+the missing/not-ready capture-line fallback from gray to International Orange
+made that artifact orange, directly identifying a capture-ring readiness miss.
+USB readiness logging observed not-written events but also disturbed the image,
+so the counts are qualitative. A default-off frame guard that retains the
+previous complete frame when the newest frame has committed zero lines looked
+clean in an initial no-logging test.
+
+The combined exact-clock plus frame-guard profile fixed the rare magenta
+Samsung Game Mode transient on the affected TV. These changes were tested
+together, so the result does not prove whether clock/timing, frame selection,
+or their combination was necessary. The frame guard remains separately useful
+because the orange diagnostic directly identified a not-ready ring read.
+
+The historical experiment queue and mechanism analysis are maintained in
 [`720P_PURPLE_GLITCH.md`](720P_PURPLE_GLITCH.md).

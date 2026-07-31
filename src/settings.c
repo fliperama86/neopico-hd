@@ -127,7 +127,7 @@ void __no_inline_not_in_flash_func(settings_factory_reset)(void)
 {
     neopico_settings_t defaults;
     settings_defaults(&defaults);
-    defaults.audio_source = (uint8_t)AUDIO_SOURCE_MV1C_DIGITAL;
+    defaults.audio_source = (uint8_t)AUDIO_SOURCE_SELECTABLE_DEFAULT;
     defaults.audio_source_valid = NEOPICO_SETTINGS_AUDIO_SOURCE_VALID;
 #if NEOPICO_MVS_COLOR_MODEL_MENU
     defaults.color_model = 0U; // MVS_COLOR_MODEL_DIGITAL

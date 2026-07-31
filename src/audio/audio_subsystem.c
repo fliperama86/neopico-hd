@@ -20,7 +20,7 @@
 static audio_pipeline_t audio_pipeline;
 
 #if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
-static audio_source_t audio_source = AUDIO_SOURCE_MV1C_DIGITAL;
+static audio_source_t audio_source = AUDIO_SOURCE_SELECTABLE_DEFAULT;
 
 void audio_subsystem_set_source(audio_source_t source)
 {

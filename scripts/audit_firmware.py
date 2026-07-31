@@ -71,12 +71,15 @@ FLAGS_TO_SHOW = (
     "NEOPICO_VIDEO_DVI_ONLY",
     "NEOPICO_RESOLUTION_MENU",
     "NEOPICO_RESOLUTION_MENU_720P",
+    "NEOPICO_RESOLUTION_MENU_PC_MODES",
     "NEOPICO_FIRST_BOOT_REBOOT",
     "NEOPICO_SETTINGS_FLASH",
     "NEOPICO_MVS_COLOR_MODEL_MENU",
     "NEOPICO_ENABLE_DARK_SHADOW",
+    "NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING",
     "NEOPICO_EXP_PRECOMPOSED_HDMI",
     "NEOPICO_EXP_GENLOCK_DYNAMIC",
+    "NEOPICO_EXP_RING_FRAME_GUARD",
     "NEOPICO_DIAG_COUNTERS",
     "NEOPICO_DIAG_AUDIO_OSD",
 )
@@ -406,6 +409,37 @@ def audit_report(
         for name in ("settings_request_save", "settings_service_pending_save", "settings_save_pending"):
             if name in symbols:
                 findings.append(Finding("FAIL", f"feature-off build unexpectedly contains live Colors symbol: {name}"))
+
+    digital_processing_flag = flags.get("NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING")
+    if digital_processing_flag == "ON":
+        if flags.get("NEOPICO_ENABLE_DARK_SHADOW") != "ON":
+            findings.append(Finding("FAIL", "Digital effect processing does not enable DARK/SHADOW"))
+        if flags.get("NEOPICO_MVS_EFFECT_MODEL") != "MISTER":
+            findings.append(Finding("FAIL", "Digital effect processing does not select the Digital reference model"))
+        for forbidden_lut in ("g_capture_effect_lut", "g_color_correct_lut"):
+            if forbidden_lut in symbols:
+                findings.append(Finding("FAIL", f"Digital effect processing unexpectedly contains {forbidden_lut}"))
+
+        capture_lines = disasm.get("video_capture_run", [])
+        if not any(re.search(r"\brbit(?:\.w)?\b", line) for line in capture_lines):
+            findings.append(Finding("FAIL", "Digital effect processing has no RBIT in video_capture_run"))
+        if not any(re.search(r"\busat(?:\.w)?\b", line) for line in capture_lines):
+            findings.append(Finding("FAIL", "Digital effect processing has no USAT in video_capture_run"))
+
+    pc_modes_flag = flags.get("NEOPICO_RESOLUTION_MENU_PC_MODES")
+    if pc_modes_flag == "ON":
+        if flags.get("NEOPICO_RESOLUTION_MENU") != "ON":
+            findings.append(Finding("FAIL", "PC monitor modes do not enable the resolution menu"))
+        if flags.get("NEOPICO_RESOLUTION_MENU_720P") != "ON":
+            findings.append(Finding("FAIL", "PC monitor modes do not retain the 1280x720 menu mode"))
+        for name in (
+            "video_mode_960x720_p",
+            "video_mode_1024x768_p",
+            "video_output_set_hstx_source",
+            "video_pipeline_reboot_mode_available",
+        ):
+            if name not in symbols:
+                findings.append(Finding("FAIL", f"PC monitor mode symbol missing: {name}"))
 
     return Report(elf=elf, sections=sections, symbols=symbols, disasm=disasm, flags=flags, findings=findings)
 

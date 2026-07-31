@@ -10,16 +10,49 @@ Comprehensive record of the RP2350 HSTX implementation and HDMI audio findings.
 
 ## 2. HSTX Video Pipeline
 
-### Timing (640x480 @ 60Hz)
+### Output Timings
 
-- **Pixel Clock**: 25.2 MHz (System Clock 126 MHz / 5).
-- **Line Length**: Exactly 800 cycles mandatory for HDMI stability.
+- **640x480 Pixel Clock**: 25.2 MHz. The selector runs the CPU at 252 MHz and divides `clk_hstx` by 2, then the HSTX serializer by 5.
+- **640x480 Line Length**: Exactly 800 pixel clocks for the VGA timing.
+- **Runtime 1280x720 Pixel Clock**: exactly 64.000 MHz from a 320 MHz
+  system/HSTX clock. The 1440x741 reduced-blanking raster runs at 59.979 Hz,
+  uses H+/V- sync, and advertises VIC 0 with an explicit 16:9 aspect.
+- **Fixed non-RT 1280x720 Comparison Mode**: 74.4 MHz from the older 372 MHz
+  HSTX/system clock path, with CTA-style 1650x750 timing.
+- **Optional 960x720 PC Pixel Clock**: 56.0 MHz from a 280 MHz independent HSTX clock.
+- **Optional 1024x768 PC Pixel Clock**: 64.8 MHz from a 324 MHz independent HSTX clock.
 - **Command Lists**: Uses `HSTX_CMD_RAW_REPEAT` for blanking and `HSTX_CMD_TMDS` for active pixels.
 - **NOPs**: `HSTX_CMD_NOP` separators are used to manage hardware state transitions.
 
+The optional PC modes are enabled with
+`NEOPICO_RESOLUTION_MENU_PC_MODES=ON`. Native 960x720 uses totals 1248x748
+and H-/V+ sync. The bordered 1024x768 mode uses totals 1340x806 and H-/V-
+sync, with the 960x720 image centered inside a black 32/24-pixel active-area
+border. These timings are compile-tested but not hardware-validated.
+
+### PC Mode Clock Tree
+
+The PC modes need more Core 0/Core 1 execution headroom than a system-clock
+derived 280 or 324 MHz HSTX clock would provide. Firmware therefore runs
+PLL_SYS and both cores at 384 MHz while sourcing `clk_hstx` from a repurposed
+PLL_USB:
+
+- Native 960x720: PLL_USB VCO 840 MHz, post-divider 3, `clk_hstx` 280 MHz.
+- Bordered 1024x768: PLL_USB VCO 1296 MHz, post-divider 4, `clk_hstx` 324 MHz.
+- `clk_usb` and `clk_adc`: PLL_SYS / 8, exactly 48 MHz.
+- `clk_peri`: undivided 12 MHz crystal because its RP2350 divider cannot
+  produce 48 MHz from the 384 MHz system clock.
+
+PicoHDMI audio ACR and packet pacing derive the pixel clock from the configured
+`clk_hstx`, not from `clk_sys`, so the independent clock source remains visible
+to HDMI audio calculations.
+
 ### Sync Polarity
 
-- HDMI uses **active-low** sync bits ($0 = \text{Active}$, $1 = \text{Idle}$).
+- The runtime engine tracks horizontal and vertical polarity separately. This
+  is required by native 960x720, which uses H-/V+ rather than one shared
+  polarity.
+- For a negative-polarity signal, the wire bit is low during the active pulse.
 - TMDS control symbols:
   - `0x354u`: $V=0, H=0$
   - `0x0abu`: $V=0, H=1$
@@ -33,7 +66,7 @@ Comprehensive record of the RP2350 HSTX implementation and HDMI audio findings.
 
 ### Native 240p AVI Compatibility
 
-The native 240p output uses a non-CEA 1280x240 timing with VIC 0. Production builds define `PICO_HDMI_LEGACY_240P_AVI_INFOFRAME=1`, which emits the hardware-validated conservative AVI payload (`PB1=0x00`, `PB2=0x08`, `PR=0`). The active-format/aspect payload with `PR=3` caused black video with continuing HDMI audio on tested scaler paths. This compatibility behavior is limited to VIC 0; standard 480p and 720p metadata is unchanged.
+The native 240p output uses a non-CEA 1280x240 timing with VIC 0. Production builds define `PICO_HDMI_LEGACY_240P_AVI_INFOFRAME=1`, which emits the hardware-validated conservative AVI payload (`PB1=0x00`, `PB2=0x08`, `PR=0`). The active-format/aspect payload with `PR=3` caused black video with continuing HDMI audio on tested scaler paths. This compatibility behavior is limited to the 240p descriptor. Standard 480p retains its normal metadata, while exact-clock 720p independently uses VIC 0 with an explicit 16:9 aspect.
 
 ## 3. HDMI Audio (Data Islands)
 
@@ -41,14 +74,16 @@ The native 240p output uses a non-CEA 1280x240 timing with VIC 0. Production bui
 
 - **Mode**: TERC4 (4-bit to 10-bit).
 - **Structure**: 36 pixel clocks (2 Guard + 32 Packet + 2 Guard).
-- **Placement**: Sent during the horizontal sync pulse of every scanline.
+- **Placement**: Mode-dependent. The VGA, 240p, and PC descriptors place Data
+  Islands within horizontal sync; 1280x720 uses the back porch.
 
 ### Critical Discoveries
 
 1. **Validity Bit (V)**: MUST be set to **0 (Valid)**. Most TVs mute if $V=1$.
 2. **ACR Packet**: Byte order is **Big Endian**.
    - $N = 6144$
-   - $CTS = 25200$ (for 126MHz sys_clk)
+   - $CTS = 25200$ at a 25.2 MHz pixel clock
+   - $CTS = 64000$ at the exact-clock 64 MHz 720p pixel clock
 3. **Throughput**: Sending packets on active video lines is required to meet the 48kHz rate (~200 packets/frame).
 4. **Header Flag**: The very first symbol of the first header byte correctly omits the Data Island flag (bit 3) for compatibility.
 
@@ -56,9 +91,9 @@ The native 240p output uses a non-CEA 1280x240 timing with VIC 0. Production bui
 
 Audio packets are paced by a per-scanline accumulator in `hstx_di_queue_tick()`. The samples-per-line value is derived from the actual pixel clock and `h_total`, never from an assumed 60 Hz field rate (an early version assumed exactly 60 Hz, which over-delivered ~91 samples/s at 240p's 60.114 Hz and caused periodic dropouts; fixed in pico_hdmi `e2a4022`).
 
-That fix still floor-truncated the value to 16.16 fixed point, delivering slightly fewer samples than the ACR-advertised rate on the same clock: about 0.18 samples/s short at 480p/240p and 0.09 at 720p. Since ACR (N=6144, CTS=pixel_clock/1000, integer-exact for 25.2 and 74.4 MHz) tells the sink to play exactly 48000 Hz, the sink's buffer drains slowly and conceals with a brief mute: a rare, TV-dependent audio drop every tens of minutes.
+That fix still floor-truncated the value to 16.16 fixed point, delivering slightly fewer samples than the ACR-advertised rate on the same clock: about 0.18 samples/s short at 480p/240p and roughly 0.1 at the former 720p timing. Since ACR (N=6144, CTS=pixel_clock/1000, integer-exact for 25.2, 64.0, and 74.4 MHz) tells the sink to play exactly 48000 Hz, the sink's buffer drains slowly and conceals with a brief mute: a rare, TV-dependent audio drop every tens of minutes.
 
-Since pico_hdmi `b6422ee`, `PICO_HDMI_EXACT_AUDIO_PACING` (default **ON**) carries the exact division remainder in a rational (Bresenham) accumulator, so long-term delivery equals the nominal sample rate exactly in every runtime mode, with bounded 1/65536-sample jitter. Rollback: build with `-DPICO_HDMI_EXACT_AUDIO_PACING=OFF`. The legacy non-RT path (`video_output.c`) keeps the truncated setter.
+Since pico_hdmi `b6422ee`, `PICO_HDMI_EXACT_AUDIO_PACING` (default **ON**) carries the exact division remainder in a rational (Bresenham) accumulator, so long-term delivery equals the nominal sample rate exactly, with bounded 1/65536-sample jitter. The runtime and non-RT paths both honor this option. Rollback: build with `-DPICO_HDMI_EXACT_AUDIO_PACING=OFF`.
 
 ### Underrun Diagnostics
 

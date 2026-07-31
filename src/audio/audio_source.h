@@ -17,6 +17,8 @@ typedef enum {
     AUDIO_SOURCE_PCM1802_I2S = 1,
 } audio_source_t;
 
+#define AUDIO_SOURCE_SELECTABLE_DEFAULT AUDIO_SOURCE_MV1C_DIGITAL
+
 static inline bool audio_source_is_valid(uint8_t source)
 {
     return source <= (uint8_t)AUDIO_SOURCE_PCM1802_I2S;

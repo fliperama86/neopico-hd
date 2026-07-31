@@ -21,6 +21,10 @@
 #define LINE_WIDTH CAPTURE_FRAME_WIDTH
 #define LINES_PER_FRAME CAPTURE_ACTIVE_HEIGHT
 
+#ifndef NEOPICO_EXP_RING_FRAME_GUARD
+#define NEOPICO_EXP_RING_FRAME_GUARD 0
+#endif
+
 typedef struct {
     uint16_t lines[LINE_RING_SIZE][LINE_WIDTH]; // ~25KB line buffer
 
@@ -101,8 +105,19 @@ static inline bool line_ring_should_resync(void)
 // Called at output VSYNC (when not resyncing)
 static inline void line_ring_output_vsync(void)
 {
-    // Sync to current input frame
-    g_line_ring.read_frame_start = g_line_ring.frame_base_idx;
+    uint32_t frame_start = g_line_ring.frame_base_idx;
+#if NEOPICO_EXP_RING_FRAME_GUARD
+    __dmb();
+    const uint32_t write_pos = g_line_ring.write_idx;
+
+    // Core 0 publishes the new frame base before it commits line 0. If HDMI
+    // lands in that short window, retain the previous complete frame instead
+    // of selecting an empty frame and emitting fallback-colored lines.
+    if (write_pos == frame_start && frame_start >= LINES_PER_FRAME) {
+        frame_start -= LINES_PER_FRAME;
+    }
+#endif
+    g_line_ring.read_frame_start = frame_start;
     __dmb();
 #if NEOPICO_DIAG_COUNTERS
     g_line_ring_diag.out_frames++;
