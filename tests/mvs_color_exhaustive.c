@@ -50,6 +50,7 @@ static split_rgb565_tables_t g_mame_split_rgb565;
 static split_rgb888_tables_t g_mister_split_rgb888;
 static split_rgb888_tables_t g_mame_split_rgb888;
 static mvs_effect_lut_t g_production_effect_lut;
+static mvs_effect_lut888_t g_production_effect_lut888;
 static unsigned g_check_failures;
 
 #define CHECK(condition, ...)                                                                                          \
@@ -263,6 +264,7 @@ int main(void)
     mame_reference_t mame_reference;
     mame_reference_init(&mame_reference);
     mvs_effect_lut_generate(&g_production_effect_lut);
+    mvs_effect_lut888_generate(&g_production_effect_lut888);
     generate_split_tables(&g_mister_split_rgb565, &g_mister_split_rgb888, mister_model_channel, NULL);
     generate_split_tables(&g_mame_split_rgb565, &g_mame_split_rgb888, mame_model_channel, &mame_reference);
 
@@ -473,6 +475,7 @@ int main(void)
     uint32_t mame_split_rgb888_mismatches = 0;
     uint32_t production_split_rgb565_mismatches = 0;
     uint32_t production_raw_lookup_mismatches = 0;
+    uint32_t production_entropy888_mismatches = 0;
     uint32_t digital_processing_color_mismatches = 0;
     uint32_t digital_processing_raw_mismatches = 0;
     uint32_t digital_processing_shadow_identity_mismatches = 0;
@@ -509,6 +512,14 @@ int main(void)
             mame_split_rgb888_mismatches += (mame_split_rgb888 != reference_pack_rgb888(mame_exact));
             production_split_rgb565_mismatches += (production_split_rgb565 != production_expected_rgb565);
             production_raw_lookup_mismatches += (production_raw_rgb565 != production_expected_rgb565);
+
+            // RGB888 scanout path: the ring carries raw entropy (DARK + raw
+            // RGB555) and SHADOW is supplied per line, so verify that packing
+            // and the two-table lookup together reproduce the exact model.
+            const uint16_t entropy = mvs_entropy_pack_raw(synthesized_raw);
+            const uint32_t entropy888 =
+                mvs_effect_lut888_lookup_entropy(&g_production_effect_lut888, entropy, flags & MVS_FLAG_SHADOW);
+            production_entropy888_mismatches += (entropy888 != reference_pack_rgb888(production_exact));
 #if MVS_DIGITAL_EFFECT_SUPPORTED
             // The register path must reproduce whichever model is compiled in,
             // not MiSTer specifically.
@@ -560,6 +571,8 @@ int main(void)
     CHECK(production_split_rgb565_mismatches == 0U,
           "%s production split RGB565 differs from its direct reference in %" PRIu32 " cases", MVS_EFFECT_MODEL_NAME,
           production_split_rgb565_mismatches);
+    CHECK(production_entropy888_mismatches == 0U,
+          "RGB888 entropy path differs from the exact model in %" PRIu32 " cases", production_entropy888_mismatches);
     CHECK(production_raw_lookup_mismatches == 0U,
           "%s production raw-word lookup differs from its direct reference in %" PRIu32 " cases", MVS_EFFECT_MODEL_NAME,
           production_raw_lookup_mismatches);

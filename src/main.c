@@ -129,12 +129,18 @@ int main(void)
         // The 480p reboot mode runs at 252 MHz for scanline-IRQ headroom
         // (720p reboot mode keeps its own exact-clock path above).
         bool overclock_480p = (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_480P);
-        // v0.11.0's DARK/SHADOW-by-default made Core 0's per-pixel conversion
-        // heavier. At 240p, stock sysclk is only 126 MHz (vs 480p's 252), so
-        // conversion lateness accumulates down the frame (bottom-half
-        // bounce/H-shift on hardware). Give 240p the same 252 MHz treatment
-        // as 480p; PICO_HDMI_240P_HSTX_CLK_DIV=2 (src/CMakeLists.txt) holds
-        // clk_hstx at 126 MHz so the 25.2 MHz pixel clock is unchanged.
+        // 240p always gets the same 252 MHz treatment as 480p now, for two
+        // independent reasons (both need PICO_HDMI_240P_HSTX_CLK_DIV=2,
+        // src/CMakeLists.txt, to hold the pixel clock at 25.2 MHz):
+        // (1) v0.11.0's DARK/SHADOW-by-default made Core 0's per-pixel
+        // conversion heavier -- at stock 126 MHz sysclk, conversion lateness
+        // accumulates down the frame (hardware-confirmed bottom-half
+        // bounce/H-shift). (2) 32-bit RGB888 scanout roughly triples the
+        // per-line conversion cost; measured, the 240p callback needed 5913
+        // of 8000 cycles at 126 MHz (74%) versus 60% for 480p at 252 MHz,
+        // which is what made 240p the mode that failed under RGB888.
+        // Unconditional (not gated on NEOPICO_EXP_RGB888_SCANOUT): the
+        // DARK/SHADOW hotfix alone already requires this in every build.
         overclock_480p = overclock_480p || (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_240P);
         if (overclock_480p) {
             sys_clk_khz = SYS_CLK_480P_KHZ;

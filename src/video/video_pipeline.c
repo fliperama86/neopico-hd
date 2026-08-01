@@ -25,6 +25,56 @@
 #define NEOPICO_VIDEO_TEST_PATTERN 0
 #endif
 
+// FEASIBILITY SPIKE (default OFF, not for shipping): can the Core 1 per-line
+// scanout path afford one 32-bit RGB888 word per output pixel instead of two
+// packed RGB565 pixels per word, at 480p/720p, without HSTX FIFO underruns?
+// Plain bit-replication RGB565->RGB888 only -- no DARK/SHADOW model changes,
+// no line-ring format changes. See lib/pico_hdmi's matching
+// PICO_HDMI_PIXEL_FORMAT_RGB888 option for the HSTX-side half of this.
+#ifndef NEOPICO_EXP_RGB888_SCANOUT
+#define NEOPICO_EXP_RGB888_SCANOUT 0
+#endif
+
+// ---------------------------------------------------------------------------
+// Scanline timing trace (NEOPICO_EXP_SCANLINE_TRACE, default OFF).
+//
+// Records how many CPU cycles each scanline callback takes, into a RAM ring
+// buffer that Core 0 dumps as raw binary on request. Deliberately does NOT
+// format anything on Core 1: snprintf in the Core 1 background task is a
+// documented cause of HSTX FIFO underruns in this firmware, so the expensive
+// half happens on Core 0 and only after the operator has already seen the
+// failure. Cost here is two PPB reads and one halfword store, roughly 0.1% of
+// a 480p line, which is small enough not to be the thing under test -- the
+// known-good 480p mode is the control that confirms that.
+// ---------------------------------------------------------------------------
+#ifndef NEOPICO_EXP_SCANLINE_TRACE
+#define NEOPICO_EXP_SCANLINE_TRACE 0
+#endif
+
+#if NEOPICO_EXP_SCANLINE_TRACE
+// Architectural ARMv8-M debug register addresses, used directly rather than
+// pulling in cmsis_core: adding a link dependency shifts layout, and layout
+// shifts have caused HSTX underruns in this firmware before. Bit positions
+// match the SDK's CMSIS core_cm33.h (TRCENA bit 24, CYCCNTENA bit 0).
+#define TRACE_DWT_CTRL (*(volatile uint32_t *)0xE0001000U)
+#define TRACE_DWT_CYCCNT (*(volatile uint32_t *)0xE0001004U)
+#define TRACE_DEMCR (*(volatile uint32_t *)0xE000EDFCU)
+#define TRACE_DEMCR_TRCENA (1U << 24U)
+#define TRACE_DWT_CYCCNTENA (1U << 0U)
+
+#define SCANLINE_TRACE_ENTRIES 16384U // power of two: 32 KiB, ~34 frames at 480p
+uint16_t g_scanline_trace[SCANLINE_TRACE_ENTRIES];
+volatile uint32_t g_scanline_trace_idx;
+
+// DWT is per-core, so this must run on the core being measured (Core 1).
+static inline void scanline_trace_init(void)
+{
+    TRACE_DEMCR |= TRACE_DEMCR_TRCENA;
+    TRACE_DWT_CYCCNT = 0;
+    TRACE_DWT_CTRL |= TRACE_DWT_CYCCNTENA;
+}
+#endif
+
 // Scanline effect toggle (off by default)
 bool fx_scanlines_enabled = false;
 static bool osd_visible_latched = false;
@@ -79,6 +129,48 @@ static void __scratch_y("") video_pipeline_fill_rgb565(uint32_t *dst, uint32_t w
     }
 }
 
+#if NEOPICO_EXP_RGB888_SCANOUT
+#include "mvs_effect_lut.h"
+
+// Full-precision colour model for the 32-bit scanout path. The ring carries
+// raw entropy, so the DARK half-step survives in red and blue here, which it
+// cannot in an RGB565 ring. SHADOW is per line (screen-wide control), latched
+// once per scanline rather than threaded through every kernel signature.
+static mvs_effect_lut888_t g_effect_lut888;
+static uint32_t g_scanline_shadow;
+
+// Plain bit-replication RGB565 -> RGB888 (NOT the DARK/SHADOW model). Packs
+// as 0x00RRGGBB to match the HSTX RGB888 expand_tmds lane layout (L0=blue
+// ROT=0, L1=green ROT=8, L2=red ROT=16).
+static inline __attribute__((always_inline)) uint32_t video_pipeline_rgb565_to_rgb888(uint16_t c)
+{
+    const uint32_t r5 = (c >> 11) & 0x1FU;
+    const uint32_t g6 = (c >> 5) & 0x3FU;
+    const uint32_t b5 = c & 0x1FU;
+    const uint32_t r8 = (r5 << 3) | (r5 >> 2);
+    const uint32_t g8 = (g6 << 2) | (g6 >> 4);
+    const uint32_t b8 = (b5 << 3) | (b5 >> 2);
+    return (r8 << 16) | (g8 << 8) | b8;
+}
+
+// One 32-bit RGB888 word per output pixel (vs 2 packed RGB565 pixels/word).
+static void __scratch_y("") video_pipeline_fill_rgb888(uint32_t *dst, uint32_t words, uint32_t color888)
+    __attribute__((noinline, noclone));
+
+static void __scratch_y("") video_pipeline_fill_rgb888(uint32_t *dst, uint32_t words, uint32_t color888)
+{
+    for (uint32_t i = 0; i < words; i++) {
+        dst[i] = color888;
+    }
+}
+
+#define VIDEO_PIPELINE_FILL(dst_arg, words_arg, rgb565color_arg)                                                       \
+    video_pipeline_fill_rgb888((dst_arg), (words_arg), video_pipeline_rgb565_to_rgb888((uint16_t)(rgb565color_arg)))
+#else
+#define VIDEO_PIPELINE_FILL(dst_arg, words_arg, rgb565color_arg)                                                       \
+    video_pipeline_fill_rgb565((dst_arg), (words_arg), (rgb565color_arg))
+#endif
+
 // Fake OSD transparency: black background pixels retain 12.5% of the captured
 // game pixel underneath; nonblack OSD pixels remain fully opaque. Process two
 // packed RGB565 pixels at a time so selection remains branch-free per pixel.
@@ -115,6 +207,29 @@ static void __scratch_y("")
     video_pipeline_double_pixels_osd_fake_blend(uint32_t *restrict dst, const uint16_t *restrict game,
                                                 const uint16_t *restrict osd, int count)
 {
+#if NEOPICO_EXP_RGB888_SCANOUT
+    (void)game; // opaque OSD: game pixels are not sampled on this path
+    const uint32_t *osd32 = (const uint32_t *)osd;
+    const int pairs = count >> 1;
+    for (int i = 0; i < pairs; i++) {
+        // Opaque OSD under 32-bit scanout. The translucent blend reads game
+        // pixels, which now carry raw entropy rather than RGB565, so it would
+        // need a LUT lookup per pixel ON TOP of the blend and the OSD colour
+        // conversion. Measured, that path was already ~86% of the 480p line
+        // budget before any of that was added, and the OSD box spans most of
+        // the line. Emitting the OSD pixel directly makes these lines cheaper
+        // than ordinary ones instead of twice the cost. Translucency can come
+        // back if headroom appears.
+        const uint32_t opaque = osd32[i];
+        const uint32_t c0 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque & 0xFFFFU));
+        const uint32_t c1 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque >> 16));
+        dst[0] = c0;
+        dst[1] = c0;
+        dst[2] = c1;
+        dst[3] = c1;
+        dst += 4;
+    }
+#else
     const uint32_t *game32 = (const uint32_t *)game;
     const uint32_t *osd32 = (const uint32_t *)osd;
     const int pairs = count >> 1;
@@ -126,12 +241,37 @@ static void __scratch_y("")
         dst[1] = p1 | (p1 << 16);
         dst += 2;
     }
+#endif
 }
 
 static void __scratch_y("")
     video_pipeline_triple_pixels_osd_fake_blend(uint32_t *restrict dst, const uint16_t *restrict game,
                                                 const uint16_t *restrict osd, int count)
 {
+#if NEOPICO_EXP_RGB888_SCANOUT
+    (void)game; // opaque OSD: game pixels are not sampled on this path
+    const uint32_t *osd32 = (const uint32_t *)osd;
+    const int pairs = count >> 1;
+    for (int i = 0; i < pairs; i++) {
+        // Opaque OSD under 32-bit scanout. The translucent blend reads game
+        // pixels, which now carry raw entropy rather than RGB565, so it would
+        // need a LUT lookup per pixel ON TOP of the blend and the OSD colour
+        // conversion. Measured, that path was already ~86% of the 480p line
+        // budget before any of that was added, and the OSD box spans most of
+        // the line. Emitting the OSD pixel directly makes these lines cheaper
+        // than ordinary ones instead of twice the cost. Translucency can come
+        // back if headroom appears.
+        const uint32_t opaque = osd32[i];
+        const uint32_t c0 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque & 0xFFFFU));
+        const uint32_t c1 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque >> 16));
+        dst[(i * 6) + 0] = c0;
+        dst[(i * 6) + 1] = c0;
+        dst[(i * 6) + 2] = c0;
+        dst[(i * 6) + 3] = c1;
+        dst[(i * 6) + 4] = c1;
+        dst[(i * 6) + 5] = c1;
+    }
+#else
     const uint32_t *game32 = (const uint32_t *)game;
     const uint32_t *osd32 = (const uint32_t *)osd;
     const int pairs = count >> 1;
@@ -143,12 +283,39 @@ static void __scratch_y("")
         dst[(i * 3) + 1] = p0 | (p1 << 16);
         dst[(i * 3) + 2] = p1 | (p1 << 16);
     }
+#endif
 }
 
 static void __scratch_y("")
     video_pipeline_quadruple_pixels_osd_fake_blend(uint32_t *restrict dst, const uint16_t *restrict game,
                                                    const uint16_t *restrict osd, int count)
 {
+#if NEOPICO_EXP_RGB888_SCANOUT
+    (void)game; // opaque OSD: game pixels are not sampled on this path
+    const uint32_t *osd32 = (const uint32_t *)osd;
+    const int pairs = count >> 1;
+    for (int i = 0; i < pairs; i++) {
+        // Opaque OSD under 32-bit scanout. The translucent blend reads game
+        // pixels, which now carry raw entropy rather than RGB565, so it would
+        // need a LUT lookup per pixel ON TOP of the blend and the OSD colour
+        // conversion. Measured, that path was already ~86% of the 480p line
+        // budget before any of that was added, and the OSD box spans most of
+        // the line. Emitting the OSD pixel directly makes these lines cheaper
+        // than ordinary ones instead of twice the cost. Translucency can come
+        // back if headroom appears.
+        const uint32_t opaque = osd32[i];
+        const uint32_t c0 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque & 0xFFFFU));
+        const uint32_t c1 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque >> 16));
+        dst[(i * 8) + 0] = c0;
+        dst[(i * 8) + 1] = c0;
+        dst[(i * 8) + 2] = c0;
+        dst[(i * 8) + 3] = c0;
+        dst[(i * 8) + 4] = c1;
+        dst[(i * 8) + 5] = c1;
+        dst[(i * 8) + 6] = c1;
+        dst[(i * 8) + 7] = c1;
+    }
+#else
     const uint32_t *game32 = (const uint32_t *)game;
     const uint32_t *osd32 = (const uint32_t *)osd;
     const int pairs = count >> 1;
@@ -163,6 +330,7 @@ static void __scratch_y("")
         dst[(i * 4) + 2] = d1;
         dst[(i * 4) + 3] = d1;
     }
+#endif
 }
 
 #if NEOPICO_VIDEO_TEST_PATTERN
@@ -195,6 +363,9 @@ static void video_pipeline_init_test_pattern_line(void)
  */
 void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
 {
+#if NEOPICO_EXP_RGB888_SCANOUT
+    mvs_effect_lut888_generate(&g_effect_lut888);
+#endif
     video_output_init(frame_width, frame_height);
     video_output_set_vsync_callback(video_pipeline_vsync_callback);
     if (video_output_active_mode->h_active_pixels == 1280U && video_output_active_mode->v_active_lines == 720U) {
@@ -329,6 +500,21 @@ bool video_pipeline_take_reboot_240p_boot_request(bool *enabled)
  */
 void __scratch_y("") video_pipeline_double_pixels_fast(uint32_t *restrict dst, const uint16_t *restrict src, int count)
 {
+#if NEOPICO_EXP_RGB888_SCANOUT
+    // One 32-bit RGB888 word per physical output pixel: each source pixel is
+    // doubled into 2 consecutive words (was: doubled into 1 packed word).
+    const uint32_t *src32 = (const uint32_t *)src;
+    int pairs = count >> 1;
+    for (int i = 0; i < pairs; i++) {
+        uint32_t pair = src32[i];
+        uint32_t c0 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, pair & 0xFFFFU, g_scanline_shadow);
+        uint32_t c1 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, pair >> 16U, g_scanline_shadow);
+        dst[(i * 4) + 0] = c0;
+        dst[(i * 4) + 1] = c0;
+        dst[(i * 4) + 2] = c1;
+        dst[(i * 4) + 3] = c1;
+    }
+#else
     const uint32_t *src32 = (const uint32_t *)src;
     uint32_t *d = dst;
     int pairs = count >> 1;
@@ -340,6 +526,7 @@ void __scratch_y("") video_pipeline_double_pixels_fast(uint32_t *restrict dst, c
         d[1] = p1 | (p1 << 16);
         d += 2;
     }
+#endif
 }
 
 /**
@@ -348,6 +535,24 @@ void __scratch_y("") video_pipeline_double_pixels_fast(uint32_t *restrict dst, c
  */
 void __scratch_y("") video_pipeline_triple_pixels_fast(uint32_t *dst, const uint16_t *src, int count)
 {
+#if NEOPICO_EXP_RGB888_SCANOUT
+    // One 32-bit RGB888 word per physical output pixel: each source pixel is
+    // tripled into 3 consecutive words (was: tripled across 3 packed words).
+    const uint32_t *src32 = (const uint32_t *)src;
+    int pairs = count >> 1;
+
+    for (int i = 0; i < pairs; i++) {
+        uint32_t two = src32[i];
+        uint32_t c0 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, two & 0xFFFFU, g_scanline_shadow);
+        uint32_t c1 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, two >> 16U, g_scanline_shadow);
+        dst[(i * 6) + 0] = c0;
+        dst[(i * 6) + 1] = c0;
+        dst[(i * 6) + 2] = c0;
+        dst[(i * 6) + 3] = c1;
+        dst[(i * 6) + 4] = c1;
+        dst[(i * 6) + 5] = c1;
+    }
+#else
     const uint32_t *src32 = (const uint32_t *)src;
     int pairs = count >> 1;
 
@@ -359,6 +564,7 @@ void __scratch_y("") video_pipeline_triple_pixels_fast(uint32_t *dst, const uint
         dst[(i * 3) + 1] = p0 | (p1 << 16);
         dst[(i * 3) + 2] = p1 | (p1 << 16);
     }
+#endif
 }
 
 /**
@@ -367,6 +573,26 @@ void __scratch_y("") video_pipeline_triple_pixels_fast(uint32_t *dst, const uint
  */
 void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const uint16_t *src, int count)
 {
+#if NEOPICO_EXP_RGB888_SCANOUT
+    // One 32-bit RGB888 word per physical output pixel: each source pixel is
+    // quadrupled into 4 consecutive words (was: quadrupled across 4 packed words).
+    const uint32_t *src32 = (const uint32_t *)src;
+    int pairs = count / 2;
+
+    for (int i = 0; i < pairs; i++) {
+        uint32_t two = src32[i];
+        uint32_t c0 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, two & 0xFFFFU, g_scanline_shadow);
+        uint32_t c1 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, two >> 16U, g_scanline_shadow);
+        dst[(i * 8) + 0] = c0;
+        dst[(i * 8) + 1] = c0;
+        dst[(i * 8) + 2] = c0;
+        dst[(i * 8) + 3] = c0;
+        dst[(i * 8) + 4] = c1;
+        dst[(i * 8) + 5] = c1;
+        dst[(i * 8) + 6] = c1;
+        dst[(i * 8) + 7] = c1;
+    }
+#else
     const uint32_t *src32 = (const uint32_t *)src;
     int pairs = count / 2;
 
@@ -381,6 +607,7 @@ void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const u
         dst[(i * 4) + 2] = d1;
         dst[(i * 4) + 3] = d1;
     }
+#endif
 }
 
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
@@ -528,18 +755,61 @@ void VIDEO_PIPELINE_VSYNC_RAM video_pipeline_vsync_callback(void)
     osd_visible_latched = osd_visible;
 }
 
+#if NEOPICO_EXP_SCANLINE_TRACE
+// The implementation has several early returns (e.g. the 3x path skips two of
+// every three lines), so timing is done by a wrapper rather than by threading
+// a record through every exit. Skipped lines then show up as near-zero
+// samples, which is itself diagnostic.
+static void __scratch_x("000_video_pipeline_modes")
+    video_pipeline_scanline_callback_impl(uint32_t v_scanline, uint32_t active_line, uint32_t *dst);
+
 static void __scratch_x("000_video_pipeline_modes")
     video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
 {
+    static bool trace_ready;
+    if (!trace_ready) {
+        // DWT is per-core and Core 1 enters through the library's core1 entry
+        // point, so there is no firmware-side init hook: arm it on first use.
+        scanline_trace_init();
+        trace_ready = true;
+    }
+    const uint32_t t0 = TRACE_DWT_CYCCNT;
+    video_pipeline_scanline_callback_impl(v_scanline, active_line, dst);
+    const uint32_t elapsed = TRACE_DWT_CYCCNT - t0;
+    g_scanline_trace[g_scanline_trace_idx & (SCANLINE_TRACE_ENTRIES - 1U)] =
+        (elapsed > 0xFFFFU) ? 0xFFFFU : (uint16_t)elapsed;
+    g_scanline_trace_idx++;
+}
+
+static void __scratch_x("000_video_pipeline_modes")
+    video_pipeline_scanline_callback_impl(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
+{
+#else
+static void __scratch_x("000_video_pipeline_modes")
+    video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
+{
+#endif
     (void)v_scanline;
 
     const uint32_t active_width = video_output_active_mode->h_active_pixels;
     const uint32_t active_height = video_output_active_mode->v_active_lines;
     const bool mode_is_240p = active_width == 1280U && active_height == 240U;
     const bool mode_is_3x = active_width == 1280U && active_height == 720U;
-    const uint32_t h_words = active_width / 2U;
+    // "words" below means 32-bit output words: 2 packed RGB565 pixels/word
+    // normally, or 1 RGB888 pixel/word under the feasibility spike.
+    const uint32_t h_words =
+#if NEOPICO_EXP_RGB888_SCANOUT
+        active_width;
+#else
+        active_width / 2U;
+#endif
     const uint32_t h_scale = mode_is_3x ? 3U : mode_is_240p ? 4U : 2U;
-    const uint32_t image_words = (LINE_WIDTH * h_scale) / 2U;
+    const uint32_t image_words =
+#if NEOPICO_EXP_RGB888_SCANOUT
+        LINE_WIDTH * h_scale;
+#else
+        (LINE_WIDTH * h_scale) / 2U;
+#endif
     const uint32_t x_margin_words = (h_words > image_words) ? ((h_words - image_words) / 2U) : 0U;
     const pixel_scale_fn_t scale_pixels = mode_is_3x     ? video_pipeline_triple_pixels_fast
                                           : mode_is_240p ? video_pipeline_quadruple_pixels_fast
@@ -554,8 +824,18 @@ static void __scratch_x("000_video_pipeline_modes")
     const uint32_t fb_line = mode_is_3x     ? (image_active_line / 3U)
                              : mode_is_240p ? image_active_line
                                             : (image_active_line >> 1);
-    const uint32_t osd_x_words = x_margin_words + (((uint32_t)OSD_BOX_X * h_scale) / 2U);
-    const uint32_t osd_w_words = (((uint32_t)OSD_BOX_W * h_scale) / 2U);
+    const uint32_t osd_x_words = x_margin_words +
+#if NEOPICO_EXP_RGB888_SCANOUT
+                                 ((uint32_t)OSD_BOX_X * h_scale);
+#else
+                                 (((uint32_t)OSD_BOX_X * h_scale) / 2U);
+#endif
+    const uint32_t osd_w_words =
+#if NEOPICO_EXP_RGB888_SCANOUT
+        (uint32_t)OSD_BOX_W * h_scale;
+#else
+        (((uint32_t)OSD_BOX_W * h_scale) / 2U);
+#endif
 #define VIDEO_PIPELINE_SCALE_SELECTED(dst_arg, src_arg, count_arg) scale_pixels((dst_arg), (src_arg), (count_arg))
 #define VIDEO_PIPELINE_SCALE_OSD_SELECTED(dst_arg, game_arg, osd_arg, count_arg)                                       \
     scale_osd_pixels((dst_arg), (game_arg), (osd_arg), (count_arg))
@@ -570,10 +850,10 @@ static void __scratch_x("000_video_pipeline_modes")
         if ((image_active_line % 3U) != 0U) {
             return;
         }
-        video_pipeline_fill_rgb565(dst, x_margin_words, OVERSCAN_COLOR_RGB565);
+        VIDEO_PIPELINE_FILL(dst, x_margin_words, OVERSCAN_COLOR_RGB565);
         VIDEO_PIPELINE_SCALE_SELECTED(dst + x_margin_words, test_pattern_line, LINE_WIDTH);
-        video_pipeline_fill_rgb565(dst + x_margin_words + image_words, h_words - x_margin_words - image_words,
-                                   OVERSCAN_COLOR_RGB565);
+        VIDEO_PIPELINE_FILL(dst + x_margin_words + image_words, h_words - x_margin_words - image_words,
+                            OVERSCAN_COLOR_RGB565);
         return;
     }
 #endif
@@ -585,7 +865,7 @@ static void __scratch_x("000_video_pipeline_modes")
         const uint32_t mvs_line_u32 = fb_line - V_OFFSET;
         // Single unsigned range check for active 224-line window.
         if (mvs_line_u32 >= MVS_HEIGHT) {
-            video_pipeline_fill_rgb565(dst, h_words, OVERSCAN_COLOR_RGB565);
+            VIDEO_PIPELINE_FILL(dst, h_words, OVERSCAN_COLOR_RGB565);
             return;
         }
 
@@ -593,15 +873,18 @@ static void __scratch_x("000_video_pipeline_modes")
         const uint16_t *src = NULL;
         if (line_ring_ready(mvs_line)) {
             src = line_ring_read_ptr(mvs_line);
+#if NEOPICO_EXP_RGB888_SCANOUT
+            g_scanline_shadow = line_ring_read_shadow(mvs_line);
+#endif
         }
         if (!src) {
-            video_pipeline_fill_rgb565(dst, h_words, NO_SIGNAL_COLOR_RGB565);
+            VIDEO_PIPELINE_FILL(dst, h_words, NO_SIGNAL_COLOR_RGB565);
             return;
         }
-        video_pipeline_fill_rgb565(dst, x_margin_words, OVERSCAN_COLOR_RGB565);
+        VIDEO_PIPELINE_FILL(dst, x_margin_words, OVERSCAN_COLOR_RGB565);
         VIDEO_PIPELINE_SCALE_SELECTED(dst + x_margin_words, src, LINE_WIDTH);
-        video_pipeline_fill_rgb565(dst + x_margin_words + image_words, h_words - x_margin_words - image_words,
-                                   OVERSCAN_COLOR_RGB565);
+        VIDEO_PIPELINE_FILL(dst + x_margin_words + image_words, h_words - x_margin_words - image_words,
+                            OVERSCAN_COLOR_RGB565);
         return;
     }
 
@@ -612,29 +895,32 @@ static void __scratch_x("000_video_pipeline_modes")
         const uint16_t mvs_line = (uint16_t)mvs_line_u32;
         if (line_ring_ready(mvs_line)) {
             src = line_ring_read_ptr(mvs_line);
+#if NEOPICO_EXP_RGB888_SCANOUT
+            g_scanline_shadow = line_ring_read_shadow(mvs_line);
+#endif
         }
     }
 
     const uint16_t *osd_src = osd_framebuffer[osd_line_u32];
     if (!src) {
         // No capture source: render OSD over fallback color without double-writing the OSD span.
-        video_pipeline_fill_rgb565(dst, osd_x_words, NO_SIGNAL_COLOR_RGB565);
+        VIDEO_PIPELINE_FILL(dst, osd_x_words, NO_SIGNAL_COLOR_RGB565);
         VIDEO_PIPELINE_SCALE_SELECTED(dst + osd_x_words, osd_src, OSD_BOX_W);
-        video_pipeline_fill_rgb565(dst + osd_x_words + osd_w_words, h_words - osd_x_words - osd_w_words,
-                                   NO_SIGNAL_COLOR_RGB565);
+        VIDEO_PIPELINE_FILL(dst + osd_x_words + osd_w_words, h_words - osd_x_words - osd_w_words,
+                            NO_SIGNAL_COLOR_RGB565);
         return;
     }
 
     // Before OSD
-    video_pipeline_fill_rgb565(dst, x_margin_words, OVERSCAN_COLOR_RGB565);
+    VIDEO_PIPELINE_FILL(dst, x_margin_words, OVERSCAN_COLOR_RGB565);
     VIDEO_PIPELINE_SCALE_SELECTED(dst + x_margin_words, src, OSD_BOX_X);
     // OSD region: opaque blit by default, or fixed 87.5% black-panel opacity.
     VIDEO_PIPELINE_SCALE_OSD_SELECTED(dst + osd_x_words, src + OSD_BOX_X, osd_src, OSD_BOX_W);
     // After OSD
     VIDEO_PIPELINE_SCALE_SELECTED(dst + osd_x_words + osd_w_words, src + OSD_BOX_X + OSD_BOX_W,
                                   LINE_WIDTH - OSD_BOX_X - OSD_BOX_W);
-    video_pipeline_fill_rgb565(dst + x_margin_words + image_words, h_words - x_margin_words - image_words,
-                               OVERSCAN_COLOR_RGB565);
+    VIDEO_PIPELINE_FILL(dst + x_margin_words + image_words, h_words - x_margin_words - image_words,
+                        OVERSCAN_COLOR_RGB565);
 #undef VIDEO_PIPELINE_SCALE_OSD_SELECTED
 #undef VIDEO_PIPELINE_SCALE_SELECTED
 }

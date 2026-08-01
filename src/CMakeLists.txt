@@ -138,6 +138,29 @@ set_property(CACHE NEOPICO_MVS_EFFECT_MODEL PROPERTY STRINGS MISTER MAME DIGIAV)
 # NEOPICO_AUDIO_MODE is no longer an independent cache option: MVS is always
 # SELECTABLE (OSD audio-source picker) and SNES is always DIGITAL.
 option(NEOPICO_DIAG_AUDIO_OSD "Show HDMI audio underrun (silence splice) counter on the selftest OSD screen" OFF)
+# FEASIBILITY SPIKE (default OFF, not for shipping): can the Core 1 per-line
+# scanout path afford one 32-bit RGB888 word per output pixel (instead of two
+# packed RGB565 pixels per word) at 480p/720p without HSTX FIFO underruns?
+# Plain bit-replication RGB565->RGB888 only; no DARK/SHADOW model changes.
+# Selects the matching pico_hdmi-side PICO_HDMI_PIXEL_FORMAT_RGB888 option.
+option(NEOPICO_EXP_RGB888_SCANOUT
+    "EXPERIMENTAL/UNVALIDATED: 32-bit RGB888 Core 1 scanout feasibility spike" OFF)
+# FEASIBILITY SPIKE (default OFF, not for shipping): pipeline the 720p (3x)
+# active-line scanout in pico_hdmi across two buffers, so the per-line
+# scanline callback -- which measured 85-94% of its single-line budget at
+# 720p RGB888 -- gets a full 3-line-period budget instead of 1. Selects the
+# matching pico_hdmi-side PICO_HDMI_ACTIVE_LINE_DOUBLE_BUFFER option. Only
+# meaningful together with NEOPICO_EXP_RGB888_SCANOUT (720p is the mode this
+# targets); no firmware source changes needed, this only affects the lib.
+option(NEOPICO_EXP_RGB888_DOUBLE_BUFFER
+    "EXPERIMENTAL/UNVALIDATED: pipeline the 720p active-line scanout across two buffers in pico_hdmi (requires NEOPICO_EXP_RGB888_SCANOUT)" OFF)
+# Diagnostic for the unexplained 240p/720p RGB888 instability. Records per
+# scanline callback cycle counts into a RAM ring on Core 1 (two PPB reads and
+# one store, ~0.1% of a 480p line) and dumps them as raw binary from Core 0 on
+# host request. No formatting on Core 1: snprintf there is a documented cause
+# of HSTX FIFO underruns in this firmware.
+option(NEOPICO_EXP_SCANLINE_TRACE
+    "EXPERIMENTAL: record per-scanline callback cycle counts for USB dump" OFF)
 # The line-ring size is a fixed board/tuning constant now (plain #define in
 # src/video/line_ring.h), not a cache option.
 
@@ -235,11 +258,36 @@ else()
     set(GENLOCK_DYNAMIC_VALUE 0)
 endif()
 
+if(NEOPICO_EXP_SCANLINE_TRACE)
+    set(EXP_SCANLINE_TRACE_VALUE 1)
+else()
+    set(EXP_SCANLINE_TRACE_VALUE 0)
+endif()
+
+if(NEOPICO_EXP_RGB888_SCANOUT)
+    set(EXP_RGB888_SCANOUT_VALUE 1)
+else()
+    set(EXP_RGB888_SCANOUT_VALUE 0)
+endif()
+
 # The runtime pico_hdmi path is the only backend now (the compile-time
 # non-RT backend, its fixed 240p/720p modes, and the precomposed-scanout
 # experiment that required it have all been deleted).
 set(PICO_HDMI_RUNTIME_MODES ON CACHE BOOL "" FORCE)
 set(PICO_HDMI_PRECOMPOSED_ACTIVE_LINES OFF CACHE BOOL "" FORCE)
+
+# Feasibility spike: mirror NEOPICO_EXP_RGB888_SCANOUT into the pico_hdmi
+# library's own option so the HSTX expand/DMA reconfiguration in
+# video_output_rt.c matches the firmware-side scanout kernel selection.
+# Default OFF on both sides.
+set(PICO_HDMI_PIXEL_FORMAT_RGB888 ${NEOPICO_EXP_RGB888_SCANOUT} CACHE BOOL "" FORCE)
+
+# Feasibility spike: mirror NEOPICO_EXP_RGB888_DOUBLE_BUFFER into the
+# pico_hdmi library's own option. Independent of PICO_HDMI_PIXEL_FORMAT_RGB888
+# above so the two can be toggled separately (validation needs both
+# combinations); the double-buffer scheme itself only engages for the mode
+# descriptor whose v_active_lines==720, decided at runtime in the library.
+set(PICO_HDMI_ACTIVE_LINE_DOUBLE_BUFFER ${NEOPICO_EXP_RGB888_DOUBLE_BUFFER} CACHE BOOL "" FORCE)
 
 # Add pico_hdmi library (MUST be after add_compile_definitions and option overrides)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../lib/pico_hdmi ${CMAKE_CURRENT_BINARY_DIR}/pico_hdmi)
@@ -260,13 +308,18 @@ target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_LEGACY_240P_AVI_INFOFRAME
 # 25.2 MHz (252/(2*5)) and the 480p signal is byte-identical to the 126 MHz one.
 target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_480P_HSTX_CLK_DIV=2)
 
-# RT 240p also now runs at 252 MHz (see main.c: overclock_480p is OR'd with
-# the 240p reboot mode). v0.11.0's default-on DARK/SHADOW conversion made
+# RT 240p also now runs at 252 MHz unconditionally (see main.c:
+# overclock_480p is OR'd with the 240p reboot mode). Two independent
+# consumers need this: (1) v0.11.0's default-on DARK/SHADOW conversion made
 # Core 0's per-pixel work heavy enough that at the stock 126 MHz 240p sysclk,
 # conversion lateness accumulates down the frame (hardware-confirmed
 # bottom-half bounce/H-shift; v0.10.0 and NEOPICO_ENABLE_DARK_SHADOW=OFF are
-# both clean at 126 MHz). Halve the 240p HSTX clk divider the same way as
-# 480p so the pixel clock stays 25.2 MHz and the signal is unchanged.
+# both clean at 126 MHz); (2) the 32-bit RGB888 scanout path (below) also
+# needs the doubled per-line cycle budget at 240p. Halve the 240p HSTX clk
+# divider the same way as 480p so the pixel clock stays 25.2 MHz and the
+# signal is unchanged. Kept as ONE unconditional definition (not gated on
+# NEOPICO_EXP_RGB888_SCANOUT) since the DARK/SHADOW hotfix alone already
+# requires it in every build.
 target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_240P_HSTX_CLK_DIV=2)
 
 # Elastic-blanking htrim servo (video_output_set_vblank_htrim_px()) is only
@@ -321,6 +374,8 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_MVS_COLOR_MODEL_MENU=${MVS_COLOR_MODEL_MENU_VALUE}
     NEOPICO_AUDIO_MODE=${AUDIO_MODE_VALUE}
     NEOPICO_DIAG_AUDIO_OSD=${DIAG_AUDIO_OSD_VALUE}
+    NEOPICO_EXP_RGB888_SCANOUT=${EXP_RGB888_SCANOUT_VALUE}
+    NEOPICO_EXP_SCANLINE_TRACE=${EXP_SCANLINE_TRACE_VALUE}
 )
 
 pico_enable_stdio_usb(neopico_hd 1)
