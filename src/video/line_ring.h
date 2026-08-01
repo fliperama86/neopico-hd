@@ -8,22 +8,13 @@
 
 #include "capture_profile.h"
 
-// Line buffer configuration
-#ifndef NEOPICO_LINE_RING_SIZE
+// Line buffer configuration. Fixed board/tuning constant, not a build
+// variant (was NEOPICO_LINE_RING_SIZE; see AGENTS.md flag-sunset notes).
 #define NEOPICO_LINE_RING_SIZE 256
-#endif
-
-#if NEOPICO_LINE_RING_SIZE < 256
-#error "NEOPICO_LINE_RING_SIZE must be at least 256"
-#endif
 
 #define LINE_RING_SIZE NEOPICO_LINE_RING_SIZE
 #define LINE_WIDTH CAPTURE_FRAME_WIDTH
 #define LINES_PER_FRAME CAPTURE_ACTIVE_HEIGHT
-
-#ifndef NEOPICO_EXP_RING_FRAME_GUARD
-#define NEOPICO_EXP_RING_FRAME_GUARD 0
-#endif
 
 typedef struct {
     uint16_t lines[LINE_RING_SIZE][LINE_WIDTH]; // ~25KB line buffer
@@ -106,7 +97,6 @@ static inline bool line_ring_should_resync(void)
 static inline void line_ring_output_vsync(void)
 {
     uint32_t frame_start = g_line_ring.frame_base_idx;
-#if NEOPICO_EXP_RING_FRAME_GUARD
     __dmb();
     const uint32_t write_pos = g_line_ring.write_idx;
 
@@ -116,7 +106,6 @@ static inline void line_ring_output_vsync(void)
     if (write_pos == frame_start && frame_start >= LINES_PER_FRAME) {
         frame_start -= LINES_PER_FRAME;
     }
-#endif
     g_line_ring.read_frame_start = frame_start;
     __dmb();
 #if NEOPICO_DIAG_COUNTERS

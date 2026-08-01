@@ -5,15 +5,11 @@
  * The shared HDMI/audio/output pipeline remains NeoPico-HD's runtime path.
  */
 
+#include "pico/stdlib.h"
+
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "hardware/pio.h"
-
-#include "video_capture.h"
-#if NEOPICO_EXP_GENLOCK_DYNAMIC
-#include "hardware/timer.h"
-#endif
-#include "pico/stdlib.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -23,6 +19,7 @@
 #include "pico.h"
 #include "snes_pins.h"
 #include "tusb.h"
+#include "video_capture.h"
 #include "video_capture_snes.pio.h"
 
 #ifndef NEOPICO_SNES_CAPTURE_WARMUP_FRAMES
@@ -48,10 +45,6 @@ static float g_capture_pio_clkdiv = 1.0F;
 static int g_dma_chan = -1;
 static uint32_t g_line_buffers[2][CAPTURE_ACTIVE_WIDTH];
 static volatile uint32_t g_frame_count = 0;
-
-#if NEOPICO_EXP_GENLOCK_DYNAMIC
-volatile uint32_t g_mvs_vsync_timestamp = 0;
-#endif
 
 // =============================================================================
 // Pixel Conversion - RGB555 to RGB565 LUT
@@ -186,10 +179,6 @@ void video_capture_run(void)
             tud_task();
             continue;
         }
-#endif
-
-#if NEOPICO_EXP_GENLOCK_DYNAMIC
-        g_mvs_vsync_timestamp = timer_hw->timerawl;
 #endif
 
         // Reset pixel capture SM for frame alignment.

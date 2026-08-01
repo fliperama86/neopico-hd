@@ -61,14 +61,14 @@ This mechanism effectively "locks" the audio production rate to the HDMI consump
 
 ### Analog Sources (PCM1802 / AES builds)
 
-Builds with `-DNEOPICO_AUDIO_MODE=PCM1802` (AES and non-MV1C boards) capture standard I2S from an external PCM1802 ADC in master mode: 24-bit, exactly 48000 Hz from a 12.288 MHz oscillator (256fs). Two things change relative to the MVS digital tap:
+When the runtime Audio menu selects `PCM1802 I2S` (AES and non-MV1C boards), the firmware captures standard I2S from an external PCM1802 ADC in master mode: 24-bit, exactly 48000 Hz from a 12.288 MHz oscillator (256fs). Two things change relative to the MVS digital tap:
 
 - **Servo window follows the source**: the feedback loop clamps the SRC input rate to `AUDIO_INPUT_RATE_MIN/MAX` (47000-49000) instead of the MVS window (53000-58000). Before commit `52d9375` the MVS clamp applied unconditionally, pinning the SRC at 53000 against a true 48000 Hz input; DROP mode then discarded ~9.4% of samples and the DI queue spliced silence, heard as harsh, fizzy audio on AES installs.
 - **SRC defaults to LINEAR**: DROP can never emit more samples than it receives, so it cannot compensate when the ADC oscillator runs even slightly slower than the Pico's 48 kHz consumption. LINEAR interpolation can gently upsample, letting the servo converge in both directions (SNES builds use LINEAR for the same reason).
 
 ### Runtime Audio Source Selection
 
-MVS builds default to `NEOPICO_AUDIO_MODE=SELECTABLE`, which adds an `Audio` entry to the root OSD menu. The choices are `MV1C Digital` and `PCM1802 I2S`. The selection is saved in flash and applied after an automatic reboot.
+MVS builds always use the selectable audio source, which adds an `Audio` entry to the root OSD menu. The choices are `MV1C Digital` and `PCM1802 I2S`. The selection is saved in flash and applied after an automatic reboot. SNES builds have no PCM1802 tap and are always `MV1C`-style digital.
 
 At boot, the selected source controls all source-dependent behavior as one unit:
 

@@ -20,7 +20,7 @@ The workload is strictly partitioned between the two cores to ensure determinist
 *   **Pixel Processing**:
     *   Detects `SHADOW` and `DARK` bits.
     *   Default build uses a pre-computed 32K LUT for corrected RGB555 -> RGB565 conversion.
-    *   Optional `NEOPICO_MVS_COLOR_MODEL_MENU=ON` generates 64 KiB `Digital` and `Analog` normal-color LUTs at boot. Core 0 selects one base pointer at input VSYNC, while the pixel loop remains one lookup per pixel. Both choices ignore SHADOW/DARK.
+    *   Whenever `NEOPICO_ENABLE_DARK_SHADOW` is off (MVS builds), the live Colors selector generates 64 KiB `Digital` and `Analog` normal-color LUTs at boot. Core 0 selects one base pointer at input VSYNC, while the pixel loop remains one lookup per pixel. Both choices ignore SHADOW/DARK.
     *   Separate `NEOPICO_ENABLE_DARK_SHADOW=ON` uses an 8,448-byte R/G-plus-B split LUT for four effect states. This timing experiment produced bottom-screen pixel jitter and remains default off.
     *   Converts raw MVS data into standard RGB565.
 *   **Frame Management**: Writes to a ping-pong buffer in RAM.

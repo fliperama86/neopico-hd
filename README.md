@@ -8,7 +8,6 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 
 - **Native 240p HDMI output** at 60fps (via 480p line doubling for audio compatibility)
 - **Experimental exact-clock 720p HDMI output** - the normal selector uses a 64.000 MHz, 1440x741 reduced-blanking raster at 59.979 Hz and centers the source at 3x scale
-- **Optional PC monitor modes** - `NEOPICO_RESOLUTION_MENU_PC_MODES=ON` adds native 960x720 and 960x720 centered in a 1024x768 raster without replacing 1280x720
 - **15-bit RGB + SHADOW/DARK capture** - 19-bit capture path includes SHADOW and DARK control lines
 - **Pixel Conversion Modes** - Stable 32K-entry RGB LUT, plus an optional live and persistent `Digital`/`Analog` normal-color selector that remains separate from DARK/SHADOW processing
 - **Translucent OSD Panel** - Enabled by default; game pixels under the black panel retain 12.5% brightness while text and menu colors remain opaque
@@ -22,10 +21,9 @@ Digital video and audio capture with HDMI output for Neo Geo MVS arcade hardware
 | ----------------------- | ------------------------------------------ |
 | 480p HDMI video         | Working                                    |
 | 720p HDMI video         | Experimental (exact-clock runtime selector mode) |
-| PC monitor modes        | Optional, compile-tested, not hardware-validated (`NEOPICO_RESOLUTION_MENU_PC_MODES=ON`) |
 | 60fps capture           | Working                                    |
 | RGB555 Digital path     | Working                                    |
-| Live Colors selector    | Optional and experimental (`NEOPICO_MVS_COLOR_MODEL_MENU=ON`) |
+| Live Colors selector    | Available whenever DARK/SHADOW is off (MVS builds) |
 | SHADOW/DARK capture     | Working                                    |
 | SHADOW/DARK conversion  | Experimental, default off; split-LUT hardware test showed bottom-screen pixel jitter |
 | HDMI audio (48kHz)      | Working                                    |
@@ -92,8 +90,8 @@ To ensure clean audio and video capture, follow these best practices:
 | UP               | GP3  |
 
 The inputs are active low and use weak internal pull-ups so untapped pins stay
-idle. They default to ON for MVS/AES builds and OFF for SNES builds. Override
-either default with `-DNEOPICO_OSD_CONTROLLER_INPUTS=ON` or `OFF`.
+idle. They are always enabled, on both MVS/AES and SNES builds (GP0-3 are
+unused by SNES capture, so this is harmless there too).
 
 ## Prebuilt Firmware
 
@@ -112,7 +110,7 @@ testing.
 
 Matching ELF files and the `neopico-hd-jlcpcb.zip` fabrication package are also
 attached to each release. Controller-driven AES OSD navigation is enabled in
-the MVS release asset; the SNES asset leaves those inputs disabled.
+both release assets (GP0-3 are unused by SNES capture).
 
 ## Building
 
@@ -122,49 +120,22 @@ Requires [Pico SDK](https://github.com/raspberrypi/pico-sdk) with `PICO_SDK_PATH
 # Build and flash
 ./flash
 
-# Experimental fixed 720p non-RT build. Unlike the normal selector's exact
-# 64 MHz reduced-blanking mode, this retains PicoHDMI's 74.4 MHz CTA-style
-# timing for controlled comparisons.
-cmake -S . -B build_720p_nonrt -DNEOPICO_VIDEO_720P=ON -DNEOPICO_USE_NONRT_HDMI=ON
-cmake --build build_720p_nonrt --target neopico_hd -j4
-
-# Experimental protection against selecting a newly published capture frame
-# before line 0 has been committed. Default off for an easy A/B rollback.
-cmake -S . -B build_frame_guard -DNEOPICO_EXP_RING_FRAME_GUARD=ON
-cmake --build build_frame_guard --target neopico_hd -j4
-
-# Optional PC-monitor selector modes. This retains the normal 1280x720 HDTV
-# entry and adds native 960x720 plus bordered 1024x768. Hardware validation is
-# still required before treating either added mode as stable.
-cmake -S . -B build_pc_modes -DNEOPICO_RESOLUTION_MENU_PC_MODES=ON
-cmake --build build_pc_modes --target neopico_hd -j4
-
 # Optional standalone HDMI/OSD self-test firmware
 cmake -S . -B build_selftest -DNEOPICO_BUILD_SELFTEST=ON
 cmake --build build_selftest --target neopico_selftest -j4
 
-# MVS/AES universal build with the persistent Audio menu and AES controller OSD
-cmake -S . -B build_audio_menu \
-  -DNEOPICO_AUDIO_MODE=SELECTABLE
-cmake --build build_audio_menu --target neopico_hd -j4
-
-# Fixed-source AES build without the Audio menu
-cmake -S . -B build_pcm1802 -DNEOPICO_AUDIO_MODE=PCM1802
-cmake --build build_pcm1802 --target neopico_hd -j4
-
-# Live persistent normal-color selector. The OSD values are Digital (stable
-# default) and Analog (experimental). Moving previews live, SELECT reverts, and
-# START confirms without rebooting. Both choices ignore DARK/SHADOW.
-cmake -S . -B build_color_menu \
-  -DNEOPICO_MVS_COLOR_MODEL_MENU=ON \
-  -DNEOPICO_ENABLE_DARK_SHADOW=OFF
-cmake --build build_color_menu --target neopico_hd -j4
+# Standard MVS build. Audio is always SELECTABLE (persistent Audio menu
+# between the digital NEO-YSA2 tap and an external PCM1802 ADC) and the
+# live persistent Colors selector (Digital/Analog normal-color, ignoring
+# DARK/SHADOW) is available automatically since DARK/SHADOW defaults off.
+cmake -S . -B build_mvs
+cmake --build build_mvs --target neopico_hd -j4
 
 # Separate DARK/SHADOW timing experiment. This path produced bottom-screen
-# pixel jitter in hardware testing and must not be combined with the color menu.
+# pixel jitter in hardware testing. Enabling it automatically compiles out
+# the Colors selector (the two features share the same capture LUT machinery).
 cmake -S . -B build_effects \
   -DNEOPICO_ENABLE_DARK_SHADOW=ON \
-  -DNEOPICO_MVS_COLOR_MODEL_MENU=OFF \
   -DNEOPICO_MVS_EFFECT_MODEL=MISTER
 cmake --build build_effects --target neopico_hd -j4
 
@@ -175,7 +146,6 @@ cmake -S . -B build_effects_processing \
   -DNEOPICO_COPY_TO_RAM=ON \
   -DNEOPICO_ENABLE_DARK_SHADOW=ON \
   -DNEOPICO_MVS_DIGITAL_EFFECT_PROCESSING=ON \
-  -DNEOPICO_MVS_COLOR_MODEL_MENU=OFF \
   -DNEOPICO_MVS_EFFECT_MODEL=MISTER
 cmake --build build_effects_processing --target neopico_hd -j4
 ```
@@ -213,7 +183,7 @@ The project leverages the [PicoHDMI](https://github.com/fliperama86/pico_hdmi) l
 - **[Standalone PCM1802 USB Capture](docs/PCM1802_USB_CAPTURE.md)**: Raw ADC diagnostic firmware and host capture tool.
 - **[HSTX & HDMI](docs/HSTX_IMPLEMENTATION.md)**: Output timing, TMDS, and Data Islands.
 - **[OSD](docs/OSD_IMPLEMENTATION.md)**: On-Screen Display rendering.
-- **[Reboot Resolution Switching](docs/REBOOT_RESOLUTION_SWITCHING.md)**: Reboot selector modes, including the optional PC-monitor timings.
+- **[Reboot Resolution Switching](docs/REBOOT_RESOLUTION_SWITCHING.md)**: Reboot selector modes.
 - **[720p Samsung Game Mode Investigation](docs/720P_SAMSUNG_GAME_MODE_INVESTIGATION.md)**: Current findings on Samsung Game Mode 720p glitches.
 - **[Known Issues](docs/KNOWN_ISSUES.md)**: Current limitations and compatibility notes.
 

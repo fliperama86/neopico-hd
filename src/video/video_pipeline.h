@@ -18,12 +18,6 @@ extern bool fx_scanlines_enabled;
  */
 void video_pipeline_init(uint32_t frame_width, uint32_t frame_height);
 
-#if NEOPICO_EXP_PRECOMPOSED_HDMI && NEOPICO_VIDEO_720P
-// Core 1 background hook: keeps the pre-expanded 720p line ring ahead of
-// the beam (bounded work per call).
-void video_pipeline_precomp_background(void);
-#endif
-
 /**
  * Fast 2x pixel doubling without any effect.
  * Processes 32-bits (2 pixels) at a time for efficiency.
@@ -42,26 +36,15 @@ void __scratch_y("") video_pipeline_triple_pixels_fast(uint32_t *dst, const uint
  */
 void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const uint16_t *src, int count);
 
-#if NEOPICO_TRIPLE_ASM
-// Boot equivalence gate for the scale_pixels.S kernels. Runs both the asm and
-// C references over several pixel counts and publishes the verdict.
-extern volatile bool g_scale_asm_selftest_ok;
-void video_pipeline_scale_selftest(void);
-#endif
-
-#if NEOPICO_RESOLUTION_MENU
 typedef enum {
     VIDEO_PIPELINE_REBOOT_MODE_480P = 0,
     VIDEO_PIPELINE_REBOOT_MODE_240P = 1,
     VIDEO_PIPELINE_REBOOT_MODE_720P = 2,
-    VIDEO_PIPELINE_REBOOT_MODE_960X720 = 3,
-    VIDEO_PIPELINE_REBOOT_MODE_1024X768 = 4,
 } video_pipeline_reboot_mode_t;
 
 /**
  * Request a reboot-based output mode switch. The request is consumed during the
- * next boot before HDMI output starts. 720p requires the separate
- * NEOPICO_RESOLUTION_MENU_720P build option.
+ * next boot before HDMI output starts.
  */
 void video_pipeline_request_reboot_mode(video_pipeline_reboot_mode_t mode);
 video_pipeline_reboot_mode_t video_pipeline_reboot_requested_mode(void);
@@ -79,14 +62,6 @@ bool video_pipeline_take_pending_confirmation(video_pipeline_reboot_mode_t *prev
 void video_pipeline_request_reboot_240p(bool enabled);
 bool video_pipeline_reboot_requested_240p(void);
 bool video_pipeline_take_reboot_240p_boot_request(bool *enabled);
-#endif
-
-/**
- * Scanline callback for HDMI output.
- * Called by Core 1 DMA ISR for every active video line.
- * Mode-aware: 480p uses 2x, 240p uses 4x, and HDTV/PC modes use 3x.
- */
-void __scratch_x("") video_pipeline_scanline_callback(uint32_t v_scanline, uint32_t active_line, uint32_t *dst);
 
 /**
  * VSYNC callback - called once per frame to sync input/output buffers.

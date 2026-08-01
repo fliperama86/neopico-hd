@@ -41,8 +41,8 @@ Agents MUST refer to these for implementation details:
 
 - **Sync**: Self-synchronizes to CSYNC falling edge per line.
 - **Priority**: Core 0 should ONLY handle capture and pixel conversion to ensure rock-solid sync.
-- **Conversion**: Uses **interp0** + **256KB LUT** (main RAM) for RGB565 conversion.
-- **Signal Logic**: SHADOW must be applied before expansion; SHADOW forces DARK=1.
+- **Conversion**: Uses a **64 KiB LUT** (32,768 RGB555 entries -> RGB565, main RAM) per color model.
+- **Signal Logic**: DARK and SHADOW are **independent** four-state controls (normal, SHADOW, DARK, DARK+SHADOW), following the MiSTer reference. Expansion order is 5->6 bits, DARK subtract, 6->8 bits, then SHADOW halve. SHADOW does **not** force DARK. The retired cps2_digiav rule ("SHADOW before expansion; SHADOW forces DARK=1") describes a three-state model and no longer applies; see `docs/How SHADOW and DARK Work on Neo Geo.MD`.
 
 ### HSTX Output
 

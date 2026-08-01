@@ -98,9 +98,10 @@ sink compatibility remain under test. The affected Samsung result is recorded
 below.
 
 A separate orange-line diagnostic proved that one top-of-frame artifact was a
-not-ready capture-ring read rather than TMDS corruption. The default-off
-`NEOPICO_EXP_RING_FRAME_GUARD` retained the previous complete frame and passed
-an initial no-logging smoke test. Continuous USB counter logging itself
+not-ready capture-ring read rather than TMDS corruption. The ring guard
+(retaining the previous complete frame instead of an empty one; at the time an
+experimental default-off option, now permanently on) passed an initial
+no-logging smoke test. Continuous USB counter logging itself
 disturbed video, so its event rate is not a clean baseline. A direct-TV test of
 the corrected MVS release profile, with exact-clock 720p and the frame
 guard enabled, also eliminated the magenta transient on the affected Samsung.
@@ -111,7 +112,7 @@ was necessary.
 through a scaler or the TV's standard (non-game) mode.
 
 **Validated fix profile** (2026-07-31): exact-clock 64 MHz runtime 720p plus
-`NEOPICO_EXP_RING_FRAME_GUARD=ON`. The previously affected Samsung now runs
+the ring guard (now permanently on). The previously affected Samsung now runs
 cleanly in the direct low-latency path. Keep both changes together unless a
 controlled A/B later isolates the required component.
 

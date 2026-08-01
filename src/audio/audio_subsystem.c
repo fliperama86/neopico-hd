@@ -2,11 +2,7 @@
 
 #include "pico_hdmi/hstx_data_island_queue.h"
 #include "pico_hdmi/hstx_packet.h"
-#if NEOPICO_USE_NONRT_HDMI
-#include "pico_hdmi/video_output.h"
-#else
 #include "pico_hdmi/video_output_rt.h"
-#endif
 
 #include "pico/time.h"
 
@@ -41,17 +37,9 @@ static int audio_frame_counter = 0;
 static audio_sample_t audio_collect_buffer[AUDIO_COLLECT_SIZE];
 static uint32_t audio_collect_count = 0;
 
-#ifndef NEOPICO_VIDEO_720P
-#define NEOPICO_VIDEO_720P 0
-#endif
-
 static inline bool audio_di_hsync_active(void)
 {
-#if NEOPICO_USE_NONRT_HDMI
-    return DI_HSYNC_ACTIVE;
-#else
     return hstx_di_queue_get_hsync_active();
-#endif
 }
 
 // When true, push silence to HDMI instead of captured samples (CPS2_DIGAV-style: no garbage on power-on/timeout)

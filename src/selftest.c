@@ -5,11 +5,7 @@
  */
 
 #include "pico_hdmi/hstx_data_island_queue.h"
-#if NEOPICO_USE_NONRT_HDMI
-#include "pico_hdmi/video_output.h"
-#else
 #include "pico_hdmi/video_output_rt.h"
-#endif
 
 #include "pico/multicore.h"
 #include "pico/stdlib.h"

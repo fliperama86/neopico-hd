@@ -205,6 +205,15 @@ Firm now: global link-level transient (bars corrupt), the bitstream is provably 
 
 ---
 
+> **2026-07-31 flag-sunset note:** the recipes below reference
+> `NEOPICO_VIDEO_720P`, `NEOPICO_USE_NONRT_HDMI`, `NEOPICO_RESOLUTION_MENU`,
+> `NEOPICO_RESOLUTION_MENU_720P`, `NEOPICO_OSD_RES_CONFIRM`, and
+> `NEOPICO_FIRST_BOOT_REBOOT`, all of which have since been deleted as
+> independent build options (the runtime resolution selector is now the only
+> output-mode path; see `REBOOT_RESOLUTION_SWITCHING.md`). Kept verbatim as
+> the historical record of what was actually run; do not copy-paste these
+> commands into a current checkout.
+
 ## Test build recipes (worktree `nonrt-720p-test`)
 
 ```bash

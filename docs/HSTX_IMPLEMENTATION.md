@@ -16,42 +16,16 @@ Comprehensive record of the RP2350 HSTX implementation and HDMI audio findings.
 - **640x480 Line Length**: Exactly 800 pixel clocks for the VGA timing.
 - **Runtime 1280x720 Pixel Clock**: exactly 64.000 MHz from a 320 MHz
   system/HSTX clock. The 1440x741 reduced-blanking raster runs at 59.979 Hz,
-  uses H+/V- sync, and advertises VIC 0 with an explicit 16:9 aspect.
-- **Fixed non-RT 1280x720 Comparison Mode**: 74.4 MHz from the older 372 MHz
-  HSTX/system clock path, with CTA-style 1650x750 timing.
-- **Optional 960x720 PC Pixel Clock**: 56.0 MHz from a 280 MHz independent HSTX clock.
-- **Optional 1024x768 PC Pixel Clock**: 64.8 MHz from a 324 MHz independent HSTX clock.
+  uses H+/V- sync, and advertises VIC 0 with an explicit 16:9 aspect. This is
+  the only 720p path; the former fixed compile-time 720p mode and its
+  74.4 MHz / 372 MHz non-RT comparison path have been deleted, along with the
+  experimental 960x720/1024x768 PC-monitor modes.
 - **Command Lists**: Uses `HSTX_CMD_RAW_REPEAT` for blanking and `HSTX_CMD_TMDS` for active pixels.
 - **NOPs**: `HSTX_CMD_NOP` separators are used to manage hardware state transitions.
 
-The optional PC modes are enabled with
-`NEOPICO_RESOLUTION_MENU_PC_MODES=ON`. Native 960x720 uses totals 1248x748
-and H-/V+ sync. The bordered 1024x768 mode uses totals 1340x806 and H-/V-
-sync, with the 960x720 image centered inside a black 32/24-pixel active-area
-border. These timings are compile-tested but not hardware-validated.
-
-### PC Mode Clock Tree
-
-The PC modes need more Core 0/Core 1 execution headroom than a system-clock
-derived 280 or 324 MHz HSTX clock would provide. Firmware therefore runs
-PLL_SYS and both cores at 384 MHz while sourcing `clk_hstx` from a repurposed
-PLL_USB:
-
-- Native 960x720: PLL_USB VCO 840 MHz, post-divider 3, `clk_hstx` 280 MHz.
-- Bordered 1024x768: PLL_USB VCO 1296 MHz, post-divider 4, `clk_hstx` 324 MHz.
-- `clk_usb` and `clk_adc`: PLL_SYS / 8, exactly 48 MHz.
-- `clk_peri`: undivided 12 MHz crystal because its RP2350 divider cannot
-  produce 48 MHz from the 384 MHz system clock.
-
-PicoHDMI audio ACR and packet pacing derive the pixel clock from the configured
-`clk_hstx`, not from `clk_sys`, so the independent clock source remains visible
-to HDMI audio calculations.
-
 ### Sync Polarity
 
-- The runtime engine tracks horizontal and vertical polarity separately. This
-  is required by native 960x720, which uses H-/V+ rather than one shared
-  polarity.
+- The runtime engine tracks horizontal and vertical polarity separately.
 - For a negative-polarity signal, the wire bit is low during the active pulse.
 - TMDS control symbols:
   - `0x354u`: $V=0, H=0$

@@ -55,7 +55,11 @@ hw_set_bits(&xosc_hw->ctrl, XOSC_CTRL_ENABLE_VALUE_ENABLE << XOSC_CTRL_ENABLE_LS
 
 ---
 
-## Option 2: Dynamic VTOTAL Modulation (Software)
+## Option 2: Dynamic VTOTAL Modulation (Software, deleted experiment)
+
+This was implemented as `NEOPICO_EXP_GENLOCK_DYNAMIC` and later removed as a
+dead experiment (default off, never reached hardware-validated production
+maturity). The sketch below is kept as the design reference.
 
 The professional scan converter approach. No hardware changes needed. Measures the phase relationship between MVS and HDMI VSYNCs in real-time and modulates `v_total_lines` by ±1 to track.
 
@@ -136,20 +140,21 @@ The codebase already has everything needed:
 
 ---
 
-## Option 3: Static Sysclk Match (Current/Legacy)
+## Option 3: Static Sysclk Match (Deleted Experiment)
 
-`NEOPICO_EXP_GENLOCK_STATIC=ON` + `NEOPICO_GENLOCK_TARGET_FPS_X100=5918`
-
-Adjusts sysclk at boot to approximate MVS frame rate. Simple, mostly works, but:
-- Not phase-locked — will still drift if MVS clock differs from assumed value
+Adjusted sysclk at boot to approximate the MVS frame rate. Simple, mostly worked, but:
+- Not phase-locked — would still drift if the MVS clock differed from the assumed value
 - Non-standard pixel clock requires custom ACR CTS
 - Compile-time only — can't adapt to different boards
 
-### Alternative: VTOTAL Match (Static)
+Removed from the firmware (dead experiment; never combined with the dynamic
+VTOTAL genlock below, which was also removed after being implemented and then
+not pursued further).
 
-`NEOPICO_EXP_VTOTAL_MATCH=ON` + `NEOPICO_EXP_VTOTAL_LINES=532`
+### Alternative: VTOTAL Match (Static, also deleted)
 
-Keeps pixel clock standard but inflates back porch. Same limitations as static sysclk (no feedback).
+Kept pixel clock standard but inflated the back porch. Same limitations as
+static sysclk (no feedback). Also removed.
 
 ---
 
@@ -167,5 +172,5 @@ Keeps pixel clock standard but inflates back porch. Same limitations as static s
 
 ## Recommendation
 
-1. **Now**: Implement dynamic VTOTAL modulation — no hardware changes, superior to static genlock, uses existing infrastructure.
+1. **If revisited**: re-implement dynamic VTOTAL modulation — no hardware changes, superior to static genlock, uses existing infrastructure. (Previously implemented and then removed as an unfinished experiment; see Option 2.)
 2. **Next PCB rev**: Add MVS 12 MHz → XIN option for true hardware genlock.

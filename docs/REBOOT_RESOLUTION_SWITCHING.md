@@ -1,25 +1,15 @@
 # Reboot Resolution Switching
 
-NeoPico-HD uses a reboot-based OSD selector for 240p, 480p, and 720p. It is enabled by default with:
+NeoPico-HD uses a reboot-based OSD selector for 240p, 480p, and 720p. It is
+permanently on: the resolution menu, its 720p entry, flash-backed settings
+persistence, and the post-switch keep/revert confirmation prompt are all
+always compiled in -- this is the only shipped output-mode path.
 
-- `NEOPICO_RESOLUTION_MENU=ON`
-- `NEOPICO_RESOLUTION_MENU_720P=ON`
-- `NEOPICO_SETTINGS_FLASH=ON`
-- `NEOPICO_OSD_RES_CONFIRM=ON`
-
-This reboot behavior is specific to resolution changes. The optional MVS
-`Colors` selector applies its Digital/Analog LUT at input VSYNC and persists it
-without rebooting the firmware.
+This reboot behavior is specific to resolution changes. The MVS `Colors`
+selector (available whenever DARK/SHADOW is off) applies its Digital/Analog
+LUT at input VSYNC and persists it without rebooting the firmware.
 
 No extra CMake flags are required for the standard MVS or SNES build.
-
-Two additional PC-monitor entries can be compiled in with:
-
-- `NEOPICO_RESOLUTION_MENU_PC_MODES=ON`
-
-This option is default-off and requires both base selector options above. It
-adds modes to the selector; it does not replace or modify the existing
-1280x720 HDTV entry.
 
 ## Behavior
 
@@ -46,41 +36,6 @@ declaring a 16:9 picture. It reduced the former HSTX clock from 372 MHz to
 320 MHz and passed initial sink smoke tests, but it is not guaranteed to be
 more compatible than CTA VIC 4 on every TV.
 
-## Optional PC Monitor Modes
-
-The PC-enabled selector contains five entries in this order: 240p, 480p,
-1280x720 HDTV, native 960x720 PC, and 1024x768 PC. Both PC modes apply an exact
-3x scale to the 320x240 source.
-
-| Selector entry | Pixel clock | Horizontal timing (active/front/sync/back/total) | Vertical timing (active/front/sync/back/total) | Sync | Refresh | Active-area layout |
-| -------------- | ----------- | ------------------------------------------------ | ---------------------------------------------- | ---- | ------- | ------------------ |
-| `960x720 PC` | 56.000 MHz | 960/48/96/144/1248 | 720/3/4/21/748 | H-, V+ | 59.989 Hz | 960x720 content, no active black border |
-| `1024x768 PC` | 64.800 MHz | 1024/24/136/156/1340 | 768/3/6/29/806 | H-, V- | 59.998 Hz | 960x720 content centered with 32-pixel left/right and 24-line top/bottom black borders |
-
-Both descriptors use HDMI AVI VIC 0 with a 4:3 active aspect. The native mode
-is based on CVT 960x720 timing at an exact RP2350-achievable pixel clock. The
-bordered mode is close to VESA 1024x768 DMT, with a slightly adjusted pixel
-clock and horizontal total.
-
-For scanline headroom, both modes run the RP2350 system clock at 384 MHz. HSTX
-uses an independent PLL_USB-derived clock: 280 MHz for native 960x720 and
-324 MHz for 1024x768. Before repurposing PLL_USB, the firmware routes USB and
-ADC to an exact 48 MHz derived from PLL_SYS and moves `clk_peri` to the 12 MHz
-crystal.
-
-These modes have passed clean firmware builds and static SRAM/timing-layout
-audits. They have not yet been tested on a physical RP2350B or PC monitor. Keep
-the option off in release firmware until sink lock, image placement, audio,
-mode confirmation/revert, and sustained stability have been verified.
-
-Build the optional selector with:
-
-```bash
-cmake -S . -B build_pc_modes -DNEOPICO_RESOLUTION_MENU_PC_MODES=ON
-cmake --build build_pc_modes --target neopico_hd -j4
-python3 scripts/audit_firmware.py build_pc_modes
-```
-
 ## 240p HDMI Compatibility
 
 All selector modes use the same runtime output engine and unified application scanline callback. The 240p mode still requires mode-specific HDMI metadata because its 1280x240 timing is not a CEA video mode.
@@ -93,7 +48,11 @@ Hold the physical MENU and BACK buttons together for at least 5 seconds. The ges
 
 ## Fixed-Mode Builds
 
-Disable `NEOPICO_RESOLUTION_MENU` and `NEOPICO_OSD_RES_CONFIRM`, then select a fixed output with `NEOPICO_VIDEO_240P` or `NEOPICO_VIDEO_720P`. The non-RT 720p release path also uses `NEOPICO_USE_NONRT_HDMI=ON`.
+The reboot-based resolution selector can no longer be disabled, and the
+alternate output paths it replaced (a fixed compile-time 720p mode and the
+compile-time, non-RT pico_hdmi backend it required) have been deleted
+outright. The runtime pico_hdmi path with the reboot-based selector is the
+only shipped output-mode path.
 
 ## Static Audit Helper
 

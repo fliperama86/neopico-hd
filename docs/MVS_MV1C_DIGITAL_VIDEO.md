@@ -36,7 +36,7 @@ The MVS MV1C generates 15-bit RGB video digitally, clocked at 6 MHz with composi
 
 -   Core 0 publishes a new frame base at input VSYNC, then commits converted lines into the generation-tagged line ring.
 -   Core 1 selects a frame base at output VSYNC. The source and HDMI frame rates are independent, so repeating a complete source frame is normal.
--   `NEOPICO_EXP_RING_FRAME_GUARD=ON` is a default-off mitigation for the narrow interval where the new frame base is visible but line 0 is not committed yet. In that case Core 1 retains the preceding complete 224-line frame instead of selecting the empty frame.
+-   The ring guard covers the narrow interval where the new frame base is visible but line 0 is not committed yet: Core 1 retains the preceding complete 224-line frame instead of selecting the empty frame. This is always on.
 -   A missing or generation-mismatched capture line is rendered as International Orange (`#FF4F00`, RGB565 `0xFA60`). Normal overscan remains black, so the two cases are visually distinguishable.
 -   `NEOPICO_DIAG_COUNTERS=ON` reports not-written, overwritten, and resync counts over USB serial. Continuous USB logging has disturbed video in hardware testing, so diagnostic counts must be treated as intrusive measurements rather than a clean performance baseline.
 
@@ -48,7 +48,7 @@ The Neo Geo uses two special signals, **DARK** and **SHADOW**, to modify pixel b
     -   A 32K-entry LUT (64 KiB) converts corrected RGB555 -> standard RGB565.
     -   All 32,768 source colors retain their RGB555 codes. Green expands from five to six bits by repeating its MSB.
     -   SHADOW/DARK bits are captured but ignored in pixel conversion.
-2.  **Optional Normal-Color Menu** (`NEOPICO_MVS_COLOR_MODEL_MENU=ON`):
+2.  **Normal-Color Menu** (automatic whenever `NEOPICO_ENABLE_DARK_SHADOW=OFF`, MVS builds):
     -   The persistent OSD values are `Digital` and `Analog`; `Digital` is the stable default.
     -   `Digital` generates exactly the same LUT as the stable build.
     -   `Analog` generates normal-pixel levels from the pinned Neo Geo DAC resistor-network model. It can change ordinary colors even when no effect signal is active, and remains experimental rather than a measurement of the target MV1C.

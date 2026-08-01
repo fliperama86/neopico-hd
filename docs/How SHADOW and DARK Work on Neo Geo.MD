@@ -11,7 +11,7 @@ NeoPico-HD captures RGB555 plus the per-pixel SHADOW and DARK signals.
 
 The effect model is still selected at compile time. This split-LUT path produced bottom-screen pixel jitter in hardware testing and remains a separate default-off experiment.
 
-`NEOPICO_MVS_COLOR_MODEL_MENU=ON` is a different feature. Its OSD values, `Digital` and `Analog`, select normal-pixel conversion only. It keeps both normal-color LUTs and previews by switching one active pointer at input VSYNC. SELECT restores the committed model; START/MENU persists the preview without a firmware reboot. Both choices ignore the captured SHADOW/DARK signals, and the build system rejects enabling the menu and effect experiment together.
+The live Colors menu is a different feature, available automatically whenever DARK/SHADOW is off. Its OSD values, `Digital` and `Analog`, select normal-pixel conversion only. It keeps both normal-color LUTs and previews by switching one active pointer at input VSYNC. SELECT restores the committed model; START/MENU persists the preview without a firmware reboot. Both choices ignore the captured SHADOW/DARK signals, and the build system compiles the menu out automatically when DARK/SHADOW is enabled, rather than allowing both at once.
 
 ## Captured Pixel Layout
 

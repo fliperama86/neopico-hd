@@ -26,20 +26,9 @@ As pixels are read from the RGB565 framebuffer to be doubled for 480p output, th
 
 ### 3. Fake-Translucent Background
 
-`NEOPICO_OSD_FAKE_BLEND=ON` enables a compile-time-gated panel effect. It is not a general alpha compositor. OSD background pixels (`OSD_COLOR_BG`, black) retain 12.5% of the captured RGB565 game pixels underneath, producing an effective 87.5% black-panel opacity, while nonblack text and icon pixels remain fully opaque.
+The translucent OSD panel effect is always on. It is not a general alpha compositor. OSD background pixels (`OSD_COLOR_BG`, black) retain 12.5% of the captured RGB565 game pixels underneath, producing an effective 87.5% black-panel opacity, while nonblack text and icon pixels remain fully opaque.
 
 The implementation handles two RGB565 pixels per iteration and selects the dimmed game or opaque OSD value without a data-dependent inner-loop branch. Dedicated 2x, 3x, and 4x blend-and-scale kernels run from scratch Y; the scanline callback selects the appropriate kernel before processing the OSD span. The no-capture fallback remains an opaque OSD over the fallback color.
-
-The effect is enabled by default. Disable it for an opaque panel when
-configuring the firmware:
-
-```sh
-cmake -S . -B build-opaque-osd -DNEOPICO_OSD_FAKE_BLEND=OFF
-```
-
-The option defaults to `ON`, requires `NEOPICO_ENABLE_OSD=ON`, and remains
-incompatible with `NEOPICO_EXP_PRECOMPOSED_HDMI`. Precomposed builds must set
-`NEOPICO_OSD_FAKE_BLEND=OFF` explicitly.
 
 ## Critical Timing Constraints (Core 1)
 
@@ -61,20 +50,22 @@ To maintain a stable signal, future OSD or scaling logic MUST adhere to these ru
 
 - **Font**: Standard 8x8 pixel-art font (consistent with 1990s arcade aesthetic).
 - **Scaling**: OSD pixels are 1:1 with captured Neo Geo pixels (320x240), then doubled by the output hardware to 640x480.
-- **Background treatment**: The default fake-blend path dims game pixels under black OSD background while nonblack OSD pixels remain opaque. Set `NEOPICO_OSD_FAKE_BLEND=OFF` for a fully opaque panel.
+- **Background treatment**: The always-on fake-blend path dims game pixels under black OSD background while nonblack OSD pixels remain opaque.
 
 ## Navigation & Logic
 
 - **State Machine**: The menu is driven by a simple state machine (e.g., `OSD_HIDDEN`, `OSD_MAIN_MENU`, `OSD_SETTINGS`).
 - **Input**: Menu navigation is handled via board buttons or defined controller combos, with all menu state and drawing processed on Core 1.
-- **Controller Mapping**: Controller inputs default to ON for MVS/AES builds and OFF for SNES builds; either can be overridden with `NEOPICO_OSD_CONTROLLER_INPUTS`. The active-low inputs use weak internal pull-ups and map START=GP0, SELECT=GP1, UP=GP3, and DOWN=GP2. UP+SELECT opens the hidden OSD, UP/DOWN moves and wraps the selection, START confirms, and SELECT returns or cancels.
+- **Controller Mapping**: Controller taps are always enabled as an additional OSD input (both capture targets; GP0/1/2/3 are unused by SNES capture). The active-low inputs use weak internal pull-ups and map START=GP0, SELECT=GP1, UP=GP3, and DOWN=GP2. UP+SELECT opens the hidden OSD, UP/DOWN moves and wraps the selection, START confirms, and SELECT returns or cancels.
 - **Physical Buttons**: GP25 MENU and GP26 BACK retain the legacy two-button confirm/cycle behavior.
 
 ### MVS Colors Selector
 
-`NEOPICO_MVS_COLOR_MODEL_MENU=ON` adds a persistent `Colors` leaf to the
-root menu. It is enabled in the MVS release asset and defaults to `OFF` for
-custom builds. It has two values and no `Off` value:
+The persistent `Colors` leaf on the root menu is available whenever the
+capture target is MVS and `NEOPICO_ENABLE_DARK_SHADOW` is off (the two
+features share the same capture LUT machinery and are mutually exclusive; the
+Colors menu compiles out automatically when DARK/SHADOW is on). It has two
+values and no `Off` value:
 
 - `Digital`: `Exact RGB555 mapping`.
 - `Analog`: `Models NEOGEO DAC levels`.

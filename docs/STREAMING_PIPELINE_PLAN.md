@@ -123,5 +123,5 @@ Current implementation:
 
 1. PIO capture preserves 19 bits including SHADOW and DARK.
 2. Default build (`NEOPICO_ENABLE_DARK_SHADOW=OFF`) uses a 32K-entry RGB LUT path and does not apply the captured SHADOW/DARK flags.
-3. `NEOPICO_MVS_COLOR_MODEL_MENU=ON` adds live persistent `Digital` and `Analog` normal-color choices. Two 64 KiB tables are generated at boot, and browsing previews through one frame-stable pointer selected at input VSYNC. SELECT restores the committed model; START/MENU persists the preview. The pixel loop still performs one LUT read and ignores SHADOW/DARK.
-4. Separate `NEOPICO_ENABLE_DARK_SHADOW=ON` uses an 8,448-byte split RGB565 LUT with four independent states. Hardware testing showed bottom-screen pixel jitter, so it remains default off and is rejected when the normal-color menu is enabled.
+3. Whenever DARK/SHADOW is off (MVS builds), the live persistent Colors menu adds `Digital` and `Analog` normal-color choices. Two 64 KiB tables are generated at boot, and browsing previews through one frame-stable pointer selected at input VSYNC. SELECT restores the committed model; START/MENU persists the preview. The pixel loop still performs one LUT read and ignores SHADOW/DARK.
+4. Separate `NEOPICO_ENABLE_DARK_SHADOW=ON` uses an 8,448-byte split RGB565 LUT with four independent states. Hardware testing showed bottom-screen pixel jitter, so it remains default off; enabling it automatically compiles out the Colors menu (the two features share the same capture LUT machinery).

@@ -58,28 +58,29 @@ SECTIONS_TO_SHOW = (
     ".scratch_y",
 )
 
+# NEOPICO_VIDEO_240P, NEOPICO_VIDEO_720P (fixed compile-time modes),
+# NEOPICO_USE_NONRT_HDMI (compile-time pico_hdmi backend), and
+# NEOPICO_EXP_PRECOMPOSED_HDMI (required the non-RT backend) have been
+# deleted outright: the runtime resolution selector is the only output-mode
+# path now, so these are no longer shown. The static/dynamic genlock
+# experiments, the fixed-vtotal frame-rate-match experiment, the M33 asm
+# pixel-scale kernels, and the PC-monitor resolution modes have also been
+# deleted outright (dead experiments; see git history).
 FLAGS_TO_SHOW = (
     "NEOPICO_CAPTURE_TARGET",
     "NEOPICO_AUDIO_MODE",
     "NEOPICO_ENABLE_OSD",
     "NEOPICO_OSD_FAKE_BLEND",
     "NEOPICO_OSD_CONTROLLER_INPUTS",
-    "NEOPICO_VIDEO_240P",
-    "NEOPICO_VIDEO_720P",
-    "NEOPICO_USE_NONRT_HDMI",
     "NEOPICO_COPY_TO_RAM",
     "NEOPICO_VIDEO_DVI_ONLY",
     "NEOPICO_RESOLUTION_MENU",
     "NEOPICO_RESOLUTION_MENU_720P",
-    "NEOPICO_RESOLUTION_MENU_PC_MODES",
     "NEOPICO_FIRST_BOOT_REBOOT",
     "NEOPICO_SETTINGS_FLASH",
     "NEOPICO_MVS_COLOR_MODEL_MENU",
     "NEOPICO_ENABLE_DARK_SHADOW",
     "NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING",
-    "NEOPICO_EXP_PRECOMPOSED_HDMI",
-    "NEOPICO_EXP_GENLOCK_DYNAMIC",
-    "NEOPICO_EXP_RING_FRAME_GUARD",
     "NEOPICO_DIAG_COUNTERS",
     "NEOPICO_DIAG_AUDIO_OSD",
 )
@@ -168,6 +169,24 @@ def build_root_for(elf: Path) -> Path | None:
     return None
 
 
+# These used to be independent NEOPICO_* cache options; they are now
+# permanently on (the only shipped path) and no longer appear in
+# CMakeCache.txt at all, so synthesize them for display/logic below.
+ALWAYS_ON_FLAGS = (
+    "NEOPICO_ENABLE_OSD",
+    "NEOPICO_OSD_FAKE_BLEND",
+    "NEOPICO_OSD_CONTROLLER_INPUTS",
+    "NEOPICO_RESOLUTION_MENU",
+    "NEOPICO_RESOLUTION_MENU_720P",
+    "NEOPICO_FIRST_BOOT_REBOOT",
+    "NEOPICO_SETTINGS_FLASH",
+    # The runtime resolution selector's 720p mode alone already forces every
+    # remaining configuration to be overclocked, so copy-to-RAM execution is
+    # unconditional for the neopico_hd target (see src/CMakeLists.txt).
+    "NEOPICO_COPY_TO_RAM",
+)
+
+
 def parse_flags(elf: Path) -> dict[str, str]:
     root = build_root_for(elf)
     if root is None:
@@ -181,6 +200,18 @@ def parse_flags(elf: Path) -> dict[str, str]:
         key = left.split(":", 1)[0]
         if key.startswith("NEOPICO_") or key.startswith("PICO_HDMI_"):
             flags[key] = value
+
+    for key in ALWAYS_ON_FLAGS:
+        flags[key] = "ON"
+
+    # NEOPICO_MVS_COLOR_MODEL_MENU and NEOPICO_AUDIO_MODE are no longer
+    # independent cache options either: mirror the derivation in
+    # src/CMakeLists.txt from the capture target and DARK/SHADOW.
+    mvs_target = flags.get("NEOPICO_CAPTURE_TARGET", "MVS").upper() == "MVS"
+    dark_shadow_on = flags.get("NEOPICO_ENABLE_DARK_SHADOW") == "ON"
+    flags["NEOPICO_MVS_COLOR_MODEL_MENU"] = "ON" if (mvs_target and not dark_shadow_on) else "OFF"
+    flags["NEOPICO_AUDIO_MODE"] = "SELECTABLE" if mvs_target else "DIGITAL"
+
     return flags
 
 
@@ -426,21 +457,6 @@ def audit_report(
         if not any(re.search(r"\busat(?:\.w)?\b", line) for line in capture_lines):
             findings.append(Finding("FAIL", "Digital effect processing has no USAT in video_capture_run"))
 
-    pc_modes_flag = flags.get("NEOPICO_RESOLUTION_MENU_PC_MODES")
-    if pc_modes_flag == "ON":
-        if flags.get("NEOPICO_RESOLUTION_MENU") != "ON":
-            findings.append(Finding("FAIL", "PC monitor modes do not enable the resolution menu"))
-        if flags.get("NEOPICO_RESOLUTION_MENU_720P") != "ON":
-            findings.append(Finding("FAIL", "PC monitor modes do not retain the 1280x720 menu mode"))
-        for name in (
-            "video_mode_960x720_p",
-            "video_mode_1024x768_p",
-            "video_output_set_hstx_source",
-            "video_pipeline_reboot_mode_available",
-        ):
-            if name not in symbols:
-                findings.append(Finding("FAIL", f"PC monitor mode symbol missing: {name}"))
-
     return Report(elf=elf, sections=sections, symbols=symbols, disasm=disasm, flags=flags, findings=findings)
 
 
@@ -543,15 +559,17 @@ def main(argv: list[str]) -> int:
         ):
             if symbol not in critical_list:
                 critical_list.append(symbol)
-    if flags.get("NEOPICO_EXP_PRECOMPOSED_HDMI") != "ON":
-        scanline_symbol = (
-            "video_pipeline_scanline_callback_reboot_modes"
-            if flags.get("NEOPICO_RESOLUTION_MENU") == "ON"
-            and flags.get("NEOPICO_RESOLUTION_MENU_720P") == "ON"
-            else "video_pipeline_scanline_callback"
-        )
-        if scanline_symbol not in critical_list:
-            critical_list.append(scanline_symbol)
+    # The precomposed-scanout experiment (which used a scanline pointer
+    # callback instead) required the deleted non-RT backend and has been
+    # deleted too, so the unified scanline callback is always the expected
+    # symbol whenever the always-on resolution selector's 720p mode is ON.
+    scanline_symbol = (
+        "video_pipeline_scanline_callback_reboot_modes"
+        if flags.get("NEOPICO_RESOLUTION_MENU") == "ON" and flags.get("NEOPICO_RESOLUTION_MENU_720P") == "ON"
+        else "video_pipeline_scanline_callback"
+    )
+    if scanline_symbol not in critical_list:
+        critical_list.append(scanline_symbol)
     critical = tuple(critical_list)
     background = parse_symbol_arg(args.background, DEFAULT_BACKGROUND_SYMBOLS)
 
