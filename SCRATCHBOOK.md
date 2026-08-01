@@ -2108,3 +2108,8 @@ Working implication for this board:
 - Tearing: implementable cheaply (per-scanline frame-base latch in line_ring.h instead of per-vsync latch) and keeps a fully standard 60.000 Hz output, but converts the once-per-1.2 s hiccup into a permanent shear line crawling vertically at the 0.81 Hz beat rate with one frame of scroll displacement at the seam - worse for scrolling, the very complaint. No commercial scaler ships a tear mode (RT4K: triple-buffer or genlock; OSSC: genlock-only). Skip unless wanted as an A/B curiosity.
 - Standing plan: hardware-soak build-genlock (a098532) first; escalate to a FreeSync/VTEM experiment flag only if a direct-TV sink rejects fixed 59.19 Hz.
 - 2026-08-01 workflow constraint: user paused further implementation after the VRR/tearing assessment - discussion first, no new code until direction is agreed. Genlock (a098532) stays unflashed/unsoaked in the branch meanwhile.
+
+## 2026-08-01 - Committed: main hotfix + genlock branch rebased; OSD toggle in progress
+- MAIN: pico_hdmi 6fc1da3 (PICO_HDMI_240P_HSTX_CLK_DIV) + app 8357078 (240p @ 252 MHz, v0.11.0 DARK/SHADOW regression fix). Hotfixed main default build f5c8344c = byte-identical to the genlock worktree's flag-off gate (cross-check passed). v0.11.1 tag NOT created yet (CI toolchain pin still open).
+- PR #9 branch: rebased onto hotfixed main, genlock work committed (app 44240de, pico_hdmi 337cabc on lib main, flag-gated), force-pushed. Genlock build 91e51410 = the hardware-validated UF2 currently flashed.
+- In progress (Sonnet): runtime genlock OSD toggle: persisted setting, default OFF, reboot-applied like the resolution selector; lib gets separate video_mode_240_p_genlock struct instead of #if field swaps.
