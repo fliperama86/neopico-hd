@@ -431,19 +431,72 @@ void VIDEO_PIPELINE_REBOOT_REQUEST_RAM(video_pipeline_request_reboot_mode_pendin
 bool video_pipeline_take_pending_confirmation(video_pipeline_reboot_mode_t *previous_mode)
 {
     const uint32_t packed = watchdog_hw->scratch[3];
+#if !NEOPICO_EXP_GENLOCK_DYNAMIC
+    // Non-genlock builds: unchanged from before this feature existed (clear
+    // unconditionally, byte-for-byte -- there is no other pending-kind that
+    // could share this register, so nothing to preserve on a mismatch).
     watchdog_hw->scratch[3] = 0;
-
+#endif
     const uint32_t mode = (packed >> 4) & 0xFU;
     const uint32_t check = packed & 0xFU;
     if (((packed & 0xFFFFFF00U) != REBOOT_PENDING_MAGIC) || !video_pipeline_reboot_mode_available((uint8_t)mode) ||
         (check != ((mode ^ 0xAU) & 0xFU))) {
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+        // Do NOT clear scratch[3] here: on a mismatch this may belong to a
+        // different pending-confirmation kind (see the genlock pending
+        // marker below) still waiting to be read this boot.
+#endif
         return false;
     }
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+    watchdog_hw->scratch[3] = 0;
+#endif
     if (previous_mode) {
         *previous_mode = (video_pipeline_reboot_mode_t)mode;
     }
     return true;
 }
+
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+// Genlock-change safety net, mirroring the resolution-change one above but
+// for a single on/off bit instead of a 3-way mode. Reuses the same watchdog
+// scratch[3] register (the two kinds are never in flight at once: only one
+// user action triggers one pending reboot at a time) tagged with a distinct
+// magic, so no bit-packing/check-nibble is needed for a single boolean.
+#define GENLOCK_PENDING_MAGIC_OFF 0x4e504730U // "NPG0": revert-to-OFF pending
+#define GENLOCK_PENDING_MAGIC_ON 0x4e504731U  // "NPG1": revert-to-ON pending
+
+// Reboot into the CURRENT resolution (unchanged) with the NEW genlock
+// setting active, flagged PENDING confirmation, carrying `previous_enabled`
+// (the revert-to value) across the reboot. Does NOT persist to flash.
+void VIDEO_PIPELINE_REBOOT_REQUEST_RAM(video_pipeline_request_reboot_genlock_pending)(bool new_enabled,
+                                                                                      bool previous_enabled)
+{
+    watchdog_hw->scratch[0] = REBOOT_MODE_BOOT_MAGIC;
+    watchdog_hw->scratch[1] = (uint32_t)reboot_requested_mode;
+    watchdog_hw->scratch[2] = reboot_mode_boot_check((uint32_t)reboot_requested_mode);
+    watchdog_hw->scratch[3] = previous_enabled ? GENLOCK_PENDING_MAGIC_ON : GENLOCK_PENDING_MAGIC_OFF;
+    (void)new_enabled; // applied on the next boot by reading the persisted setting, like resolution
+    __dmb();
+    watchdog_reboot(0, 0, 10);
+    while (true) {
+        tight_loop_contents();
+    }
+}
+
+bool video_pipeline_take_genlock_pending_confirmation(bool *previous_enabled)
+{
+    const uint32_t packed = watchdog_hw->scratch[3];
+    if (packed != GENLOCK_PENDING_MAGIC_OFF && packed != GENLOCK_PENDING_MAGIC_ON) {
+        return false; // may belong to a pending resolution confirmation instead
+    }
+    watchdog_hw->scratch[3] = 0;
+    if (previous_enabled) {
+        *previous_enabled = (packed == GENLOCK_PENDING_MAGIC_ON);
+    }
+    return true;
+}
+#endif
 
 video_pipeline_reboot_mode_t video_pipeline_reboot_requested_mode(void)
 {
@@ -493,6 +546,26 @@ bool video_pipeline_take_reboot_240p_boot_request(bool *enabled)
     }
     return true;
 }
+
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+// Genlock on/off is a flash-persisted setting (default off), applied at boot
+// like resolution -- NOT live-toggled: at 240p the genlock raster differs in
+// h_total (video_mode_240_p_genlock vs video_mode_240_p), which is baked
+// into command lists at mode apply, so a live toggle would need mid-stream
+// rebuilds. main() latches the boot-time setting here, once, before Core 1
+// launch, so the vsync callback's gate is a single load.
+static bool g_genlock_enabled;
+
+void video_pipeline_set_genlock_enabled(bool enabled)
+{
+    g_genlock_enabled = enabled;
+}
+
+bool video_pipeline_genlock_enabled(void)
+{
+    return g_genlock_enabled;
+}
+#endif
 
 /**
  * Fast 2x pixel doubling: reads 2 pixels, writes 2 doubled words.
@@ -750,7 +823,13 @@ void VIDEO_PIPELINE_VSYNC_RAM video_pipeline_vsync_callback(void)
 {
     line_ring_output_vsync();
 #if NEOPICO_EXP_GENLOCK_DYNAMIC && !defined(NEOPICO_DIAG_GENLOCK_SERVO_OFF)
-    genlock_dynamic_update();
+    // Default OFF (opt-in via OSD): g_genlock_enabled is latched once at
+    // boot (see video_pipeline_set_genlock_enabled()), so this is one load.
+    // When off, rt_v_total_lines/htrim are never written and every mode
+    // stays at its nominal (standard) rate.
+    if (g_genlock_enabled) {
+        genlock_dynamic_update();
+    }
 #endif
     osd_visible_latched = osd_visible;
 }

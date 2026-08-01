@@ -169,6 +169,82 @@ static void color_model_selector_render_full(void)
 }
 #endif
 
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+// Genlock on/off toggle: same 2-option selector pattern as Colors/Audio
+// above. A separate "Genlock Info" root entry keeps the existing telemetry
+// screen reachable (see genlock_screen_draw() further down) -- settings and
+// diagnostics are already modeled as separate root entries elsewhere
+// (Colors vs. Self Test), so this toggle and the telemetry screen coexist
+// the same way.
+#define GENLOCK_SELECTOR_TITLE_ROW 1
+#define GENLOCK_SELECTOR_FIRST_OPTION_ROW 6
+#define GENLOCK_SELECTOR_DESCRIPTION_ROW 11
+
+static bool s_selected_genlock_enabled;
+static bool s_committed_genlock_enabled;
+
+static const char *genlock_toggle_label(bool enabled)
+{
+    return enabled ? "On" : "Off";
+}
+
+static const char *genlock_toggle_description(bool enabled)
+{
+    return enabled ? "~59.18 Hz; may reject" : "Standard rate (default)";
+}
+
+static bool genlock_toggle_next(bool enabled)
+{
+    return !enabled;
+}
+
+static uint8_t genlock_selector_option_row(bool enabled)
+{
+    return enabled ? GENLOCK_SELECTOR_FIRST_OPTION_ROW + 2 : GENLOCK_SELECTOR_FIRST_OPTION_ROW;
+}
+
+static void genlock_selector_render_option(bool enabled)
+{
+    const bool selected = s_selected_genlock_enabled == enabled;
+    const bool committed = s_committed_genlock_enabled == enabled;
+    const uint16_t color = selected ? OSD_COLOR_YELLOW : committed ? OSD_COLOR_GREEN : OSD_COLOR_FG;
+    const uint8_t row = genlock_selector_option_row(enabled);
+    const char *label = genlock_toggle_label(enabled);
+    fast_osd_putc_color(row, 3, selected ? '>' : ' ', color);
+    fast_osd_puts_color(row, 5, label, color);
+    if (committed) {
+        fast_osd_putc_color(row, (uint8_t)(5 + strlen(label)), '*', color);
+    }
+}
+
+static void genlock_selector_render_description(void)
+{
+    fast_osd_puts_color(GENLOCK_SELECTOR_DESCRIPTION_ROW, 2, "                          ", OSD_COLOR_GRAY);
+    fast_osd_puts_color(GENLOCK_SELECTOR_DESCRIPTION_ROW, 2, genlock_toggle_description(s_selected_genlock_enabled),
+                        OSD_COLOR_GRAY);
+}
+
+static void genlock_selector_update_selection(bool previous_enabled)
+{
+    if (previous_enabled == s_selected_genlock_enabled) {
+        return;
+    }
+    genlock_selector_render_option(previous_enabled);
+    genlock_selector_render_option(s_selected_genlock_enabled);
+    genlock_selector_render_description();
+}
+
+static void genlock_selector_render_full(void)
+{
+    fast_osd_clear();
+    fast_osd_puts_color(GENLOCK_SELECTOR_TITLE_ROW, 2, "NeoPico-HD Genlock", OSD_COLOR_YELLOW);
+    fast_osd_puts_color(GENLOCK_SELECTOR_FIRST_OPTION_ROW - 2, 2, "Genlock", OSD_COLOR_FG);
+    genlock_selector_render_option(false);
+    genlock_selector_render_option(true);
+    genlock_selector_render_description();
+}
+#endif
+
 // Root menu hosts both leaf screens, so the selector UI no longer excludes
 // the selftest layout.
 #define RES_SELECTOR_TITLE_ROW 1
@@ -456,7 +532,9 @@ typedef enum {
     MENU_SCREEN_SELFTEST,
     MENU_SCREEN_RES_CONFIRM,
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
-    MENU_SCREEN_GENLOCK,
+    MENU_SCREEN_GENLOCK,         // on/off toggle (setting)
+    MENU_SCREEN_GENLOCK_CONFIRM, // keep/revert countdown for the toggle
+    MENU_SCREEN_GENLOCK_INFO,    // telemetry (diagnostic, like Self Test)
 #endif
 } menu_screen_t;
 
@@ -481,6 +559,18 @@ static video_pipeline_reboot_mode_t s_res_confirm_prev;
 static uint32_t s_res_confirm_deadline_ms;
 static int32_t s_res_confirm_last_secs = -1;
 
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+// Genlock-change safety net, mirroring the resolution one above for a single
+// on/off bit. See menu_diag_experiment_arm_genlock_confirm().
+#define GENLOCK_CONFIRM_TIMEOUT_MS 10000U
+#define GENLOCK_CONFIRM_HINT_ROW 13
+static bool s_genlock_confirm_armed = false;
+static bool s_genlock_confirm_new;
+static bool s_genlock_confirm_prev;
+static uint32_t s_genlock_confirm_deadline_ms;
+static int32_t s_genlock_confirm_last_secs = -1;
+#endif
+
 static const char *const s_root_entry_labels[] = {
     "Resolution",
 #if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
@@ -491,7 +581,7 @@ static const char *const s_root_entry_labels[] = {
 #endif
     "Self Test",
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
-    "Genlock",
+    "Genlock",    "Genlock Info",
 #endif
 };
 #define ROOT_ENTRY_COUNT (sizeof(s_root_entry_labels) / sizeof(s_root_entry_labels[0]))
@@ -520,6 +610,9 @@ static menu_screen_t root_entry_screen(uint8_t idx)
     if (idx == i++) {
         return MENU_SCREEN_GENLOCK;
     }
+    if (idx == i++) {
+        return MENU_SCREEN_GENLOCK_INFO;
+    }
 #endif
     return MENU_SCREEN_ROOT;
 }
@@ -547,7 +640,7 @@ static void genlock_screen_update_values(void)
     snprintf(buf, sizeof buf, "%6lu s", (unsigned long)(to_ms_since_boot(get_absolute_time()) / 1000U));
     fast_osd_puts_color(12, 11, buf, OSD_COLOR_YELLOW);
     {
-        void video_output_perf_probe_read(uint32_t * fifo_min, uint32_t * irq_gap_max_us);
+        void video_output_perf_probe_read(uint32_t *fifo_min, uint32_t *irq_gap_max_us);
         uint32_t fifo_min, gap_max;
         video_output_perf_probe_read(&fifo_min, &gap_max);
         extern volatile uint32_t hstx_di_queue_silence_count;
@@ -561,7 +654,7 @@ static void genlock_screen_update_values(void)
 static void genlock_screen_draw(void)
 {
     fast_osd_clear();
-    fast_osd_puts_color(1, 2, "Genlock", OSD_COLOR_YELLOW);
+    fast_osd_puts_color(1, 2, "Genlock Info", OSD_COLOR_YELLOW);
     fast_osd_puts_color(4, 2, "PHASE", OSD_COLOR_GRAY);
     fast_osd_puts_color(6, 2, "TRIM", OSD_COLOR_GRAY);
     fast_osd_puts_color(8, 2, "SLOTS", OSD_COLOR_GRAY);
@@ -634,9 +727,15 @@ static void root_menu_enter_leaf(void)
             break;
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
         case MENU_SCREEN_GENLOCK:
+            s_committed_genlock_enabled = video_pipeline_genlock_enabled();
+            s_selected_genlock_enabled = s_committed_genlock_enabled;
+            genlock_selector_render_full();
+            s_screen = MENU_SCREEN_GENLOCK;
+            break;
+        case MENU_SCREEN_GENLOCK_INFO:
             genlock_screen_draw();
             s_genlock_update_frame = video_frame_count;
-            s_screen = MENU_SCREEN_GENLOCK;
+            s_screen = MENU_SCREEN_GENLOCK_INFO;
             break;
 #endif
         default:
@@ -700,6 +799,66 @@ void menu_diag_experiment_arm_res_confirm(video_pipeline_reboot_mode_t new_mode,
     s_res_confirm_new = new_mode;
     s_res_confirm_prev = previous_mode;
 }
+
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+// Genlock-change confirmation screen: mirrors res_confirm_* above for a
+// single on/off bit instead of a 3-way mode.
+static void genlock_confirm_render_static(void)
+{
+    fast_osd_clear();
+    fast_osd_puts_color(1, 2, "Keep this Genlock setting?", OSD_COLOR_YELLOW);
+    fast_osd_puts_color(4, 4, genlock_toggle_label(s_genlock_confirm_new), OSD_COLOR_GREEN);
+    fast_osd_puts_color(7, 2, "Reverting in   s", OSD_COLOR_FG);
+    fast_osd_puts_color(GENLOCK_CONFIRM_HINT_ROW, 2, "MENU keep   BACK revert", OSD_COLOR_GRAY);
+}
+
+static void genlock_confirm_render_secs(int32_t secs)
+{
+    const uint8_t col = 2 + 13; // after "Reverting in "
+    fast_osd_putc_color(7, col, (secs >= 10) ? (char)('0' + (secs / 10)) : ' ', OSD_COLOR_FG);
+    fast_osd_putc_color(7, (uint8_t)(col + 1), (char)('0' + (secs % 10)), OSD_COLOR_FG);
+}
+
+static void genlock_confirm_enter(uint32_t now_ms)
+{
+    s_screen = MENU_SCREEN_GENLOCK_CONFIRM;
+    s_genlock_confirm_deadline_ms = now_ms + GENLOCK_CONFIRM_TIMEOUT_MS;
+    s_genlock_confirm_last_secs = -1;
+    genlock_confirm_render_static();
+    osd_show();
+}
+
+static void genlock_confirm_keep(void)
+{
+    // The new setting was already persisted optimistically at select-time
+    // (at the reboot point, where the flash stall is masked). Keeping just
+    // dismisses the prompt -- NO live flash write, so the HDMI link is never
+    // stalled.
+    s_genlock_confirm_armed = false;
+    osd_hide();
+    s_screen = MENU_SCREEN_HIDDEN;
+}
+
+static void genlock_confirm_revert(void)
+{
+    // Roll back the optimistic save to the previous (confirmed) value, then
+    // reboot into the current resolution with it. The flash write happens at
+    // the reboot point (masked).
+    neopico_settings_t persisted;
+    settings_load(&persisted);
+    persisted.genlock_enabled = s_genlock_confirm_prev ? 1U : 0U;
+    settings_save(&persisted);
+    video_pipeline_request_reboot_mode(video_pipeline_reboot_requested_mode());
+}
+
+// Called by main at boot when this boot is a PENDING genlock confirmation.
+void menu_diag_experiment_arm_genlock_confirm(bool new_enabled, bool previous_enabled)
+{
+    s_genlock_confirm_armed = true;
+    s_genlock_confirm_new = new_enabled;
+    s_genlock_confirm_prev = previous_enabled;
+}
+#endif
 
 static void root_menu_buttons_tick(void)
 {
@@ -894,6 +1053,57 @@ static void root_menu_buttons_tick(void)
 
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
         case MENU_SCREEN_GENLOCK:
+            if (controller_select_edge) {
+                root_menu_enter_root(now_ms);
+            } else if ((up_edge != down_edge) || back_edge) {
+                const bool previous_enabled = s_selected_genlock_enabled;
+                s_selected_genlock_enabled = genlock_toggle_next(s_selected_genlock_enabled);
+                genlock_selector_update_selection(previous_enabled);
+            } else if (menu_edge) {
+                if (s_selected_genlock_enabled == s_committed_genlock_enabled) {
+                    root_menu_enter_root(now_ms);
+                } else {
+                    osd_hide();
+                    s_screen = MENU_SCREEN_HIDDEN;
+                    // Optimistically persist the new setting now (at the
+                    // reboot point, where the flash stall is masked).
+                    // Confirm just dismisses; revert/timeout rolls flash
+                    // back to the previous value. Mirrors the resolution
+                    // selector's optimistic-save pattern.
+                    {
+                        neopico_settings_t persisted;
+                        settings_load(&persisted);
+                        persisted.resolution = (uint8_t)video_pipeline_reboot_requested_mode();
+                        persisted.genlock_enabled = s_selected_genlock_enabled ? 1U : 0U;
+                        settings_save(&persisted);
+                    }
+                    // Reboot into the current resolution PENDING confirmation,
+                    // carrying the previous (revert-to) value across reboot.
+                    video_pipeline_request_reboot_genlock_pending(s_selected_genlock_enabled,
+                                                                  s_committed_genlock_enabled);
+                }
+            }
+            break;
+
+        case MENU_SCREEN_GENLOCK_CONFIRM: {
+            if (menu_edge) {
+                genlock_confirm_keep();
+            } else if (controller_select_edge || back_edge || (int32_t)(now_ms - s_genlock_confirm_deadline_ms) >= 0) {
+                genlock_confirm_revert(); // reboots; does not return
+            } else {
+                int32_t secs = (int32_t)((s_genlock_confirm_deadline_ms - now_ms + 999U) / 1000U);
+                if (secs > 99) {
+                    secs = 99;
+                }
+                if (secs != s_genlock_confirm_last_secs) {
+                    s_genlock_confirm_last_secs = secs;
+                    genlock_confirm_render_secs(secs);
+                }
+            }
+            break;
+        }
+
+        case MENU_SCREEN_GENLOCK_INFO:
             if (controller_select_edge || menu_edge) {
                 root_menu_enter_root(now_ms);
             }
@@ -935,6 +1145,16 @@ void menu_diag_experiment_init(void)
         res_confirm_enter(to_ms_since_boot(get_absolute_time()));
         return;
     }
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+    // This boot is awaiting genlock confirmation: open its countdown prompt.
+    // Mutually exclusive with s_res_confirm_armed above (both are decoded
+    // from the same watchdog scratch[3] register; only one kind of pending
+    // reboot can be in flight at a time).
+    if (s_genlock_confirm_armed) {
+        genlock_confirm_enter(to_ms_since_boot(get_absolute_time()));
+        return;
+    }
+#endif
 }
 
 void menu_diag_experiment_on_menu_open(void)
@@ -1082,7 +1302,7 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
     }
 
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
-    if (osd_visible && s_screen == MENU_SCREEN_GENLOCK && (video_frame_count - s_genlock_update_frame) >= 60U) {
+    if (osd_visible && s_screen == MENU_SCREEN_GENLOCK_INFO && (video_frame_count - s_genlock_update_frame) >= 60U) {
         s_genlock_update_frame = video_frame_count;
         genlock_screen_update_values();
     }

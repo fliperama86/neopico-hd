@@ -19,7 +19,14 @@ typedef struct {
     uint8_t audio_source_valid; // NEOPICO_SETTINGS_AUDIO_SOURCE_VALID after explicit selection
     uint8_t color_model;        // mvs_color_model_t; used only when the marker below is valid
     uint8_t color_model_valid;  // NEOPICO_SETTINGS_COLOR_MODEL_VALID after explicit selection
-    uint8_t reserved[27];       // future settings; zero-initialized
+    // 0 = off (default), nonzero = on. Unlike audio_source/color_model, off
+    // needs no separate "_valid" marker: it is both the desired default AND
+    // the natural zero value, so an old settings image (whose reserved byte
+    // here was always zero-initialized) already reads as "off" with no
+    // ambiguity -- see settings_load()'s payload_size check, which keeps
+    // accepting old images because sizeof(neopico_settings_t) is unchanged.
+    uint8_t genlock_enabled;
+    uint8_t reserved[26]; // future settings; zero-initialized
 } neopico_settings_t;
 
 _Static_assert(sizeof(neopico_settings_t) == 32, "settings payload format must remain 32 bytes");
