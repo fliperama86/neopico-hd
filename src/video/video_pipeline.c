@@ -29,6 +29,46 @@
 #define NEOPICO_EXP_RGB888_SCANOUT 0
 #endif
 
+// ---------------------------------------------------------------------------
+// Scanline timing trace (NEOPICO_EXP_SCANLINE_TRACE, default OFF).
+//
+// Records how many CPU cycles each scanline callback takes, into a RAM ring
+// buffer that Core 0 dumps as raw binary on request. Deliberately does NOT
+// format anything on Core 1: snprintf in the Core 1 background task is a
+// documented cause of HSTX FIFO underruns in this firmware, so the expensive
+// half happens on Core 0 and only after the operator has already seen the
+// failure. Cost here is two PPB reads and one halfword store, roughly 0.1% of
+// a 480p line, which is small enough not to be the thing under test -- the
+// known-good 480p mode is the control that confirms that.
+// ---------------------------------------------------------------------------
+#ifndef NEOPICO_EXP_SCANLINE_TRACE
+#define NEOPICO_EXP_SCANLINE_TRACE 0
+#endif
+
+#if NEOPICO_EXP_SCANLINE_TRACE
+// Architectural ARMv8-M debug register addresses, used directly rather than
+// pulling in cmsis_core: adding a link dependency shifts layout, and layout
+// shifts have caused HSTX underruns in this firmware before. Bit positions
+// match the SDK's CMSIS core_cm33.h (TRCENA bit 24, CYCCNTENA bit 0).
+#define TRACE_DWT_CTRL (*(volatile uint32_t *)0xE0001000U)
+#define TRACE_DWT_CYCCNT (*(volatile uint32_t *)0xE0001004U)
+#define TRACE_DEMCR (*(volatile uint32_t *)0xE000EDFCU)
+#define TRACE_DEMCR_TRCENA (1U << 24U)
+#define TRACE_DWT_CYCCNTENA (1U << 0U)
+
+#define SCANLINE_TRACE_ENTRIES 16384U // power of two: 32 KiB, ~34 frames at 480p
+uint16_t g_scanline_trace[SCANLINE_TRACE_ENTRIES];
+volatile uint32_t g_scanline_trace_idx;
+
+// DWT is per-core, so this must run on the core being measured (Core 1).
+static inline void scanline_trace_init(void)
+{
+    TRACE_DEMCR |= TRACE_DEMCR_TRCENA;
+    TRACE_DWT_CYCCNT = 0;
+    TRACE_DWT_CTRL |= TRACE_DWT_CYCCNTENA;
+}
+#endif
+
 // Scanline effect toggle (off by default)
 bool fx_scanlines_enabled = false;
 static bool osd_visible_latched = false;
@@ -162,13 +202,21 @@ static void __scratch_y("")
                                                 const uint16_t *restrict osd, int count)
 {
 #if NEOPICO_EXP_RGB888_SCANOUT
-    const uint32_t *game32 = (const uint32_t *)game;
+    (void)game; // opaque OSD: game pixels are not sampled on this path
     const uint32_t *osd32 = (const uint32_t *)osd;
     const int pairs = count >> 1;
     for (int i = 0; i < pairs; i++) {
-        const uint32_t blended = video_pipeline_osd_fake_blend_pair(game32[i], osd32[i]);
-        const uint32_t c0 = video_pipeline_rgb565_to_rgb888((uint16_t)(blended & 0xFFFFU));
-        const uint32_t c1 = video_pipeline_rgb565_to_rgb888((uint16_t)(blended >> 16));
+        // Opaque OSD under 32-bit scanout. The translucent blend reads game
+        // pixels, which now carry raw entropy rather than RGB565, so it would
+        // need a LUT lookup per pixel ON TOP of the blend and the OSD colour
+        // conversion. Measured, that path was already ~86% of the 480p line
+        // budget before any of that was added, and the OSD box spans most of
+        // the line. Emitting the OSD pixel directly makes these lines cheaper
+        // than ordinary ones instead of twice the cost. Translucency can come
+        // back if headroom appears.
+        const uint32_t opaque = osd32[i];
+        const uint32_t c0 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque & 0xFFFFU));
+        const uint32_t c1 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque >> 16));
         dst[0] = c0;
         dst[1] = c0;
         dst[2] = c1;
@@ -195,13 +243,21 @@ static void __scratch_y("")
                                                 const uint16_t *restrict osd, int count)
 {
 #if NEOPICO_EXP_RGB888_SCANOUT
-    const uint32_t *game32 = (const uint32_t *)game;
+    (void)game; // opaque OSD: game pixels are not sampled on this path
     const uint32_t *osd32 = (const uint32_t *)osd;
     const int pairs = count >> 1;
     for (int i = 0; i < pairs; i++) {
-        const uint32_t blended = video_pipeline_osd_fake_blend_pair(game32[i], osd32[i]);
-        const uint32_t c0 = video_pipeline_rgb565_to_rgb888((uint16_t)(blended & 0xFFFFU));
-        const uint32_t c1 = video_pipeline_rgb565_to_rgb888((uint16_t)(blended >> 16));
+        // Opaque OSD under 32-bit scanout. The translucent blend reads game
+        // pixels, which now carry raw entropy rather than RGB565, so it would
+        // need a LUT lookup per pixel ON TOP of the blend and the OSD colour
+        // conversion. Measured, that path was already ~86% of the 480p line
+        // budget before any of that was added, and the OSD box spans most of
+        // the line. Emitting the OSD pixel directly makes these lines cheaper
+        // than ordinary ones instead of twice the cost. Translucency can come
+        // back if headroom appears.
+        const uint32_t opaque = osd32[i];
+        const uint32_t c0 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque & 0xFFFFU));
+        const uint32_t c1 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque >> 16));
         dst[(i * 6) + 0] = c0;
         dst[(i * 6) + 1] = c0;
         dst[(i * 6) + 2] = c0;
@@ -229,13 +285,21 @@ static void __scratch_y("")
                                                    const uint16_t *restrict osd, int count)
 {
 #if NEOPICO_EXP_RGB888_SCANOUT
-    const uint32_t *game32 = (const uint32_t *)game;
+    (void)game; // opaque OSD: game pixels are not sampled on this path
     const uint32_t *osd32 = (const uint32_t *)osd;
     const int pairs = count >> 1;
     for (int i = 0; i < pairs; i++) {
-        const uint32_t blended = video_pipeline_osd_fake_blend_pair(game32[i], osd32[i]);
-        const uint32_t c0 = video_pipeline_rgb565_to_rgb888((uint16_t)(blended & 0xFFFFU));
-        const uint32_t c1 = video_pipeline_rgb565_to_rgb888((uint16_t)(blended >> 16));
+        // Opaque OSD under 32-bit scanout. The translucent blend reads game
+        // pixels, which now carry raw entropy rather than RGB565, so it would
+        // need a LUT lookup per pixel ON TOP of the blend and the OSD colour
+        // conversion. Measured, that path was already ~86% of the 480p line
+        // budget before any of that was added, and the OSD box spans most of
+        // the line. Emitting the OSD pixel directly makes these lines cheaper
+        // than ordinary ones instead of twice the cost. Translucency can come
+        // back if headroom appears.
+        const uint32_t opaque = osd32[i];
+        const uint32_t c0 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque & 0xFFFFU));
+        const uint32_t c1 = video_pipeline_rgb565_to_rgb888((uint16_t)(opaque >> 16));
         dst[(i * 8) + 0] = c0;
         dst[(i * 8) + 1] = c0;
         dst[(i * 8) + 2] = c0;
@@ -473,8 +537,8 @@ void __scratch_y("") video_pipeline_triple_pixels_fast(uint32_t *dst, const uint
 
     for (int i = 0; i < pairs; i++) {
         uint32_t two = src32[i];
-        uint32_t c0 = video_pipeline_rgb565_to_rgb888((uint16_t)(two & 0xFFFF));
-        uint32_t c1 = video_pipeline_rgb565_to_rgb888((uint16_t)(two >> 16));
+        uint32_t c0 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, two & 0xFFFFU, g_scanline_shadow);
+        uint32_t c1 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, two >> 16U, g_scanline_shadow);
         dst[(i * 6) + 0] = c0;
         dst[(i * 6) + 1] = c0;
         dst[(i * 6) + 2] = c0;
@@ -511,8 +575,8 @@ void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const u
 
     for (int i = 0; i < pairs; i++) {
         uint32_t two = src32[i];
-        uint32_t c0 = video_pipeline_rgb565_to_rgb888((uint16_t)(two & 0xFFFF));
-        uint32_t c1 = video_pipeline_rgb565_to_rgb888((uint16_t)(two >> 16));
+        uint32_t c0 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, two & 0xFFFFU, g_scanline_shadow);
+        uint32_t c1 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, two >> 16U, g_scanline_shadow);
         dst[(i * 8) + 0] = c0;
         dst[(i * 8) + 1] = c0;
         dst[(i * 8) + 2] = c0;
@@ -549,9 +613,40 @@ void __scratch_x("") video_pipeline_vsync_callback(void)
     osd_visible_latched = osd_visible;
 }
 
+#if NEOPICO_EXP_SCANLINE_TRACE
+// The implementation has several early returns (e.g. the 3x path skips two of
+// every three lines), so timing is done by a wrapper rather than by threading
+// a record through every exit. Skipped lines then show up as near-zero
+// samples, which is itself diagnostic.
+static void __scratch_x("000_video_pipeline_modes")
+    video_pipeline_scanline_callback_impl(uint32_t v_scanline, uint32_t active_line, uint32_t *dst);
+
 static void __scratch_x("000_video_pipeline_modes")
     video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
 {
+    static bool trace_ready;
+    if (!trace_ready) {
+        // DWT is per-core and Core 1 enters through the library's core1 entry
+        // point, so there is no firmware-side init hook: arm it on first use.
+        scanline_trace_init();
+        trace_ready = true;
+    }
+    const uint32_t t0 = TRACE_DWT_CYCCNT;
+    video_pipeline_scanline_callback_impl(v_scanline, active_line, dst);
+    const uint32_t elapsed = TRACE_DWT_CYCCNT - t0;
+    g_scanline_trace[g_scanline_trace_idx & (SCANLINE_TRACE_ENTRIES - 1U)] =
+        (elapsed > 0xFFFFU) ? 0xFFFFU : (uint16_t)elapsed;
+    g_scanline_trace_idx++;
+}
+
+static void __scratch_x("000_video_pipeline_modes")
+    video_pipeline_scanline_callback_impl(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
+{
+#else
+static void __scratch_x("000_video_pipeline_modes")
+    video_pipeline_scanline_callback_reboot_modes(uint32_t v_scanline, uint32_t active_line, uint32_t *dst)
+{
+#endif
     (void)v_scanline;
 
     const uint32_t active_width = video_output_active_mode->h_active_pixels;

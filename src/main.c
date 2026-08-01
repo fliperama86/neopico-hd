@@ -128,7 +128,16 @@ int main(void)
         uint32_t sys_clk_khz = SYS_CLK_60HZ_KHZ;
         // The 480p reboot mode runs at 252 MHz for scanline-IRQ headroom
         // (240p/720p reboot modes keep their own clocks).
-        const bool overclock_480p = (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_480P);
+        bool overclock_480p = (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_480P);
+#if NEOPICO_EXP_RGB888_SCANOUT
+        // 32-bit scanout roughly triples the per-line conversion cost, and
+        // stock 240p gives the CPU only 8000 cycles per line at 126 MHz (vs
+        // 480p's 8001 at 252 MHz). Measured: the 240p callback needs 5913 of
+        // those 8000 cycles, 74% versus 60% for 480p, which is what makes 240p
+        // the mode that fails. Give it the same treatment as 480p: 252 MHz with
+        // PICO_HDMI_240P_HSTX_CLK_DIV=2 holding the pixel clock at 25.2 MHz.
+        overclock_480p = overclock_480p || (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_240P);
+#endif
         if (overclock_480p) {
             sys_clk_khz = SYS_CLK_480P_KHZ;
             vreg_set_voltage(VREG_VOLTAGE_1_30);

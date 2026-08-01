@@ -25,6 +25,58 @@
 #include "video_capture.h"
 #include "video_capture_mvs.pio.h"
 
+#if NEOPICO_EXP_SCANLINE_TRACE
+// Raw-binary dump of the Core 1 scanline timing ring, on host request.
+// Deliberately unformatted: no snprintf, no float, and chunked against the
+// CDC buffer so it can never block Core 0's capture loop. The operator
+// triggers it AFTER observing the failure, when disturbing output no longer
+// matters. Layout: 'NPTR', entry count, write index, then the raw uint16 ring.
+#define SCANLINE_TRACE_ENTRIES 16384U
+extern uint16_t g_scanline_trace[SCANLINE_TRACE_ENTRIES];
+extern volatile uint32_t g_scanline_trace_idx;
+
+static uint32_t g_trace_dump_cursor = 0xFFFFFFFFU; // idle
+
+static void scanline_trace_dump_tick(void)
+{
+    if (g_trace_dump_cursor == 0xFFFFFFFFU) {
+        if (!tud_cdc_available()) {
+            return;
+        }
+        while (tud_cdc_available()) {
+            (void)tud_cdc_read_char();
+        }
+        const uint32_t header[3] = {0x5254504EU, SCANLINE_TRACE_ENTRIES, g_scanline_trace_idx};
+        if ((uint32_t)tud_cdc_write_available() < sizeof header) {
+            return;
+        }
+        tud_cdc_write(header, (uint32_t)sizeof header);
+        tud_cdc_write_flush();
+        g_trace_dump_cursor = 0;
+        return;
+    }
+
+    const uint32_t remaining = (SCANLINE_TRACE_ENTRIES - g_trace_dump_cursor) * sizeof(uint16_t);
+    uint32_t room = (uint32_t)tud_cdc_write_available();
+    if (room == 0U) {
+        return;
+    }
+    if (room > remaining) {
+        room = remaining;
+    }
+    room &= ~1U; // whole samples only
+    if (room == 0U) {
+        return;
+    }
+    tud_cdc_write(&g_scanline_trace[g_trace_dump_cursor], room);
+    tud_cdc_write_flush();
+    g_trace_dump_cursor += room / sizeof(uint16_t);
+    if (g_trace_dump_cursor >= SCANLINE_TRACE_ENTRIES) {
+        g_trace_dump_cursor = 0xFFFFFFFFU; // done, re-arm
+    }
+}
+#endif
+
 #if NEOPICO_DIAG_COUNTERS
 #include <stdio.h>
 line_ring_diag_t g_line_ring_diag;
@@ -671,6 +723,9 @@ void video_capture_run(void)
 
 #if NEOPICO_DIAG_COUNTERS
         video_capture_diag_tick(g_frame_count);
+#endif
+#if NEOPICO_EXP_SCANLINE_TRACE
+        scanline_trace_dump_tick();
 #endif
 #if NEOPICO_MVS_COLOR_MODEL_MENU
         // Persist only after a complete input frame. This pauses capture for a

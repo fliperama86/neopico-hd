@@ -138,6 +138,13 @@ option(NEOPICO_DIAG_AUDIO_OSD "Show HDMI audio underrun (silence splice) counter
 # Selects the matching pico_hdmi-side PICO_HDMI_PIXEL_FORMAT_RGB888 option.
 option(NEOPICO_EXP_RGB888_SCANOUT
     "EXPERIMENTAL/UNVALIDATED: 32-bit RGB888 Core 1 scanout feasibility spike" OFF)
+# Diagnostic for the unexplained 240p/720p RGB888 instability. Records per
+# scanline callback cycle counts into a RAM ring on Core 1 (two PPB reads and
+# one store, ~0.1% of a 480p line) and dumps them as raw binary from Core 0 on
+# host request. No formatting on Core 1: snprintf there is a documented cause
+# of HSTX FIFO underruns in this firmware.
+option(NEOPICO_EXP_SCANLINE_TRACE
+    "EXPERIMENTAL: record per-scanline callback cycle counts for USB dump" OFF)
 # The line-ring size is a fixed board/tuning constant now (plain #define in
 # src/video/line_ring.h), not a cache option.
 
@@ -229,6 +236,12 @@ else()
     set(DIAG_COUNTERS_VALUE 0)
 endif()
 
+if(NEOPICO_EXP_SCANLINE_TRACE)
+    set(EXP_SCANLINE_TRACE_VALUE 1)
+else()
+    set(EXP_SCANLINE_TRACE_VALUE 0)
+endif()
+
 if(NEOPICO_EXP_RGB888_SCANOUT)
     set(EXP_RGB888_SCANOUT_VALUE 1)
 else()
@@ -265,6 +278,12 @@ target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_LEGACY_240P_AVI_INFOFRAME
 # Halve the 480p HSTX clk divider in the library so the pixel clock stays
 # 25.2 MHz (252/(2*5)) and the 480p signal is byte-identical to the 126 MHz one.
 target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_480P_HSTX_CLK_DIV=2)
+if(NEOPICO_EXP_RGB888_SCANOUT)
+    # 240p gets the same double-clock treatment as 480p under 32-bit scanout:
+    # sys_clk 252 MHz with a divider of 2 keeps the pixel clock at 25.2 MHz
+    # while doubling the CPU cycles available per scanline.
+    target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_240P_HSTX_CLK_DIV=2)
+endif()
 
 pico_set_binary_type(neopico_hd copy_to_ram)
 
@@ -310,6 +329,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_AUDIO_MODE=${AUDIO_MODE_VALUE}
     NEOPICO_DIAG_AUDIO_OSD=${DIAG_AUDIO_OSD_VALUE}
     NEOPICO_EXP_RGB888_SCANOUT=${EXP_RGB888_SCANOUT_VALUE}
+    NEOPICO_EXP_SCANLINE_TRACE=${EXP_SCANLINE_TRACE_VALUE}
 )
 
 pico_enable_stdio_usb(neopico_hd 1)
