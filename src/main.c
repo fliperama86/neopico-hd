@@ -127,8 +127,15 @@ int main(void)
     } else {
         uint32_t sys_clk_khz = SYS_CLK_60HZ_KHZ;
         // The 480p reboot mode runs at 252 MHz for scanline-IRQ headroom
-        // (240p/720p reboot modes keep their own clocks).
-        const bool overclock_480p = (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_480P);
+        // (720p reboot mode keeps its own exact-clock path above).
+        bool overclock_480p = (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_480P);
+        // v0.11.0's DARK/SHADOW-by-default made Core 0's per-pixel conversion
+        // heavier. At 240p, stock sysclk is only 126 MHz (vs 480p's 252), so
+        // conversion lateness accumulates down the frame (bottom-half
+        // bounce/H-shift on hardware). Give 240p the same 252 MHz treatment
+        // as 480p; PICO_HDMI_240P_HSTX_CLK_DIV=2 (src/CMakeLists.txt) holds
+        // clk_hstx at 126 MHz so the 25.2 MHz pixel clock is unchanged.
+        overclock_480p = overclock_480p || (reboot_boot_mode == VIDEO_PIPELINE_REBOOT_MODE_240P);
         if (overclock_480p) {
             sys_clk_khz = SYS_CLK_480P_KHZ;
             vreg_set_voltage(VREG_VOLTAGE_1_30);

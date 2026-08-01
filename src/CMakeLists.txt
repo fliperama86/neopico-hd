@@ -247,6 +247,15 @@ target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_LEGACY_240P_AVI_INFOFRAME
 # 25.2 MHz (252/(2*5)) and the 480p signal is byte-identical to the 126 MHz one.
 target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_480P_HSTX_CLK_DIV=2)
 
+# RT 240p also now runs at 252 MHz (see main.c: overclock_480p is OR'd with
+# the 240p reboot mode). v0.11.0's default-on DARK/SHADOW conversion made
+# Core 0's per-pixel work heavy enough that at the stock 126 MHz 240p sysclk,
+# conversion lateness accumulates down the frame (hardware-confirmed
+# bottom-half bounce/H-shift; v0.10.0 and NEOPICO_ENABLE_DARK_SHADOW=OFF are
+# both clean at 126 MHz). Halve the 240p HSTX clk divider the same way as
+# 480p so the pixel clock stays 25.2 MHz and the signal is unchanged.
+target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_240P_HSTX_CLK_DIV=2)
+
 pico_set_binary_type(neopico_hd copy_to_ram)
 
 # The OSD root menu, the first-boot reboot workaround, flash-backed settings,
