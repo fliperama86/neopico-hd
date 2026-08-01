@@ -138,6 +138,15 @@ option(NEOPICO_DIAG_AUDIO_OSD "Show HDMI audio underrun (silence splice) counter
 # Selects the matching pico_hdmi-side PICO_HDMI_PIXEL_FORMAT_RGB888 option.
 option(NEOPICO_EXP_RGB888_SCANOUT
     "EXPERIMENTAL/UNVALIDATED: 32-bit RGB888 Core 1 scanout feasibility spike" OFF)
+# FEASIBILITY SPIKE (default OFF, not for shipping): pipeline the 720p (3x)
+# active-line scanout in pico_hdmi across two buffers, so the per-line
+# scanline callback -- which measured 85-94% of its single-line budget at
+# 720p RGB888 -- gets a full 3-line-period budget instead of 1. Selects the
+# matching pico_hdmi-side PICO_HDMI_ACTIVE_LINE_DOUBLE_BUFFER option. Only
+# meaningful together with NEOPICO_EXP_RGB888_SCANOUT (720p is the mode this
+# targets); no firmware source changes needed, this only affects the lib.
+option(NEOPICO_EXP_RGB888_DOUBLE_BUFFER
+    "EXPERIMENTAL/UNVALIDATED: pipeline the 720p active-line scanout across two buffers in pico_hdmi (requires NEOPICO_EXP_RGB888_SCANOUT)" OFF)
 # Diagnostic for the unexplained 240p/720p RGB888 instability. Records per
 # scanline callback cycle counts into a RAM ring on Core 1 (two PPB reads and
 # one store, ~0.1% of a 480p line) and dumps them as raw binary from Core 0 on
@@ -259,6 +268,13 @@ set(PICO_HDMI_PRECOMPOSED_ACTIVE_LINES OFF CACHE BOOL "" FORCE)
 # video_output_rt.c matches the firmware-side scanout kernel selection.
 # Default OFF on both sides.
 set(PICO_HDMI_PIXEL_FORMAT_RGB888 ${NEOPICO_EXP_RGB888_SCANOUT} CACHE BOOL "" FORCE)
+
+# Feasibility spike: mirror NEOPICO_EXP_RGB888_DOUBLE_BUFFER into the
+# pico_hdmi library's own option. Independent of PICO_HDMI_PIXEL_FORMAT_RGB888
+# above so the two can be toggled separately (validation needs both
+# combinations); the double-buffer scheme itself only engages for the mode
+# descriptor whose v_active_lines==720, decided at runtime in the library.
+set(PICO_HDMI_ACTIVE_LINE_DOUBLE_BUFFER ${NEOPICO_EXP_RGB888_DOUBLE_BUFFER} CACHE BOOL "" FORCE)
 
 # Add pico_hdmi library (MUST be after add_compile_definitions and option overrides)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../lib/pico_hdmi ${CMAKE_CURRENT_BINARY_DIR}/pico_hdmi)
