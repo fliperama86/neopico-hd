@@ -91,7 +91,13 @@ option(NEOPICO_VIDEO_DVI_ONLY "Disable HDMI Data Islands/audio output for video 
 option(NEOPICO_VIDEO_TEST_PATTERN "Render a static Core 1 video test pattern instead of captured video" OFF)
 option(NEOPICO_DIAG_COUNTERS "Capture-health counters dumped over USB-serial (720p glitch diagnosis)" OFF)
 option(NEOPICO_EXP_GENLOCK_DYNAMIC
-    "Genlock the HDMI output to the capture source (dynamic VTOTAL acquire + sub-line blanking-trim servo). Output refresh follows the source (~59.19 Hz for MVS), a nonstandard rate some sinks may reject" OFF)
+    "Genlock the HDMI output to the capture source (dynamic VTOTAL acquire + sub-line blanking-trim servo). Output refresh follows the source (~59.19 Hz for MVS), a nonstandard rate some sinks may reject" ON)
+# Compiling the genlock machinery in does NOT turn genlock on: the actual
+# on/off state is a flash-persisted runtime setting (default OFF), applied at
+# boot from the OSD "Genlock" toggle, exactly like the resolution selector.
+# Shipping this flag ON just makes the toggle available; a fresh unit still
+# boots on standard 60.000/60.114/59.979 Hz timing until the user opts in.
+# Hardware-validated 2026-08-01 (operator directive to ship as the default).
 # NOTE: OSD overlay/menu (incl. the root menu, self-test screen, translucent
 # panel, and controller-tap inputs), the reboot-based resolution selector
 # (incl. its 720p mode and post-switch confirmation), flash-backed settings
@@ -138,22 +144,30 @@ set_property(CACHE NEOPICO_MVS_EFFECT_MODEL PROPERTY STRINGS MISTER MAME DIGIAV)
 # NEOPICO_AUDIO_MODE is no longer an independent cache option: MVS is always
 # SELECTABLE (OSD audio-source picker) and SNES is always DIGITAL.
 option(NEOPICO_DIAG_AUDIO_OSD "Show HDMI audio underrun (silence splice) counter on the selftest OSD screen" OFF)
-# FEASIBILITY SPIKE (default OFF, not for shipping): can the Core 1 per-line
-# scanout path afford one 32-bit RGB888 word per output pixel (instead of two
-# packed RGB565 pixels per word) at 480p/720p without HSTX FIFO underruns?
-# Plain bit-replication RGB565->RGB888 only; no DARK/SHADOW model changes.
-# Selects the matching pico_hdmi-side PICO_HDMI_PIXEL_FORMAT_RGB888 option.
+# Full-precision Core 1 scanout: one 32-bit RGB888 word per output pixel
+# (instead of two packed RGB565 pixels per word) at 240p/480p/720p, fixing
+# the RGB565 5/6-bit quantization that hid the DARK half-step in red/blue and
+# the RP2350 EXPAND_TMDS zero-fill dimming (pico-feedback#454). Plain
+# bit-replication for the fill/no-signal paths; the live-content path stores
+# raw entropy in the line ring and applies the colour model on Core 1 (see
+# mvs_effect_lut888). Hardware-validated end-to-end at 240p/480p/720p
+# 2026-08-01; MVS only (see the capture-target guard below) -- SNES capture
+# writes converted RGB565 straight into the ring, not entropy, so this is
+# meaningless there. Selects the matching pico_hdmi-side
+# PICO_HDMI_PIXEL_FORMAT_RGB888 option.
 option(NEOPICO_EXP_RGB888_SCANOUT
-    "EXPERIMENTAL/UNVALIDATED: 32-bit RGB888 Core 1 scanout feasibility spike" OFF)
-# FEASIBILITY SPIKE (default OFF, not for shipping): pipeline the 720p (3x)
-# active-line scanout in pico_hdmi across two buffers, so the per-line
-# scanline callback -- which measured 85-94% of its single-line budget at
-# 720p RGB888 -- gets a full 3-line-period budget instead of 1. Selects the
-# matching pico_hdmi-side PICO_HDMI_ACTIVE_LINE_DOUBLE_BUFFER option. Only
-# meaningful together with NEOPICO_EXP_RGB888_SCANOUT (720p is the mode this
-# targets); no firmware source changes needed, this only affects the lib.
+    "Full-precision 32-bit RGB888 Core 1 scanout (MVS only; fixes RGB565 DARK/SHADOW quantization and HSTX dimming)" ON)
+# Pipelines the 720p (3x) active-line scanout in pico_hdmi across two
+# buffers, so the per-line scanline callback -- which measured 85-94% of its
+# single-line budget at 720p RGB888 -- gets a full 3-line-period budget
+# instead of 1. Required for 720p RGB888 (no clock headroom is available
+# there: pixel clock = sysclk/5 pins sysclk at 320 MHz); 240p/480p RGB888
+# don't need it. Selects the matching pico_hdmi-side
+# PICO_HDMI_ACTIVE_LINE_DOUBLE_BUFFER option. Hardware-validated alongside
+# NEOPICO_EXP_RGB888_SCANOUT above 2026-08-01; harmless (no-op) when that is
+# off, so it is not target-gated separately.
 option(NEOPICO_EXP_RGB888_DOUBLE_BUFFER
-    "EXPERIMENTAL/UNVALIDATED: pipeline the 720p active-line scanout across two buffers in pico_hdmi (requires NEOPICO_EXP_RGB888_SCANOUT)" OFF)
+    "Pipeline the 720p active-line scanout across two buffers in pico_hdmi (required for 720p RGB888; requires NEOPICO_EXP_RGB888_SCANOUT)" ON)
 # Diagnostic for the unexplained 240p/720p RGB888 instability. Records per
 # scanline callback cycle counts into a RAM ring on Core 1 (two PPB reads and
 # one store, ~0.1% of a 480p line) and dumps them as raw binary from Core 0 on
@@ -189,6 +203,20 @@ endif()
 if(NEOPICO_ENABLE_DARK_SHADOW AND NOT NEOPICO_CAPTURE_TARGET_UPPER STREQUAL "MVS")
     message(STATUS "DARK/SHADOW is MVS-only: disabling it for capture target ${NEOPICO_CAPTURE_TARGET}")
     set(NEOPICO_ENABLE_DARK_SHADOW OFF)
+endif()
+
+# RGB888 scanout's live-content path expects the line ring to carry raw
+# entropy ([DARK][raw RGB555], see mvs_effect_lut888) so the colour model can
+# be applied on Core 1 with full 8-bit precision. That is an MVS capture
+# convention: SNES (src/video/video_capture_snes.c) writes already-converted
+# RGB565 straight into the ring. Feeding those RGB565 words through the
+# entropy LUT as if they were [DARK][RGB555] is nonsensical (undefined
+# colours, not merely unvalidated), so -- same precedent as DARK/SHADOW
+# above -- the feature switches itself off for other targets rather than
+# failing the build or shipping wrong colours silently.
+if(NEOPICO_EXP_RGB888_SCANOUT AND NOT NEOPICO_CAPTURE_TARGET_UPPER STREQUAL "MVS")
+    message(STATUS "RGB888 scanout is MVS-only (entropy ring convention): disabling it for capture target ${NEOPICO_CAPTURE_TARGET}")
+    set(NEOPICO_EXP_RGB888_SCANOUT OFF)
 endif()
 
 if(NEOPICO_ENABLE_DARK_SHADOW)
