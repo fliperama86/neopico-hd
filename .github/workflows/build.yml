@@ -20,12 +20,37 @@ jobs:
       matrix:
         target: [mvs, snes]
     steps:
+    # Byte-identity with the operator's reference environment: GCC embeds
+    # __FILE__ (assert()/panic() strings) and DWARF compilation-unit paths
+    # literally as the path passed to it on the command line, which CMake
+    # derives from the source directories given to `cmake -S`/-DPICO_SDK_PATH.
+    # Checking the repo and the SDK out at the SAME absolute paths used
+    # locally (/Users/dudu/Projects/neogeo/neopico-hd, /Users/dudu/pico-sdk)
+    # makes those embedded strings match exactly, rather than diverging on
+    # /home/runner/... vs /Users/dudu/.... The clean alternative
+    # (-ffile-prefix-map on both sides, normalizing to a neutral path) was
+    # considered and deferred: it changes the bytes of the already
+    # hardware-validated binary, which is the one thing this task must not do.
+    # Real directories, not symlinks: actions/checkout's `path:` input is
+    # resolved with Node's path.resolve(github.workspace, path), which
+    # returns an absolute second argument unchanged, so it clones directly
+    # to the given absolute path instead of nesting under github.workspace.
+    # Chosen over a symlink specifically to avoid depending on whether
+    # CMake/GCC resolve a symlinked source dir to its target before
+    # embedding it -- that would need verifying per toolchain/CMake version;
+    # a real directory at the exact path sidesteps the question entirely.
+    - name: Prepare local-path mirror (byte-identical __FILE__/debug paths)
+      run: |
+        sudo mkdir -p /Users/dudu/Projects/neogeo/neopico-hd /Users/dudu/pico-sdk
+        sudo chown -R "$(id -u):$(id -g)" /Users
+
     - name: Checkout Code
       uses: actions/checkout@v4
       with:
         submodules: recursive
         fetch-depth: 0
         fetch-tags: true
+        path: /Users/dudu/Projects/neogeo/neopico-hd
 
     - name: Install Dependencies
       run: |
@@ -52,10 +77,26 @@ jobs:
         tar -xf arm-toolchain.tar.xz -C "$HOME/arm-gnu-toolchain-13.2.Rel1" --strip-components=1
         echo "$HOME/arm-gnu-toolchain-13.2.Rel1/bin" >> "$GITHUB_PATH"
 
+    # Pinned to the exact commit checked out in the operator's local
+    # /Users/dudu/pico-sdk (the SDK used for hardware validation), not the
+    # default branch's current tip: an unpinned `git clone --depth 1` drifts
+    # over time (confirmed: it produced 2.3.0 in CI vs 2.2.1-develop
+    # locally, the actual cause of a byte-mismatched release artifact).
+    # `git submodule update --init` after checking out this exact commit
+    # reproduces the same submodule SHAs as local (verified: the gitlinks
+    # are baked into the SDK commit itself) -- btstack 501e6d2, cyw43-driver
+    # dd75682, lwip 77dcd25, mbedtls 107ea89, tinyusb 86ad6e5.
+    # Bump BOTH sides together (this pin AND /Users/dudu/pico-sdk locally),
+    # with a hardware retest, when upgrading the SDK -- never one without
+    # the other, or this byte-identity guarantee silently breaks again.
     - name: Setup Pico SDK
       run: |
-        git clone --depth 1 https://github.com/raspberrypi/pico-sdk.git $HOME/pico-sdk
-        cd $HOME/pico-sdk
+        mkdir -p /Users/dudu/pico-sdk
+        cd /Users/dudu/pico-sdk
+        git init -q
+        git remote add origin https://github.com/raspberrypi/pico-sdk.git
+        git fetch --depth 1 origin a1e9cf05b21f114b27a762cb04da51ee2a9322bd
+        git checkout FETCH_HEAD
         git submodule update --init
 
     # Single baseline firmware: the resolution selector. One build switches
@@ -67,12 +108,14 @@ jobs:
 
     - name: Run MVS color tests
       if: matrix.target == 'mvs'
+      working-directory: /Users/dudu/Projects/neogeo/neopico-hd
       run: bash tests/run_mvs_color_exhaustive.sh
 
     - name: Build NeoPico-HD
+      working-directory: /Users/dudu/Projects/neogeo/neopico-hd
       run: |
         cmake -S . -B build \
-          -DPICO_SDK_PATH=$HOME/pico-sdk \
+          -DPICO_SDK_PATH=/Users/dudu/pico-sdk \
           -DCMAKE_BUILD_TYPE=Release \
           -DNEOPICO_CAPTURE_TARGET=${{ matrix.target }}
         cmake --build build -j$(nproc)
@@ -80,13 +123,18 @@ jobs:
         cp build/src/neopico_hd.uf2 neopico_hd_${{ matrix.target }}.uf2
         cp build/src/neopico_hd.elf neopico_hd_${{ matrix.target }}.elf
 
+    # Absolute paths (not workspace-relative): the repo was checked out at
+    # /Users/dudu/Projects/neogeo/neopico-hd, not github.workspace, for
+    # __FILE__/debug-path byte-identity (see "Prepare local-path mirror"
+    # above), and actions/upload-artifact resolves relative `path:` globs
+    # against github.workspace, not a step's working-directory.
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: neopico-hd-${{ matrix.target }}-build
         path: |
-          neopico_hd_${{ matrix.target }}.uf2
-          neopico_hd_${{ matrix.target }}.elf
+          /Users/dudu/Projects/neogeo/neopico-hd/neopico_hd_${{ matrix.target }}.uf2
+          /Users/dudu/Projects/neogeo/neopico-hd/neopico_hd_${{ matrix.target }}.elf
 
   fabrication:
     runs-on: ubuntu-latest
