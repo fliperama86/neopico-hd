@@ -269,6 +269,14 @@ target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_480P_HSTX_CLK_DIV=2)
 # 480p so the pixel clock stays 25.2 MHz and the signal is unchanged.
 target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_240P_HSTX_CLK_DIV=2)
 
+# Elastic-blanking htrim servo (video_output_set_vblank_htrim_px()) is only
+# reachable/registered when genlock is built in. Default builds get none of
+# this new code -- scratch_x is exactly full there and cannot take even one
+# extra instruction.
+if(NEOPICO_EXP_GENLOCK_DYNAMIC AND NOT NEOPICO_DIAG_NO_LIB_HTRIM)
+    target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_VBLANK_HTRIM=1)
+endif()
+
 pico_set_binary_type(neopico_hd copy_to_ram)
 
 # The OSD root menu, the first-boot reboot workaround, flash-backed settings,

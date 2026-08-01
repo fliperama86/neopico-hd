@@ -385,10 +385,13 @@ void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const u
 
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
 // Nominals that approximate MVS ~59.18 Hz at each mode's pixel clock:
-//   480p: 25.2M / (800 * 532) = 59.21 Hz   (±1 → 59.10–59.32 Hz)
-//   240p: 25.2M / (1600 * 266) = 59.21 Hz  (±1 → 58.99–59.43 Hz)
+//   480p: 25.2M / (800 * 532) = 59.21 Hz    (±1 → 59.10–59.32 Hz)
+//   240p: 25.2M / (1613 * 264) = 59.178 Hz  (±1 → 58.95–59.40 Hz)
+//   (240p base raster retimed to 1613x264 -- see video_mode_240_p in
+//   video_output_rt.c -- so the nominal here tracks that mode's own
+//   v_total_lines/h_total_pixels rather than the old 1600x262 raster.)
 #define GENLOCK_NOMINAL_VTOTAL_480 532
-#define GENLOCK_NOMINAL_VTOTAL_240 266
+#define GENLOCK_NOMINAL_VTOTAL_240 264
 //   720p (exact-clock 1440 h_total @ 64 MHz pixel, 22.5 us lines):
 //   64M / (1440 * 751) = 59.180 Hz (+1.5 us/frame vs the 16896.0 us MVS
 //   frame) — nominal creeps the phase UP very slowly; 750 (-21 us/frame)
@@ -519,7 +522,7 @@ static void genlock_dynamic_update(void)
 void VIDEO_PIPELINE_VSYNC_RAM video_pipeline_vsync_callback(void)
 {
     line_ring_output_vsync();
-#if NEOPICO_EXP_GENLOCK_DYNAMIC
+#if NEOPICO_EXP_GENLOCK_DYNAMIC && !defined(NEOPICO_DIAG_GENLOCK_SERVO_OFF)
     genlock_dynamic_update();
 #endif
     osd_visible_latched = osd_visible;
