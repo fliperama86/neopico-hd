@@ -146,6 +146,11 @@ mvs_color_model_t video_capture_get_color_model(void)
 #endif
 
 #if ENABLE_DARK_SHADOW
+#if NEOPICO_EXP_RGB888_SCANOUT
+// RGB888 scanout keeps the colour model on Core 1, so Core 0 only needs the
+// entropy packer from the LUT header.
+#include "mvs_effect_lut.h"
+#endif
 #if NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING
 #include "mvs_digital_effect.h"
 
@@ -221,9 +226,41 @@ static inline uint16_t convert_pixel(uint32_t raw)
     return mvs_capture_effect_convert(raw);
 }
 
+#if NEOPICO_EXP_RGB888_SCANOUT
+static uint32_t g_capture_line_shadow;
+#endif
+
 static inline void convert_active_pixels(uint16_t *dst, const uint32_t *src, int count)
 {
-#if NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING
+#if NEOPICO_EXP_RGB888_SCANOUT
+    // RGB888 scanout: the ring carries raw entropy (DARK + raw RGB555) and the
+    // colour model is applied on Core 1 at scale time, where 8-bit channels can
+    // hold the DARK half-step that RGB565 red/blue cannot. SHADOW is recorded
+    // once per line. Reuses the OR that the effect fast path already needs, so
+    // tracking it costs one extra shift per line.
+    uint32_t shadow_accum = 0;
+    int remaining = count;
+    while (remaining >= 4) {
+        const uint32_t raw0 = src[0];
+        const uint32_t raw1 = src[1];
+        const uint32_t raw2 = src[2];
+        const uint32_t raw3 = src[3];
+        shadow_accum |= raw0 | raw1 | raw2 | raw3;
+        dst[0] = mvs_entropy_pack_raw(raw0);
+        dst[1] = mvs_entropy_pack_raw(raw1);
+        dst[2] = mvs_entropy_pack_raw(raw2);
+        dst[3] = mvs_entropy_pack_raw(raw3);
+        dst += 4;
+        src += 4;
+        remaining -= 4;
+    }
+    while (remaining-- > 0) {
+        const uint32_t raw = *src++;
+        shadow_accum |= raw;
+        *dst++ = mvs_entropy_pack_raw(raw);
+    }
+    g_capture_line_shadow = (shadow_accum >> 17U) & 1U;
+#elif NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING
     int remaining = count;
     while (remaining >= 4) {
         const uint32_t raw0 = src[0];
@@ -604,6 +641,9 @@ void video_capture_run(void)
 #else
             convert_active_pixels(dst, src, g_active_words);
 #endif
+#if NEOPICO_EXP_RGB888_SCANOUT
+            line_ring_write_shadow(line, g_capture_line_shadow);
+#endif
 
             // Signal line ready
             line_ring_commit(line + 1);
@@ -621,6 +661,9 @@ void video_capture_run(void)
             convert_active_pixels(dst, src, g_active_words, frame_color_lut);
 #else
             convert_active_pixels(dst, src, g_active_words);
+#endif
+#if NEOPICO_EXP_RGB888_SCANOUT
+            line_ring_write_shadow(last_line, g_capture_line_shadow);
 #endif
 
             line_ring_commit(g_mvs_height);

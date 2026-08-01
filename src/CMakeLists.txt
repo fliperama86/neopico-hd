@@ -131,6 +131,13 @@ set_property(CACHE NEOPICO_MVS_EFFECT_MODEL PROPERTY STRINGS MISTER MAME DIGIAV)
 # NEOPICO_AUDIO_MODE is no longer an independent cache option: MVS is always
 # SELECTABLE (OSD audio-source picker) and SNES is always DIGITAL.
 option(NEOPICO_DIAG_AUDIO_OSD "Show HDMI audio underrun (silence splice) counter on the selftest OSD screen" OFF)
+# FEASIBILITY SPIKE (default OFF, not for shipping): can the Core 1 per-line
+# scanout path afford one 32-bit RGB888 word per output pixel (instead of two
+# packed RGB565 pixels per word) at 480p/720p without HSTX FIFO underruns?
+# Plain bit-replication RGB565->RGB888 only; no DARK/SHADOW model changes.
+# Selects the matching pico_hdmi-side PICO_HDMI_PIXEL_FORMAT_RGB888 option.
+option(NEOPICO_EXP_RGB888_SCANOUT
+    "EXPERIMENTAL/UNVALIDATED: 32-bit RGB888 Core 1 scanout feasibility spike" OFF)
 # The line-ring size is a fixed board/tuning constant now (plain #define in
 # src/video/line_ring.h), not a cache option.
 
@@ -222,11 +229,23 @@ else()
     set(DIAG_COUNTERS_VALUE 0)
 endif()
 
+if(NEOPICO_EXP_RGB888_SCANOUT)
+    set(EXP_RGB888_SCANOUT_VALUE 1)
+else()
+    set(EXP_RGB888_SCANOUT_VALUE 0)
+endif()
+
 # The runtime pico_hdmi path is the only backend now (the compile-time
 # non-RT backend, its fixed 240p/720p modes, and the precomposed-scanout
 # experiment that required it have all been deleted).
 set(PICO_HDMI_RUNTIME_MODES ON CACHE BOOL "" FORCE)
 set(PICO_HDMI_PRECOMPOSED_ACTIVE_LINES OFF CACHE BOOL "" FORCE)
+
+# Feasibility spike: mirror NEOPICO_EXP_RGB888_SCANOUT into the pico_hdmi
+# library's own option so the HSTX expand/DMA reconfiguration in
+# video_output_rt.c matches the firmware-side scanout kernel selection.
+# Default OFF on both sides.
+set(PICO_HDMI_PIXEL_FORMAT_RGB888 ${NEOPICO_EXP_RGB888_SCANOUT} CACHE BOOL "" FORCE)
 
 # Add pico_hdmi library (MUST be after add_compile_definitions and option overrides)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../lib/pico_hdmi ${CMAKE_CURRENT_BINARY_DIR}/pico_hdmi)
@@ -290,6 +309,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_MVS_COLOR_MODEL_MENU=${MVS_COLOR_MODEL_MENU_VALUE}
     NEOPICO_AUDIO_MODE=${AUDIO_MODE_VALUE}
     NEOPICO_DIAG_AUDIO_OSD=${DIAG_AUDIO_OSD_VALUE}
+    NEOPICO_EXP_RGB888_SCANOUT=${EXP_RGB888_SCANOUT_VALUE}
 )
 
 pico_enable_stdio_usb(neopico_hd 1)

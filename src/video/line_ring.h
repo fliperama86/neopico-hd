@@ -19,6 +19,13 @@
 typedef struct {
     uint16_t lines[LINE_RING_SIZE][LINE_WIDTH]; // ~25KB line buffer
 
+#if NEOPICO_EXP_RGB888_SCANOUT
+    // RGB888 scanout stores raw entropy (DARK + raw RGB555) in the 16 bits
+    // above, which leaves no room for SHADOW. SHADOW is a screen-wide control
+    // (system latch bit 0), so one flag per line is faithful and costs 256 B.
+    uint8_t line_shadow[LINE_RING_SIZE];
+#endif
+
     // Core 0 (producer) state
     volatile uint32_t write_idx;      // Global write position (lines written total)
     volatile uint32_t frame_base_idx; // Global index where current frame starts
@@ -145,5 +152,19 @@ static inline const uint16_t *line_ring_read_ptr(uint16_t line)
     uint32_t target_idx = g_line_ring.read_frame_start + line;
     return g_line_ring.lines[target_idx % LINE_RING_SIZE];
 }
+
+#if NEOPICO_EXP_RGB888_SCANOUT
+static inline void line_ring_write_shadow(uint16_t line, uint32_t shadow)
+{
+    uint32_t target_idx = g_line_ring.frame_base_idx + line;
+    g_line_ring.line_shadow[target_idx % LINE_RING_SIZE] = (uint8_t)(shadow & 1U);
+}
+
+static inline uint32_t line_ring_read_shadow(uint16_t line)
+{
+    uint32_t target_idx = g_line_ring.read_frame_start + line;
+    return g_line_ring.line_shadow[target_idx % LINE_RING_SIZE];
+}
+#endif
 
 #endif // LINE_RING_H
