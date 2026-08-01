@@ -273,8 +273,14 @@ target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_240P_HSTX_CLK_DIV=2)
 # reachable/registered when genlock is built in. Default builds get none of
 # this new code -- scratch_x is exactly full there and cannot take even one
 # extra instruction.
+# PUBLIC (not PRIVATE): the app (main.c) must see this flag too, to decide
+# whether video_mode_240_p_genlock exists before referencing it -- the
+# struct's declaration in video_output_rt.h is gated on this same macro, so
+# the app and the library must always agree on its value. Values pico_hdmi
+# uses internally are identical either way; PUBLIC only adds propagation to
+# consumers linking against the target.
 if(NEOPICO_EXP_GENLOCK_DYNAMIC AND NOT NEOPICO_DIAG_NO_LIB_HTRIM)
-    target_compile_definitions(pico_hdmi PRIVATE PICO_HDMI_VBLANK_HTRIM=1)
+    target_compile_definitions(pico_hdmi PUBLIC PICO_HDMI_VBLANK_HTRIM=1)
 endif()
 
 pico_set_binary_type(neopico_hd copy_to_ram)

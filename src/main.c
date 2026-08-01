@@ -44,6 +44,36 @@ line_ring_t g_line_ring __attribute__((aligned(64)));
 // (picture identical); requires VREG 1.30V and copy_to_ram (252 MHz overclock).
 #define SYS_CLK_480P_KHZ 252000U
 
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+// 480p/720p need no genlock-specific mode: their genlock is vtotal/htrim
+// dithered at runtime around the same descriptor. 240p's genlock raster
+// differs in h_total (1613 vs 1600, see video_mode_240_p_genlock), which is
+// baked into command lists at mode apply, so it needs a distinct descriptor
+// selected here instead of a runtime-only knob.
+//
+// This whole function is duplicated (rather than adding a parameter to the
+// one below) so that a non-genlock build's compiled main.c is byte-for-byte
+// identical to before this feature existed -- scratch_x is exactly full in
+// default builds, and while this function itself isn't scratch-resident,
+// byte-identity here is still how the gates in this task were verified.
+static const video_mode_t *video_output_mode_for_reboot_mode(video_pipeline_reboot_mode_t mode, bool genlock_enabled)
+{
+    if (mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
+        return &video_mode_720_p;
+    }
+    if (mode != VIDEO_PIPELINE_REBOOT_MODE_240P) {
+        return &video_mode_480_p;
+    }
+#if PICO_HDMI_VBLANK_HTRIM
+    if (genlock_enabled) {
+        return &video_mode_240_p_genlock;
+    }
+#else
+    (void)genlock_enabled;
+#endif
+    return &video_mode_240_p;
+}
+#else
 static const video_mode_t *video_output_mode_for_reboot_mode(video_pipeline_reboot_mode_t mode)
 {
     if (mode == VIDEO_PIPELINE_REBOOT_MODE_720P) {
@@ -51,6 +81,7 @@ static const video_mode_t *video_output_mode_for_reboot_mode(video_pipeline_rebo
     }
     return (mode == VIDEO_PIPELINE_REBOOT_MODE_240P) ? &video_mode_240_p : &video_mode_480_p;
 }
+#endif
 
 static void combined_background_task(void)
 {
@@ -80,6 +111,23 @@ int main(void)
     }
     neopico_settings_t persisted;
     settings_load(&persisted);
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+    // Genlock is opt-in (default off) and, like resolution, applied only at
+    // boot: the menu optimistically persists the new value to flash before
+    // rebooting (see menu_diag_experiment.c), so the flash copy already
+    // reflects the to-be-confirmed value by the time we read it here.
+    const bool genlock_enabled = persisted.genlock_enabled != 0U;
+    // Same safety net as resolution, for the genlock on/off setting: if this
+    // (warm) boot is a pending genlock change, arm the keep/revert countdown.
+    // genlock_enabled already holds the new (to-be-confirmed) value, applied
+    // above from flash; the pending marker carries only the revert-to value.
+    {
+        bool genlock_confirm_previous;
+        if (video_pipeline_take_genlock_pending_confirmation(&genlock_confirm_previous)) {
+            menu_diag_experiment_arm_genlock_confirm(genlock_enabled, genlock_confirm_previous);
+        }
+    }
+#endif
 #if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
     // Audio-source changes reboot through the existing warm-reboot path, so
     // unlike resolution the persisted source must be loaded on every boot.
@@ -189,7 +237,11 @@ int main(void)
     video_output_set_dvi_mode(true);
 #endif
     if (reboot_boot_mode != VIDEO_PIPELINE_REBOOT_MODE_480P) {
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+        video_output_set_mode(video_output_mode_for_reboot_mode(reboot_boot_mode, genlock_enabled));
+#else
         video_output_set_mode(video_output_mode_for_reboot_mode(reboot_boot_mode));
+#endif
     }
     video_pipeline_init(FRAME_WIDTH, FRAME_HEIGHT);
     video_output_set_background_task(combined_background_task);
@@ -198,6 +250,12 @@ int main(void)
     video_capture_init(SOURCE_HEIGHT);
     sleep_ms(200);
     stdio_flush();
+
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+    // Latch once, before Core 1 launch, so the vsync callback's gate on
+    // Core 1 is a single load (see video_pipeline_vsync_callback()).
+    video_pipeline_set_genlock_enabled(genlock_enabled);
+#endif
 
     // Launch Core 1 for HSTX output
     multicore_launch_core1(video_output_core1_run);

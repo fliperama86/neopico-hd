@@ -73,6 +73,23 @@ bool video_pipeline_take_reboot_240p_boot_request(bool *enabled);
 #ifndef NEOPICO_EXP_GENLOCK_DYNAMIC
 #define NEOPICO_EXP_GENLOCK_DYNAMIC 0
 #endif
+
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+// Genlock on/off: a flash-persisted setting (default off), applied at boot
+// like resolution -- not live-toggled (see video_pipeline.c). Call
+// video_pipeline_set_genlock_enabled() once at boot, before Core 1 launch.
+void video_pipeline_set_genlock_enabled(bool enabled);
+bool video_pipeline_genlock_enabled(void);
+
+// Genlock-change safety net, mirroring the resolution one above for a single
+// on/off bit: reboot with the new setting active (persisted to flash by the
+// caller beforehand, mirroring the resolution selector's optimistic-save
+// pattern) but flagged PENDING confirmation, carrying `previous_enabled` (the
+// revert-to value) across the reboot. Not persisted itself.
+void video_pipeline_request_reboot_genlock_pending(bool new_enabled, bool previous_enabled);
+bool video_pipeline_take_genlock_pending_confirmation(bool *previous_enabled);
+#endif
+
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
 #define VIDEO_PIPELINE_VSYNC_RAM __scratch_y("genlock_vsync")
 #else
