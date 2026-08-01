@@ -31,11 +31,7 @@ jobs:
     # (-ffile-prefix-map on both sides, normalizing to a neutral path) was
     # considered and deferred: it changes the bytes of the already
     # hardware-validated binary, which is the one thing this task must not do.
-    # Real directories, not symlinks: actions/checkout's `path:` input is
-    # resolved with Node's path.resolve(github.workspace, path), which
-    # returns an absolute second argument unchanged, so it clones directly
-    # to the given absolute path instead of nesting under github.workspace.
-    # Chosen over a symlink specifically to avoid depending on whether
+    # Real directories, not symlinks: chosen to avoid depending on whether
     # CMake/GCC resolve a symlinked source dir to its target before
     # embedding it -- that would need verifying per toolchain/CMake version;
     # a real directory at the exact path sidesteps the question entirely.
@@ -50,7 +46,15 @@ jobs:
         submodules: recursive
         fetch-depth: 0
         fetch-tags: true
-        path: /Users/dudu/Projects/neogeo/neopico-hd
+
+    # actions/checkout@v4 refuses a `path:` outside github.workspace
+    # ("Repository path ... is not under ...", confirmed on this runner) --
+    # it always checks out under github.workspace regardless. Relocate the
+    # populated checkout afterward instead: copy rather than move, so
+    # github.workspace still exists as a valid (if now-stale) directory for
+    # any later step's default working-directory.
+    - name: Relocate checkout to local-path mirror
+      run: cp -a "$GITHUB_WORKSPACE"/. /Users/dudu/Projects/neogeo/neopico-hd/
 
     - name: Install Dependencies
       run: |
