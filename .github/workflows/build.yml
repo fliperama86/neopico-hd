@@ -30,7 +30,27 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+        sudo apt-get install -y cmake
+
+    # Pinned to the exact toolchain used for local hardware validation (Arm
+    # GNU Toolchain 13.2.Rel1) instead of the distro gcc-arm-none-eabi
+    # package. Ubuntu's build (15:13.2 Ubuntu package) produced a v0.11.0 CI
+    # artifact that differed byte-for-byte from the tested binary. Installed
+    # by direct download + SHA256 verification (rather than a third-party
+    # action) so the exact bytes fetched are pinned and auditable in this
+    # file, not delegated to whatever a moving action tag resolves to. The
+    # official archive is self-contained (bundles its own newlib/libstdc++),
+    # so the separate libnewlib-arm-none-eabi/libstdc++-arm-none-eabi-newlib
+    # apt packages are no longer needed.
+    - name: Install Arm GNU Toolchain (pinned 13.2.Rel1)
+      run: |
+        cd /tmp
+        curl -fsSL -o arm-toolchain.tar.xz \
+          https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-x86_64-arm-none-eabi.tar.xz
+        echo "6cd1bbc1d9ae57312bcd169ae283153a9572bd6a8e4eeae2fedfbc33b115fdbb  arm-toolchain.tar.xz" | sha256sum -c -
+        mkdir -p "$HOME/arm-gnu-toolchain-13.2.Rel1"
+        tar -xf arm-toolchain.tar.xz -C "$HOME/arm-gnu-toolchain-13.2.Rel1" --strip-components=1
+        echo "$HOME/arm-gnu-toolchain-13.2.Rel1/bin" >> "$GITHUB_PATH"
 
     - name: Setup Pico SDK
       run: |
