@@ -5,11 +5,15 @@
 NeoPico-HD captures RGB555 plus the per-pixel SHADOW and DARK signals.
 
 - `NEOPICO_ENABLE_DARK_SHADOW=OFF` is still the default. It converts all 32,768 RGB555 colors exactly to RGB565 and ignores the two effect flags.
-- `NEOPICO_ENABLE_DARK_SHADOW=ON` enables four independent states: normal, SHADOW, DARK, and DARK+SHADOW.
-- `NEOPICO_MVS_EFFECT_MODEL=MISTER` selects the default digital-reference model.
-- `NEOPICO_MVS_EFFECT_MODEL=MAME` selects MAME's analog resistor-network model.
+- `NEOPICO_ENABLE_DARK_SHADOW=ON` enables the effect states.
+- `NEOPICO_MVS_EFFECT_MODEL=MISTER` selects the default digital-reference model (four states).
+- `NEOPICO_MVS_EFFECT_MODEL=MAME` selects MAME's analog resistor-network model (four states).
+- `NEOPICO_MVS_EFFECT_MODEL=DIGIAV` selects the cps2_digiav model (three states: SHADOW forces DARK).
+- `NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING=ON` computes the effect in registers instead of building a LUT. It supports `MISTER` and `DIGIAV`; `MAME` is a measured table with no closed form and stays LUT-only.
 
-The effect model is still selected at compile time. This split-LUT path produced bottom-screen pixel jitter in hardware testing and remains a separate default-off experiment.
+The effect model is selected at compile time. The split-LUT path produced bottom-screen pixel jitter in hardware testing. The register path was measured stable on hardware for `MISTER` and is the backend to use for model comparisons, since a jittery build cannot be evaluated visually.
+
+None of the three models has been checked against a measured MV1C. They disagree most on SHADOW, so they exist to be compared on real hardware rather than because any one is known to be correct.
 
 The live Colors menu is a different feature, available automatically whenever DARK/SHADOW is off. Its OSD values, `Digital` and `Analog`, select normal-pixel conversion only. It keeps both normal-color LUTs and previews by switching one active pointer at input VSYNC. SELECT restores the committed model; START/MENU persists the preview without a firmware reboot. Both choices ignore the captured SHADOW/DARK signals, and the build system compiles the menu out automatically when DARK/SHADOW is enabled, rather than allowing both at once.
 
@@ -59,6 +63,27 @@ Firmware stores the exact 128 precomputed channel results, so no floating-point 
 | DARK+SHADOW | 141 |
 
 MAME intentionally applies its non-ideal resistor curve to normal colors too. It is useful as an analog-emulation reference, but it is not a measurement of the specific MV1C board, DAC loading, video amplifier, display chain, or calibration target.
+
+## cps2_digiav Model
+
+The DIGIAV profile is transcribed from cps2_digiav, which is the only one of the three references that, like this project, taps a real board digitally rather than recreating it. `board/neogeo/rtl/neogeo_frontend.v` applies SHADOW before expansion and forces the dark bit, and `rtl_common/scanconverter.v` expands and applies DARK:
+
+```text
+if SHADOW: value5 = value5 >> 1, DARK = 1
+value8 = (value5 << 3) | (value5 >> 2)
+if DARK:   value8 = max(value8 - 4, 0)
+```
+
+Because SHADOW forces DARK, this model has three distinct states rather than four: SHADOW and DARK+SHADOW are identical. White endpoints before RGB565 packing are:
+
+| State | RGB888 component |
+| :--- | ---: |
+| Normal | 255 |
+| DARK | 251 |
+| SHADOW | 119 |
+| DARK+SHADOW | 119 |
+
+Normal and DARK output are identical to MiSTer after RGB565 packing. The models differ only in the SHADOW states, where cps2_digiav is the darkest of the three because it discards the RGB555 LSB before expanding and then subtracts the dark step as well.
 
 ## Compact Four-State LUT
 

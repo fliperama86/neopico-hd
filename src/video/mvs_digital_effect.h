@@ -4,6 +4,17 @@
 #include <stdint.h>
 
 #include "mvs_color.h"
+#include "mvs_effect_model.h"
+
+// Register processing exists for the two formula-based models. MAME is a
+// measured resistor table with no closed form, so it stays LUT-only.
+#if MVS_EFFECT_MODEL == MVS_EFFECT_MODEL_MAME
+#define MVS_DIGITAL_EFFECT_SUPPORTED 0
+#else
+#define MVS_DIGITAL_EFFECT_SUPPORTED 1
+#endif
+
+#if MVS_DIGITAL_EFFECT_SUPPORTED
 
 #define MVS_DIGITAL_EFFECT_STATE_SHADOW 0x1U
 #define MVS_DIGITAL_EFFECT_STATE_DARK 0x2U
@@ -22,6 +33,55 @@ static inline uint32_t mvs_digital_effect_decrement6(uint32_t value6)
     return value6 - (value6 != 0U);
 #endif
 }
+
+#if MVS_EFFECT_MODEL == MVS_EFFECT_MODEL_DIGIAV
+
+static inline uint32_t mvs_digital_effect_dark8(uint32_t value8)
+{
+#if defined(__ARM_FEATURE_DSP) && __ARM_FEATURE_DSP == 1
+    // USAT reads the wrapped result of values below four as signed negative and
+    // clamps it to zero, matching the Verilog's (data > 4) guard exactly while
+    // avoiding a data-dependent branch.
+    __asm__("subs %0, %0, #4\n\tusat %0, #8, %0" : "+r"(value8) : : "cc");
+    return value8;
+#else
+    return (value8 > 0x04U) ? (value8 - 0x04U) : 0U;
+#endif
+}
+
+// Exact cps2_digiav conversion. SHADOW discards the RGB555 LSB before
+// expansion and forces DARK, so SHADOW and DARK+SHADOW produce identical
+// output. Channels expand to eight bits as {value5, value5[4:2]} and DARK
+// subtracts four with saturation.
+static inline uint16_t mvs_digital_effect_pack_rgb565(uint32_t r5, uint32_t g5, uint32_t b5, uint32_t effect_state)
+{
+    r5 &= 0x1FU;
+    g5 &= 0x1FU;
+    b5 &= 0x1FU;
+
+    const uint32_t state = effect_state & MVS_DIGITAL_EFFECT_STATE_MASK;
+
+    // Normal pixels need no effect arithmetic: truncating the expanded eight-bit
+    // channels back to RGB565 reproduces the untouched RGB555 fields.
+    if (state == 0U) {
+        const uint32_t g6_normal = (g5 << 1U) | (g5 >> 4U);
+        return (uint16_t)((r5 << 11U) | (g6_normal << 5U) | b5);
+    }
+
+    if ((state & MVS_DIGITAL_EFFECT_STATE_SHADOW) != 0U) {
+        r5 >>= 1U;
+        g5 >>= 1U;
+        b5 >>= 1U;
+    }
+
+    const uint32_t r8 = mvs_digital_effect_dark8((r5 << 3U) | (r5 >> 2U));
+    const uint32_t g8 = mvs_digital_effect_dark8((g5 << 3U) | (g5 >> 2U));
+    const uint32_t b8 = mvs_digital_effect_dark8((b5 << 3U) | (b5 >> 2U));
+
+    return (uint16_t)(((r8 >> 3U) << 11U) | ((g8 >> 2U) << 5U) | (b8 >> 3U));
+}
+
+#else
 
 // Exact Digital-reference conversion after RGB565 truncation. DARK subtracts
 // one from each expanded six-bit channel with saturation. SHADOW then halves
@@ -58,6 +118,8 @@ static inline uint16_t mvs_digital_effect_pack_rgb565(uint32_t r5, uint32_t g5, 
     }
     return (uint16_t)pixel;
 }
+
+#endif // MVS_EFFECT_MODEL == MVS_EFFECT_MODEL_DIGIAV
 
 static inline uint16_t mvs_digital_effect_rgb565_color(uint32_t color_idx, uint32_t effect_state)
 {
@@ -117,5 +179,7 @@ static inline uint16_t mvs_digital_effect_rgb565_raw(uint32_t raw)
     return mvs_digital_effect_rgb565_color(color_idx, effect_state);
 #endif
 }
+
+#endif // MVS_DIGITAL_EFFECT_SUPPORTED
 
 #endif // NEOPICO_HD_MVS_DIGITAL_EFFECT_H

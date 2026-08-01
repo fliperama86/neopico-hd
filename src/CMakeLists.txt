@@ -106,8 +106,8 @@ option(NEOPICO_DIAG_COUNTERS "Capture-health counters dumped over USB-serial (72
 # options.
 option(NEOPICO_ENABLE_DARK_SHADOW "Enable experimental four-state DARK/SHADOW conversion in MVS capture" OFF)
 set(NEOPICO_MVS_EFFECT_MODEL "MISTER" CACHE STRING
-    "MVS DARK/SHADOW color model when enabled: MISTER (digital reference) or MAME (analog resistor model)")
-set_property(CACHE NEOPICO_MVS_EFFECT_MODEL PROPERTY STRINGS MISTER MAME)
+    "MVS DARK/SHADOW color model when enabled: MISTER (digital reference), MAME (analog resistor model), or DIGIAV (cps2_digiav three-state: SHADOW forces DARK)")
+set_property(CACHE NEOPICO_MVS_EFFECT_MODEL PROPERTY STRINGS MISTER MAME DIGIAV)
 option(NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING
     "EXPERIMENTAL: process the Digital DARK/SHADOW model with register operations instead of the split LUT" OFF)
 # NEOPICO_MVS_COLOR_MODEL_MENU is no longer an independent cache option: the
@@ -129,8 +129,10 @@ if(NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "MISTER")
     set(MVS_EFFECT_MODEL_VALUE 1)
 elseif(NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "MAME")
     set(MVS_EFFECT_MODEL_VALUE 2)
+elseif(NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "DIGIAV")
+    set(MVS_EFFECT_MODEL_VALUE 3)
 else()
-    message(FATAL_ERROR "NEOPICO_MVS_EFFECT_MODEL must be MISTER or MAME")
+    message(FATAL_ERROR "NEOPICO_MVS_EFFECT_MODEL must be MISTER, MAME, or DIGIAV")
 endif()
 
 # MVS is always the SELECTABLE audio source (OSD picker between the digital
@@ -156,9 +158,12 @@ if(NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING)
         message(FATAL_ERROR
             "NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING requires NEOPICO_ENABLE_DARK_SHADOW=ON")
     endif()
-    if(NOT NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "MISTER")
+    # MAME is a measured resistor table with no closed form, so it has no
+    # register implementation and stays on the split LUT.
+    if(NOT NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "MISTER"
+       AND NOT NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "DIGIAV")
         message(FATAL_ERROR
-            "NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING supports only NEOPICO_MVS_EFFECT_MODEL=MISTER")
+            "NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING supports NEOPICO_MVS_EFFECT_MODEL=MISTER or DIGIAV")
     endif()
     set(MVS_DIGITAL_EFFECT_PROCESSING_VALUE 1)
 else()

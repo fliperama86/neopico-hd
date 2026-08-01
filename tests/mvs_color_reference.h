@@ -4,6 +4,27 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+// Independent cps2_digiav reference model transcribed from the Verilog:
+// board/neogeo/rtl/neogeo_frontend.v applies SHADOW as {1'b0, RGB_i[4:1]} and
+// asserts DARK_o, and rtl_common/scanconverter.v apply_darkbit expands with
+// {data, data[4:2]} then subtracts 8'h04 when the dark bit is set.
+static inline uint8_t digiav_reference_channel(uint32_t value5, bool dark, bool shadow)
+{
+    uint32_t channel = value5 & 0x1FU;
+    bool dark_effective = dark;
+
+    if (shadow) {
+        channel = (channel & 0x1EU) >> 1U;
+        dark_effective = true;
+    }
+
+    uint32_t expanded = (channel << 3U) | ((channel >> 2U) & 0x7U);
+    if (dark_effective) {
+        expanded = (expanded > 0x04U) ? (expanded - 0x04U) : 0U;
+    }
+    return (uint8_t)expanded;
+}
+
 // Independent MiSTer reference model pinned to:
 // https://github.com/MiSTer-devel/NeoGeo_MiSTer/blob/
 // 2325e6c4303dc9a3fd554b18d9833e992ccd444f/neogeo.sv#L2205-L2222

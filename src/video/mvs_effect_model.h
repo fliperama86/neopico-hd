@@ -5,8 +5,21 @@
 
 // Compile exactly one DARK/SHADOW color model into firmware. MiSTer is the
 // default digital reference. MAME models the Neo Geo analog resistor network.
+// cps2_digiav is the only reference that, like this project, taps a real board
+// digitally; it collapses SHADOW and DARK+SHADOW into a single darker state.
+// None of the three has been checked against a measured MV1C, so they exist to
+// be compared on hardware rather than because one is known to be correct.
 #define MVS_EFFECT_MODEL_MISTER 1
 #define MVS_EFFECT_MODEL_MAME 2
+#define MVS_EFFECT_MODEL_DIGIAV 3
+
+// Four-state models keep SHADOW and DARK+SHADOW distinct. cps2_digiav is a
+// three-state model because SHADOW forces DARK.
+#if MVS_EFFECT_MODEL == MVS_EFFECT_MODEL_DIGIAV
+#define MVS_EFFECT_MODEL_FOUR_STATE 0
+#else
+#define MVS_EFFECT_MODEL_FOUR_STATE 1
+#endif
 
 #ifndef MVS_EFFECT_MODEL
 #define MVS_EFFECT_MODEL MVS_EFFECT_MODEL_MISTER
@@ -66,8 +79,36 @@ static inline uint8_t mvs_effect_model_channel(uint32_t value5, uint32_t effect_
     return channel[effect_state & MVS_EFFECT_STATE_MASK][value5 & 0x1FU];
 }
 
+#elif MVS_EFFECT_MODEL == MVS_EFFECT_MODEL_DIGIAV
+
+#define MVS_EFFECT_MODEL_NAME "cps2_digiav"
+
+// Exact per-channel behavior pinned to cps2_digiav:
+// board/neogeo/rtl/neogeo_frontend.v lines 77-80 halve the RGB555 channel and
+// force DARK when SHADOW is asserted, then rtl_common/scanconverter.v
+// apply_darkbit expands five bits to eight as {data, data[4:2]} and subtracts
+// four with underflow clamped to zero.
+static inline uint8_t mvs_effect_model_channel(uint32_t value5, uint32_t effect_state)
+{
+    value5 &= 0x1FU;
+
+    // SHADOW discards the RGB555 LSB before expansion and forces DARK, which
+    // is what makes SHADOW and DARK+SHADOW identical in this model.
+    uint32_t dark = (effect_state & MVS_EFFECT_STATE_DARK) != 0U;
+    if ((effect_state & MVS_EFFECT_STATE_SHADOW) != 0U) {
+        value5 >>= 1U;
+        dark = 1U;
+    }
+
+    uint32_t value8 = (value5 << 3U) | (value5 >> 2U);
+    if (dark != 0U) {
+        value8 = (value8 > 4U) ? (value8 - 4U) : 0U;
+    }
+    return (uint8_t)value8;
+}
+
 #else
-#error "MVS_EFFECT_MODEL must be MVS_EFFECT_MODEL_MISTER or MVS_EFFECT_MODEL_MAME"
+#error "MVS_EFFECT_MODEL must be MVS_EFFECT_MODEL_MISTER, MVS_EFFECT_MODEL_MAME, or MVS_EFFECT_MODEL_DIGIAV"
 #endif
 
 #endif // NEOPICO_HD_MVS_EFFECT_MODEL_H

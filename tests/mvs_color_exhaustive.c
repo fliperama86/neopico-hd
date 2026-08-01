@@ -74,7 +74,7 @@ static rgb888_t hstx_rgb565_to_rgb888(uint16_t pixel)
 
 static uint32_t scale_5_to_8_linear(uint32_t value)
 {
-    return (value * 255U + 15U) / 31U;
+    return ((value * 255U) + 15U) / 31U;
 }
 
 static uint32_t abs_diff_u8(uint8_t a, uint8_t b)
@@ -100,6 +100,9 @@ static uint8_t selected_reference_channel(const void *context, uint32_t value5, 
     return mister_reference_channel(value5, dark, shadow);
 #elif MVS_EFFECT_MODEL == MVS_EFFECT_MODEL_MAME
     return mame_reference_channel((const mame_reference_t *)context, value5, dark, shadow);
+#elif MVS_EFFECT_MODEL == MVS_EFFECT_MODEL_DIGIAV
+    (void)context;
+    return digiav_reference_channel(value5, dark, shadow);
 #else
 #error "Unsupported production effect model"
 #endif
@@ -193,6 +196,9 @@ static uint32_t split_rgb888_lookup(const split_rgb888_tables_t *tables, uint32_
     return tables->rg[flags & 3U][normalized >> 5U] | tables->b[flags & 3U][normalized & 0x1FU];
 }
 
+// stats is used below. clang-tidy misanalyzes this file because it cannot
+// locate the host <inttypes.h>, and its auto-fix strips a live parameter.
+// NOLINTNEXTLINE(misc-unused-parameters)
 static void print_comparison(const char *label, const comparison_stats_t stats[4])
 {
     static const uint32_t display_order[4] = {0U, MVS_FLAG_DARK, MVS_FLAG_SHADOW, MVS_FLAG_DARK | MVS_FLAG_SHADOW};
@@ -295,6 +301,12 @@ int main(void)
     CHECK(mame_reference_channel(&mame_reference, 31U, true, false) == 251U, "MAME DARK white endpoint changed");
     CHECK(mame_reference_channel(&mame_reference, 31U, false, true) == 142U, "MAME SHADOW white endpoint changed");
     CHECK(mame_reference_channel(&mame_reference, 31U, true, true) == 141U, "MAME DARK+SHADOW white endpoint changed");
+    CHECK(digiav_reference_channel(31U, false, false) == 255U, "cps2_digiav normal white endpoint changed");
+    CHECK(digiav_reference_channel(31U, true, false) == 251U, "cps2_digiav DARK white endpoint changed");
+    CHECK(digiav_reference_channel(31U, false, true) == 119U, "cps2_digiav SHADOW white endpoint changed");
+    CHECK(digiav_reference_channel(31U, true, true) == 119U, "cps2_digiav DARK+SHADOW white endpoint changed");
+    CHECK(digiav_reference_channel(31U, false, true) == digiav_reference_channel(31U, true, true),
+          "cps2_digiav SHADOW must force DARK");
 
     uint32_t corrected_duplicates = 0;
     uint32_t release_pack_code_mismatches = 0;
@@ -441,8 +453,16 @@ int main(void)
     CHECK(production_dark_differs_from_normal != 0U, "%s DARK state collapsed to normal", MVS_EFFECT_MODEL_NAME);
     CHECK(production_shadow_differs_from_normal != 0U, "%s SHADOW state collapsed to normal", MVS_EFFECT_MODEL_NAME);
     CHECK(production_both_differs_from_normal != 0U, "%s DARK+SHADOW state collapsed to normal", MVS_EFFECT_MODEL_NAME);
+#if MVS_EFFECT_MODEL_FOUR_STATE
     CHECK(production_shadow_both_differences != 0U, "%s SHADOW and DARK+SHADOW states collapsed together",
           MVS_EFFECT_MODEL_NAME);
+#else
+    // SHADOW forces DARK in this model, so the two states must be identical for
+    // every color. Any difference means the three-state behavior has drifted.
+    CHECK(production_shadow_both_differences == 0U,
+          "%s SHADOW and DARK+SHADOW must be identical but differ in %" PRIu32 " cases", MVS_EFFECT_MODEL_NAME,
+          production_shadow_both_differences);
+#endif
 
     comparison_stats_t mister_vs_mame[4] = {0};
     comparison_stats_t mister_rgb565_transport[4] = {0};
@@ -479,7 +499,9 @@ int main(void)
                 mvs_effect_lut_lookup_color(&g_production_effect_lut, color_idx, flags);
             const uint32_t synthesized_raw = (color_idx << 2U) | (flags << 17U);
             const uint16_t production_raw_rgb565 = mvs_effect_lut_lookup_raw(&g_production_effect_lut, synthesized_raw);
+#if MVS_DIGITAL_EFFECT_SUPPORTED
             const uint16_t digital_processing_color = mvs_digital_effect_rgb565_color(color_idx, flags);
+#endif
 
             mister_split_rgb565_mismatches += (mister_split_rgb565 != mister_expected_rgb565);
             mame_split_rgb565_mismatches += (mame_split_rgb565 != mame_expected_rgb565);
@@ -487,26 +509,37 @@ int main(void)
             mame_split_rgb888_mismatches += (mame_split_rgb888 != reference_pack_rgb888(mame_exact));
             production_split_rgb565_mismatches += (production_split_rgb565 != production_expected_rgb565);
             production_raw_lookup_mismatches += (production_raw_rgb565 != production_expected_rgb565);
-            digital_processing_color_mismatches += (digital_processing_color != mister_expected_rgb565);
+#if MVS_DIGITAL_EFFECT_SUPPORTED
+            // The register path must reproduce whichever model is compiled in,
+            // not MiSTer specifically.
+            digital_processing_color_mismatches += (digital_processing_color != production_expected_rgb565);
+#endif
 
+#if MVS_DIGITAL_EFFECT_SUPPORTED
             // CSYNC and PCLK are captured in raw bits 0 and 1. Exercise every
             // combination so neither signal can leak into the blue field.
             for (uint32_t captured_low_bits = 0; captured_low_bits < 4U; captured_low_bits++) {
                 const uint32_t raw_with_capture_bits = synthesized_raw | captured_low_bits;
                 const uint16_t digital_processing_raw = mvs_digital_effect_rgb565_raw(raw_with_capture_bits);
                 const uint16_t digital_processing_normal = mvs_digital_effect_normal_rgb565_raw(raw_with_capture_bits);
-                digital_processing_raw_mismatches += (digital_processing_raw != mister_expected_rgb565);
+                digital_processing_raw_mismatches += (digital_processing_raw != production_expected_rgb565);
                 if (flags == 0U) {
-                    digital_processing_raw_mismatches += (digital_processing_normal != mister_expected_rgb565);
+                    digital_processing_raw_mismatches += (digital_processing_normal != production_expected_rgb565);
                 }
             }
+#endif
 
+#if MVS_EFFECT_MODEL == MVS_EFFECT_MODEL_MISTER
+            // MiSTer-only shortcut: SHADOW is a halve of the packed RGB565
+            // value. cps2_digiav halves before expansion and forces DARK, so
+            // this identity does not hold there.
             if ((flags & MVS_FLAG_SHADOW) != 0U) {
                 const uint32_t unshadowed_flags = flags & ~MVS_FLAG_SHADOW;
                 const uint16_t unshadowed = mvs_digital_effect_rgb565_color(color_idx, unshadowed_flags);
                 const uint16_t packed_shadow = (uint16_t)((unshadowed >> 1U) & 0x7BEFU);
                 digital_processing_shadow_identity_mismatches += digital_processing_color != packed_shadow;
             }
+#endif
 
             comparison_add(&mister_vs_mame[flags], mister_exact, mame_exact);
             comparison_add(&mister_rgb565_transport[flags], hstx_rgb565_to_rgb888(mister_split_rgb565), mister_exact);
@@ -574,7 +607,13 @@ int main(void)
            production_raw_lookup_mismatches);
     printf("  Digital processing color/raw mismatch: %" PRIu32 "/%" PRIu32 "\n", digital_processing_color_mismatches,
            digital_processing_raw_mismatches);
+#if MVS_EFFECT_MODEL == MVS_EFFECT_MODEL_MISTER
     printf("  Digital packed SHADOW mismatches:       %" PRIu32 "\n", digital_processing_shadow_identity_mismatches);
+#else
+    // The packed-halve identity is MiSTer-only; reporting a zero here would
+    // imply a check that never ran.
+    printf("  Digital packed SHADOW mismatches:       n/a (%s)\n", MVS_EFFECT_MODEL_NAME);
+#endif
     printf("  Raw RGB555 colors tested:              %u\n", MVS_CAPTURE_COLOR_SIZE);
     printf("  Color/effect combinations tested:      %" PRIu64 "\n", state_cases);
     printf("  Input correction duplicates:           %" PRIu32 "\n", corrected_duplicates);

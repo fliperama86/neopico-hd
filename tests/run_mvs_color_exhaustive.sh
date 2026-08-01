@@ -6,7 +6,7 @@ build_dir="${TMPDIR:-/tmp}/neopico-hd-host-tests"
 
 mkdir -p "${build_dir}"
 
-for model in 1 2; do
+for model in 1 2 3; do
     binary="${build_dir}/mvs_color_exhaustive_model_${model}"
     "${CC:-cc}" \
         -std=c11 \
