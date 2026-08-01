@@ -104,12 +104,22 @@ option(NEOPICO_DIAG_COUNTERS "Capture-health counters dumped over USB-serial (72
 # assignments and debounce time are board/tuning constants, not build
 # variants: they are plain #defines in src/capture_pins.h now, not cache
 # options.
-option(NEOPICO_ENABLE_DARK_SHADOW "Enable experimental four-state DARK/SHADOW conversion in MVS capture" OFF)
+# DARK/SHADOW conversion is ON by default as of v0.11.0. Ignoring the two
+# effect signals renders every dark-bit shade identical to its light
+# counterpart and renders SHADOW scenes at full brightness, so enabling it is
+# strictly more accurate than leaving it off. Turning it OFF restores the live
+# Colors selector, which cannot coexist with it (see below).
+option(NEOPICO_ENABLE_DARK_SHADOW "Four-state DARK/SHADOW conversion in MVS capture" ON)
 set(NEOPICO_MVS_EFFECT_MODEL "MISTER" CACHE STRING
     "MVS DARK/SHADOW color model when enabled: MISTER (digital reference), MAME (analog resistor model), or DIGIAV (cps2_digiav three-state: SHADOW forces DARK)")
 set_property(CACHE NEOPICO_MVS_EFFECT_MODEL PROPERTY STRINGS MISTER MAME DIGIAV)
-option(NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING
-    "EXPERIMENTAL: process the Digital DARK/SHADOW model with register operations instead of the split LUT" OFF)
+# NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING is no longer an independent cache
+# option: register processing is used automatically whenever DARK/SHADOW is on
+# and the selected model has a closed form (MISTER or DIGIAV). It must not be
+# a user toggle, because the alternative split-LUT backend produces
+# bottom-screen pixel jitter on hardware while the register path soaked clean.
+# MAME has no closed form (it is a measured resistor table) and therefore
+# falls back to the split LUT, which is why it is not a shippable model.
 # NEOPICO_MVS_COLOR_MODEL_MENU is no longer an independent cache option: the
 # live Colors selector is on whenever DARK/SHADOW is off (MVS only). This
 # preserves the original mutual exclusion with NEOPICO_ENABLE_DARK_SHADOW
@@ -144,27 +154,24 @@ else()
     set(AUDIO_MODE_VALUE 0) # NEOPICO_AUDIO_MODE_DIGITAL
 endif()
 
+# The DARK and SHADOW signals exist only on the MVS capture harness, so the
+# feature switches itself off for other targets rather than failing the build.
+if(NEOPICO_ENABLE_DARK_SHADOW AND NOT NEOPICO_CAPTURE_TARGET_UPPER STREQUAL "MVS")
+    message(STATUS "DARK/SHADOW is MVS-only: disabling it for capture target ${NEOPICO_CAPTURE_TARGET}")
+    set(NEOPICO_ENABLE_DARK_SHADOW OFF)
+endif()
+
 if(NEOPICO_ENABLE_DARK_SHADOW)
     set(ENABLE_DARK_SHADOW_VALUE 1)
 else()
     set(ENABLE_DARK_SHADOW_VALUE 0)
 endif()
 
-if(NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING)
-    if(NOT NEOPICO_CAPTURE_TARGET_UPPER STREQUAL "MVS")
-        message(FATAL_ERROR "NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING supports only the MVS capture target")
-    endif()
-    if(NOT NEOPICO_ENABLE_DARK_SHADOW)
-        message(FATAL_ERROR
-            "NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING requires NEOPICO_ENABLE_DARK_SHADOW=ON")
-    endif()
-    # MAME is a measured resistor table with no closed form, so it has no
-    # register implementation and stays on the split LUT.
-    if(NOT NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "MISTER"
-       AND NOT NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "DIGIAV")
-        message(FATAL_ERROR
-            "NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING supports NEOPICO_MVS_EFFECT_MODEL=MISTER or DIGIAV")
-    endif()
+# Derived, not user-selectable: use register processing whenever the selected
+# model has a closed form. MAME does not, so it falls back to the split LUT.
+if(NEOPICO_ENABLE_DARK_SHADOW
+   AND (NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "MISTER"
+        OR NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "DIGIAV"))
     set(MVS_DIGITAL_EFFECT_PROCESSING_VALUE 1)
 else()
     set(MVS_DIGITAL_EFFECT_PROCESSING_VALUE 0)
