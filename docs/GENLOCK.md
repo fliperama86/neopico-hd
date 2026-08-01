@@ -55,11 +55,34 @@ hw_set_bits(&xosc_hw->ctrl, XOSC_CTRL_ENABLE_VALUE_ENABLE << XOSC_CTRL_ENABLE_LS
 
 ---
 
-## Option 2: Dynamic VTOTAL Modulation (Software, deleted experiment)
+## Option 2: Dynamic VTOTAL Modulation (Software, `NEOPICO_EXP_GENLOCK_DYNAMIC`)
 
-This was implemented as `NEOPICO_EXP_GENLOCK_DYNAMIC` and later removed as a
-dead experiment (default off, never reached hardware-validated production
-maturity). The sketch below is kept as the design reference.
+Implemented, removed in the 2026-07-31 flag sunset, and **resurrected
+2026-08-01** (default OFF) to fix the ~1.2 s horizontal-scroll hiccup: the
+free-running ~60 Hz output beats against the 59.186 Hz MVS and repeats one
+input frame per beat. The restored implementation is the bench-tuned
+pre-sunset servo (wide-hysteresis ±1 vtotal acquire, constant-vtotal steady
+state with a rate-limited sub-line vblank h-trim integrator), not the simple
+sketch below, which is kept as the design reference.
+
+Resurrection notes:
+
+- Nominal vtotals: 532 (480p), 266 (240p), **751** (720p). The pre-sunset
+  720p nominal 762 belonged to the deleted 372 MHz 1650-h_total timing; the
+  exact-clock 1440×741 @ 64 MHz mode needs 751 (16 897.5 µs/frame vs the
+  16 896.0 µs MVS frame, residual ~1.5 µs/frame, well inside the ±30 px trim
+  authority of ~14.5 µs/frame over 31 vblank lines).
+- scratch_x content plus the 2 KiB core-1 stack fill that bank EXACTLY; the
+  genlock build therefore moves the vsync callback (which inlines the servo)
+  to scratch_y via `VIDEO_PIPELINE_VSYNC_RAM` (video_pipeline.h). The
+  default build keeps scratch_x placement and is byte-identical to
+  pre-resurrection firmware.
+- Nominals are MVS-tuned: a SNES build compiles but cannot lock to the SNES's
+  ~60.10 Hz (true pre-sunset as well; SNES remains best-effort).
+- Telemetry: root menu → Genlock (phase/trim/slots/vtotal/uptime + perf
+  probe). Not yet hardware-validated post-resurrection; the output refresh
+  becomes ~59.19 Hz, outside CTA's ±0.5 %, which the user has accepted as a
+  compatibility trade-off.
 
 The professional scan converter approach. No hardware changes needed. Measures the phase relationship between MVS and HDMI VSYNCs in real-time and modulates `v_total_lines` by ±1 to track.
 
@@ -172,5 +195,7 @@ static sysclk (no feedback). Also removed.
 
 ## Recommendation
 
-1. **If revisited**: re-implement dynamic VTOTAL modulation — no hardware changes, superior to static genlock, uses existing infrastructure. (Previously implemented and then removed as an unfinished experiment; see Option 2.)
+1. **Done (2026-08-01)**: dynamic VTOTAL modulation is back as
+   `NEOPICO_EXP_GENLOCK_DYNAMIC` (default OFF; see Option 2 resurrection
+   notes). Pending hardware soak before any default flip.
 2. **Next PCB rev**: Add MVS 12 MHz → XIN option for true hardware genlock.

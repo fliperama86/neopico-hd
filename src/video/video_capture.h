@@ -33,6 +33,13 @@ void video_capture_run(void);
  */
 uint32_t video_capture_get_frame_count(void);
 
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+/**
+ * Timestamp (timer_hw->timerawl) of the most recent input VSYNC, written by Core 0.
+ */
+extern volatile uint32_t g_mvs_vsync_timestamp;
+#endif
+
 #if NEOPICO_MVS_COLOR_MODEL_MENU
 // Request a color model. Before capture starts this establishes the initial
 // model; while running, Core 0 applies it atomically at the next input VSYNC.

@@ -90,6 +90,8 @@ add_executable(neopico_hd
 option(NEOPICO_VIDEO_DVI_ONLY "Disable HDMI Data Islands/audio output for video isolation tests" OFF)
 option(NEOPICO_VIDEO_TEST_PATTERN "Render a static Core 1 video test pattern instead of captured video" OFF)
 option(NEOPICO_DIAG_COUNTERS "Capture-health counters dumped over USB-serial (720p glitch diagnosis)" OFF)
+option(NEOPICO_EXP_GENLOCK_DYNAMIC
+    "Genlock the HDMI output to the capture source (dynamic VTOTAL acquire + sub-line blanking-trim servo). Output refresh follows the source (~59.19 Hz for MVS), a nonstandard rate some sinks may reject" OFF)
 # NOTE: OSD overlay/menu (incl. the root menu, self-test screen, translucent
 # panel, and controller-tap inputs), the reboot-based resolution selector
 # (incl. its 720p mode and post-switch confirmation), flash-backed settings
@@ -124,10 +126,15 @@ set_property(CACHE NEOPICO_MVS_EFFECT_MODEL PROPERTY STRINGS MISTER MAME DIGIAV)
 # live Colors selector is on whenever DARK/SHADOW is off (MVS only). This
 # preserves the original mutual exclusion with NEOPICO_ENABLE_DARK_SHADOW
 # without a separate toggle a user could set inconsistently.
-# The static/dynamic genlock experiments, the fixed-vtotal frame-rate-match
+# The static genlock experiment, the fixed-vtotal frame-rate-match
 # experiment, the hand-written M33 asm pixel-scale kernels (scale_pixels.S,
 # never hardware-validated against the C path), and the PC-monitor resolution
-# modes have all been deleted (dead experiments; see git history).
+# modes have all been deleted (dead experiments; see git history). The
+# dynamic genlock was deleted with them but is resurrected above as
+# NEOPICO_EXP_GENLOCK_DYNAMIC: the free-running ~60 Hz output beats against
+# the 59.186 Hz MVS and repeats one frame every ~1.2 s (visible as a scroll
+# hiccup); phase-locking the output to the source removes it. See
+# docs/GENLOCK.md.
 # NEOPICO_AUDIO_MODE is no longer an independent cache option: MVS is always
 # SELECTABLE (OSD audio-source picker) and SNES is always DIGITAL.
 option(NEOPICO_DIAG_AUDIO_OSD "Show HDMI audio underrun (silence splice) counter on the selftest OSD screen" OFF)
@@ -222,6 +229,12 @@ else()
     set(DIAG_COUNTERS_VALUE 0)
 endif()
 
+if(NEOPICO_EXP_GENLOCK_DYNAMIC)
+    set(GENLOCK_DYNAMIC_VALUE 1)
+else()
+    set(GENLOCK_DYNAMIC_VALUE 0)
+endif()
+
 # The runtime pico_hdmi path is the only backend now (the compile-time
 # non-RT backend, its fixed 240p/720p modes, and the precomposed-scanout
 # experiment that required it have all been deleted).
@@ -293,6 +306,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_VIDEO_DVI_ONLY=${VIDEO_DVI_ONLY_VALUE}
     NEOPICO_VIDEO_TEST_PATTERN=${VIDEO_TEST_PATTERN_VALUE}
     NEOPICO_DIAG_COUNTERS=${DIAG_COUNTERS_VALUE}
+    NEOPICO_EXP_GENLOCK_DYNAMIC=${GENLOCK_DYNAMIC_VALUE}
     ENABLE_DARK_SHADOW=${ENABLE_DARK_SHADOW_VALUE}
     MVS_EFFECT_MODEL=${MVS_EFFECT_MODEL_VALUE}
     NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING=${MVS_DIGITAL_EFFECT_PROCESSING_VALUE}

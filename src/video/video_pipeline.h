@@ -65,7 +65,19 @@ bool video_pipeline_take_reboot_240p_boot_request(bool *enabled);
 
 /**
  * VSYNC callback - called once per frame to sync input/output buffers.
+ *
+ * Placement: scratch_x content plus the 2 KiB core-1 stack fill the 4 KiB
+ * bank exactly, so the genlock build's extra call cannot live there; with
+ * genlock ON the callback moves to scratch_y (over 1 KiB of headroom).
  */
-void __scratch_x("") video_pipeline_vsync_callback(void);
+#ifndef NEOPICO_EXP_GENLOCK_DYNAMIC
+#define NEOPICO_EXP_GENLOCK_DYNAMIC 0
+#endif
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+#define VIDEO_PIPELINE_VSYNC_RAM __scratch_y("genlock_vsync")
+#else
+#define VIDEO_PIPELINE_VSYNC_RAM __scratch_x("")
+#endif
+void VIDEO_PIPELINE_VSYNC_RAM video_pipeline_vsync_callback(void);
 
 #endif // VIDEO_PIPELINE_H

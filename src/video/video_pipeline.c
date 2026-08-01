@@ -15,6 +15,12 @@
 #include "settings.h"
 #include "video_config.h"
 
+// NEOPICO_EXP_GENLOCK_DYNAMIC's default-0 guard lives in video_pipeline.h
+// (included first), next to the VIDEO_PIPELINE_VSYNC_RAM placement macro.
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+#include "video_capture.h"
+#endif
+
 #ifndef NEOPICO_VIDEO_TEST_PATTERN
 #define NEOPICO_VIDEO_TEST_PATTERN 0
 #endif
@@ -377,12 +383,145 @@ void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const u
     }
 }
 
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+// Nominals that approximate MVS ~59.18 Hz at each mode's pixel clock:
+//   480p: 25.2M / (800 * 532) = 59.21 Hz   (±1 → 59.10–59.32 Hz)
+//   240p: 25.2M / (1600 * 266) = 59.21 Hz  (±1 → 58.99–59.43 Hz)
+#define GENLOCK_NOMINAL_VTOTAL_480 532
+#define GENLOCK_NOMINAL_VTOTAL_240 266
+//   720p (exact-clock 1440 h_total @ 64 MHz pixel, 22.5 us lines):
+//   64M / (1440 * 751) = 59.180 Hz (+1.5 us/frame vs the 16896.0 us MVS
+//   frame) — nominal creeps the phase UP very slowly; 750 (-21 us/frame)
+//   pulls back. (The pre-sunset nominal 762 belonged to the deleted 372 MHz
+//   1650-h_total timing and must not be reused here.)
+#define GENLOCK_NOMINAL_VTOTAL_720 751
+#define GENLOCK_PHASE_THRESHOLD_US 200
+#define GENLOCK_PHASE_MAX_US 5000
+// Output vsyncs landing shortly after the MVS vsync sample a frame base no
+// capture line has been committed to yet (lines prep gray): phase must stay
+// inside [~3ms, ~15ms]. A tight setpoint needs a fractional line rate and
+// dithers vtotal every few frames, which makes sinks' vertical lock hunt
+// (top-of-image wobble). Instead: WIDE HYSTERESIS — let the phase ramp the
+// healthy zone on a constant vtotal, pull it back on a constant vtotal-1.
+// Two one-line timing changes per ~42 s instead of ~18 per second.
+#define GENLOCK_PHASE_PULLBACK_AT_US 14000
+#define GENLOCK_PHASE_RESUME_AT_US 4000
+#define GENLOCK_PHASE_SETPOINT_US 11000
+
+// Once per frame from the vsync callback; does not need scratch residency
+// (and scratch_x is at its hard boundary).
+volatile uint32_t g_genlock_phase_us;      // published for the genlock OSD
+volatile uint32_t g_genlock_outzone_count; // raw out-of-zone frames (incl. measurement spikes)
+
+static void genlock_dynamic_update(void)
+{
+    uint32_t hdmi_ts = timer_hw->timerawl;
+    uint32_t mvs_ts = g_mvs_vsync_timestamp;
+    uint32_t phase = hdmi_ts - mvs_ts; // us since last MVS vsync, [0, ~16.9ms)
+    g_genlock_phase_us = phase;
+
+    const uint16_t mode_total = video_output_active_mode->v_total_lines;
+    uint16_t nominal = (mode_total <= 266)   ? GENLOCK_NOMINAL_VTOTAL_240
+                       : (mode_total >= 700) ? GENLOCK_NOMINAL_VTOTAL_720
+                                             : GENLOCK_NOMINAL_VTOTAL_480;
+
+    // Steady state: vtotal stays at nominal FOREVER and a proportional servo
+    // on the blanking h-trim nulls the residual drift (sub-line steps are
+    // invisible; vtotal steps of a whole line visibly disturb some sinks).
+    // vtotal only steps during acquire (boot / signal reappearing), when the
+    // phase is outside the content-safe zone and speed matters more than
+    // cosmetics.
+    static int applied_trim;
+    static uint16_t step_cooldown;
+    static uint8_t out_zone_streak;
+
+    // A single late mvs-timestamp IRQ (Core 0 shares with USB/capture) makes
+    // the phase READ as a huge excursion for one frame; acting on it puts a
+    // one-frame vtotal step on the wire -- the exact whole-frame jolt this
+    // sink shows. Count raw excursions (OSD "A") but only ACT on a streak a
+    // measurement spike cannot produce.
+    const bool out_low = phase < GENLOCK_PHASE_RESUME_AT_US;
+    const bool out_high = phase > GENLOCK_PHASE_PULLBACK_AT_US;
+    if (out_low || out_high) {
+        g_genlock_outzone_count++;
+        if (out_zone_streak < 255) {
+            out_zone_streak++;
+        }
+    } else {
+        out_zone_streak = 0;
+    }
+
+    if (out_zone_streak >= 8 && out_low) {
+        rt_v_total_lines = (uint16_t)(nominal + 1); // fast acquire upward
+    } else if (out_zone_streak >= 8 && out_high) {
+        rt_v_total_lines = (uint16_t)(nominal - 1); // fast pull back down
+    } else {
+        rt_v_total_lines = nominal;
+        // SLOW INTEGRATOR. Bench finding: this sink tolerates any CONSTANT
+        // trim (even the clamp) but visibly glitches on trim ACTIVITY --
+        // the proportional servo hunting +-1 px at frame rate was itself
+        // the artifact. So: hold trim absolutely constant; only when the
+        // phase wanders past the deadband, make a single 1-px adjustment,
+        // then hold again (rate-limited: 10 frames while far out for
+        // convergence, 60 frames near lock). At equilibrium the +-0.5 px
+        // quantization means one lone pixel-step every few MINUTES.
+        // Derivative gating: trim->drift->phase is a double integration, so
+        // stepping on position error alone limit-cycles (observed: trim
+        // sweeping -6..-30 forever, glitching at every step). Only step
+        // while the phase is NOT already heading back toward the setpoint;
+        // this both damps the cycle and acts as anti-windup. Settles on the
+        // quantization-optimal constant trim with a lone +-1 px touch every
+        // ~30-60 s.
+        static uint32_t drift_prev_phase;
+        static int32_t drift_per64; // us per 64 frames; 1 px ~= 12
+        static uint8_t drift_ctr;
+        static bool drift_valid;
+        if (!drift_valid) {
+            drift_prev_phase = phase;
+            drift_valid = true;
+        }
+        if (++drift_ctr >= 64) {
+            drift_per64 = (int32_t)(phase - drift_prev_phase);
+            drift_prev_phase = phase;
+            drift_ctr = 0;
+        }
+
+        int32_t e_us = (int32_t)phase - (int32_t)GENLOCK_PHASE_SETPOINT_US;
+        if (step_cooldown) {
+            step_cooldown--;
+        } else if (e_us > 400 && drift_per64 >= -6) {
+            if (applied_trim > -30) {
+                applied_trim--;
+                video_output_set_vblank_htrim_px(applied_trim);
+            }
+            step_cooldown = 30;
+        } else if (e_us < -400 && drift_per64 <= 6) {
+            if (applied_trim < 30) {
+                applied_trim++;
+                video_output_set_vblank_htrim_px(applied_trim);
+            }
+            step_cooldown = 30;
+        }
+    }
+}
+#endif
+
 /**
  * VSYNC callback - called once per frame to sync input/output buffers.
+ *
+ * Placement (VIDEO_PIPELINE_VSYNC_RAM, see the header): scratch_x content
+ * plus the 2 KiB core-1 stack fill the 4 KiB bank EXACTLY (the link fails on
+ * a single added instruction), so the extra genlock call cannot live there.
+ * With genlock ON the callback moves to scratch_y, which has over 1 KiB of
+ * headroom; the servo body itself runs from normal RAM (once per frame in
+ * blanking, no scratch residency needed).
  */
-void __scratch_x("") video_pipeline_vsync_callback(void)
+void VIDEO_PIPELINE_VSYNC_RAM video_pipeline_vsync_callback(void)
 {
     line_ring_output_vsync();
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+    genlock_dynamic_update();
+#endif
     osd_visible_latched = osd_visible;
 }
 
