@@ -2374,3 +2374,7 @@ Working implication for this board:
 
 ## 2026-08-02 - Byte-identity chain closed end to end
 - CI run 30729794585 (post __DATE__ fix) artifact = 65d3c7dc = local build, verified ACROSS a UTC date boundary (local built Aug 1, runner Aug 2). Flashed 65d3c7dc to the bench Pico. Pico == git main (9c6fcba + pico_hdmi a3b492b) == CI artifact, provably. Ready for v0.12.1 tag on user request.
+
+## 2026-08-02 - Genlock Info screen removed ahead of v0.12.1
+- User request: drop the "Genlock Info" diagnostic screen before release; Genlock On/Off toggle stays. Removed entry, screen enum, telemetry render (PHASE/TRIM/SLOTS/VTOTAL/UPTIME + probe), input/refresh handling (-75 lines, menu_diag_experiment.c only). Servo telemetry globals kept. Gates: MVS 51b9a977, SNES a3d517d0, genlock-compiled-out clean, toggle flow verified intact.
+- Release discipline: v0.12.1 tag HELD until 51b9a977 is flashed and eyeballed (Pico unplugged at the moment); released bytes must be hardware-tested.

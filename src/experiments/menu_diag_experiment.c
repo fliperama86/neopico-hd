@@ -171,11 +171,7 @@ static void color_model_selector_render_full(void)
 
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
 // Genlock on/off toggle: same 2-option selector pattern as Colors/Audio
-// above. A separate "Genlock Info" root entry keeps the existing telemetry
-// screen reachable (see genlock_screen_draw() further down) -- settings and
-// diagnostics are already modeled as separate root entries elsewhere
-// (Colors vs. Self Test), so this toggle and the telemetry screen coexist
-// the same way.
+// above.
 #define GENLOCK_SELECTOR_TITLE_ROW 1
 #define GENLOCK_SELECTOR_FIRST_OPTION_ROW 6
 #define GENLOCK_SELECTOR_DESCRIPTION_ROW 11
@@ -534,7 +530,6 @@ typedef enum {
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
     MENU_SCREEN_GENLOCK,         // on/off toggle (setting)
     MENU_SCREEN_GENLOCK_CONFIRM, // keep/revert countdown for the toggle
-    MENU_SCREEN_GENLOCK_INFO,    // telemetry (diagnostic, like Self Test)
 #endif
 } menu_screen_t;
 
@@ -581,7 +576,7 @@ static const char *const s_root_entry_labels[] = {
 #endif
     "Self Test",
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
-    "Genlock",    "Genlock Info",
+    "Genlock",
 #endif
 };
 #define ROOT_ENTRY_COUNT (sizeof(s_root_entry_labels) / sizeof(s_root_entry_labels[0]))
@@ -610,59 +605,9 @@ static menu_screen_t root_entry_screen(uint8_t idx)
     if (idx == i++) {
         return MENU_SCREEN_GENLOCK;
     }
-    if (idx == i++) {
-        return MENU_SCREEN_GENLOCK_INFO;
-    }
 #endif
     return MENU_SCREEN_ROOT;
 }
-
-#if NEOPICO_EXP_GENLOCK_DYNAMIC
-// Dedicated genlock telemetry screen (full draw on entry, value-only 1 Hz
-// updates, per the OSD render rules).
-static uint32_t s_genlock_update_frame;
-
-static void genlock_screen_update_values(void)
-{
-    extern volatile uint32_t g_genlock_phase_us;
-    extern uint16_t rt_v_total_lines;
-    int video_output_get_vblank_htrim_slots(void);
-    int video_output_get_vblank_htrim_px(void);
-    char buf[14];
-    snprintf(buf, sizeof buf, "%5lu us", (unsigned long)g_genlock_phase_us);
-    fast_osd_puts_color(4, 11, buf, OSD_COLOR_YELLOW);
-    snprintf(buf, sizeof buf, "%+4d px", video_output_get_vblank_htrim_px());
-    fast_osd_puts_color(6, 11, buf, OSD_COLOR_YELLOW);
-    snprintf(buf, sizeof buf, "%2d", video_output_get_vblank_htrim_slots());
-    fast_osd_puts_color(8, 11, buf, OSD_COLOR_YELLOW);
-    snprintf(buf, sizeof buf, "%3u", (unsigned)rt_v_total_lines);
-    fast_osd_puts_color(10, 11, buf, OSD_COLOR_YELLOW);
-    snprintf(buf, sizeof buf, "%6lu s", (unsigned long)(to_ms_since_boot(get_absolute_time()) / 1000U));
-    fast_osd_puts_color(12, 11, buf, OSD_COLOR_YELLOW);
-    {
-        void video_output_perf_probe_read(uint32_t *fifo_min, uint32_t *irq_gap_max_us);
-        uint32_t fifo_min, gap_max;
-        video_output_perf_probe_read(&fifo_min, &gap_max);
-        extern volatile uint32_t hstx_di_queue_silence_count;
-        char probe[24];
-        snprintf(probe, sizeof probe, "F%2lu G%3lu U%6lu", (unsigned long)(fifo_min > 99 ? 99 : fifo_min),
-                 (unsigned long)(gap_max > 999 ? 999 : gap_max), (unsigned long)hstx_di_queue_silence_count);
-        fast_osd_puts_color(13, 2, probe, OSD_COLOR_YELLOW);
-    }
-}
-
-static void genlock_screen_draw(void)
-{
-    fast_osd_clear();
-    fast_osd_puts_color(1, 2, "Genlock Info", OSD_COLOR_YELLOW);
-    fast_osd_puts_color(4, 2, "PHASE", OSD_COLOR_GRAY);
-    fast_osd_puts_color(6, 2, "TRIM", OSD_COLOR_GRAY);
-    fast_osd_puts_color(8, 2, "SLOTS", OSD_COLOR_GRAY);
-    fast_osd_puts_color(10, 2, "VTOTAL", OSD_COLOR_GRAY);
-    fast_osd_puts_color(12, 2, "UPTIME", OSD_COLOR_GRAY);
-    genlock_screen_update_values();
-}
-#endif
 
 static void root_menu_render_entry(uint8_t idx)
 {
@@ -731,11 +676,6 @@ static void root_menu_enter_leaf(void)
             s_selected_genlock_enabled = s_committed_genlock_enabled;
             genlock_selector_render_full();
             s_screen = MENU_SCREEN_GENLOCK;
-            break;
-        case MENU_SCREEN_GENLOCK_INFO:
-            genlock_screen_draw();
-            s_genlock_update_frame = video_frame_count;
-            s_screen = MENU_SCREEN_GENLOCK_INFO;
             break;
 #endif
         default:
@@ -1102,12 +1042,6 @@ static void root_menu_buttons_tick(void)
             }
             break;
         }
-
-        case MENU_SCREEN_GENLOCK_INFO:
-            if (controller_select_edge || menu_edge) {
-                root_menu_enter_root(now_ms);
-            }
-            break;
 #endif
 
         default:
@@ -1300,11 +1234,4 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
         }
 #endif
     }
-
-#if NEOPICO_EXP_GENLOCK_DYNAMIC
-    if (osd_visible && s_screen == MENU_SCREEN_GENLOCK_INFO && (video_frame_count - s_genlock_update_frame) >= 60U) {
-        s_genlock_update_frame = video_frame_count;
-        genlock_screen_update_values();
-    }
-#endif
 }
