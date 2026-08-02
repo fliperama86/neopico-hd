@@ -87,6 +87,11 @@ static void combined_background_task(void)
 {
 #if !NEOPICO_VIDEO_DVI_ONLY
     audio_subsystem_background_task();
+#if NEOPICO_EXP_GENLOCK_DYNAMIC
+    if (video_pipeline_genlock_enabled()) {
+        video_output_htrim_update_audio_pacing();
+    }
+#endif
 #endif
     menu_diag_experiment_tick_background();
 }
