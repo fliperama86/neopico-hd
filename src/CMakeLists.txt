@@ -410,6 +410,11 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_DIAG_AUDIO_OSD=${DIAG_AUDIO_OSD_VALUE}
     NEOPICO_EXP_RGB888_SCANOUT=${EXP_RGB888_SCANOUT_VALUE}
     NEOPICO_EXP_SCANLINE_TRACE=${EXP_SCANLINE_TRACE_VALUE}
+    # The SDK's binary info embeds __DATE__ by default, which broke CI
+    # byte-reproducibility whenever the runner's UTC date differed from the
+    # local build date (every prior byte-identity match was same-day luck).
+    # Drop the field entirely; NEOPICO_VERSION carries the meaningful identity.
+    PICO_NO_BI_PROGRAM_BUILD_DATE=1
 )
 
 pico_enable_stdio_usb(neopico_hd 1)

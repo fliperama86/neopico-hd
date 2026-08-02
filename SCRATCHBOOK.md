@@ -2365,3 +2365,9 @@ Working implication for this board:
   - Gate F: zero em dash characters in any of the resulting diffs.
 - Byte-identity vs the pre-session hardware-validated build is restored for the default (genlock-off) 720p path: `video_mode_720_p` is now bit-identical to HEAD, so the only remaining app-level delta from HEAD is the (already-shipped-in-spirit) audio pacing call.
 - Not yet hardware-tested this round (this was a source-level revert + build-only verification); everything left uncommitted in both repos per instruction.
+
+## 2026-08-01 - CI reproducibility hole found and fixed: __DATE__ in binary info
+- Post-commit CI run 30729629934 (green) produced c8b38968, NOT the local cbed67b5: exactly ONE byte differed, the SDK binary-info build date string ("Aug  1 2026" local vs "Aug  2 2026" on the UTC runner). Every earlier byte-identity match (incl. v0.12.0's d302f263) was same-day luck; any release built across a UTC date boundary would have silently broken the guarantee.
+- Ruled out first: build directory path (scratchpad vs canonical build/ produce identical cbed67b5 locally; builds are otherwise deterministic).
+- Fix: PICO_NO_BI_PROGRAM_BUILD_DATE=1 in src/CMakeLists.txt target defines (SDK-documented knob; drops the field entirely, no fake dates; NEOPICO_VERSION carries identity). New local hash 65d3c7dc, zero "Aug" strings, version string intact.
+- Flash of 65d3c7dc PENDING (Pico unplugged); needed so hardware-tested bytes = reproducible bytes before any v0.12.1 tag.
