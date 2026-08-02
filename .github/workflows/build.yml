@@ -182,6 +182,17 @@ jobs:
         fetch-depth: 0
         fetch-tags: true
 
+    # The OSD menu title shows project() VERSION from CMakeLists.txt; v0.11.0 and
+    # v0.12.0 both shipped displaying "v0.10.0" because nothing tied the tag to it.
+    # Fail the release before publishing anything if they disagree.
+    - name: Verify tag matches PROJECT_VERSION
+      run: |
+        CMAKE_VERSION=$(sed -n 's/^project(neopico_hd VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+        if [ "v${CMAKE_VERSION}" != "${{ github.ref_name }}" ]; then
+          echo "::error::Tag ${{ github.ref_name }} != CMakeLists.txt PROJECT_VERSION ${CMAKE_VERSION}; the OSD would show the wrong version. Bump project() VERSION, then re-tag."
+          exit 1
+        fi
+
     - name: Download Build Artifacts
       uses: actions/download-artifact@v4
       with:
