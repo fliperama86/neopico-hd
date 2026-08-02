@@ -2378,3 +2378,16 @@ Working implication for this board:
 ## 2026-08-02 - Genlock Info screen removed ahead of v0.12.1
 - User request: drop the "Genlock Info" diagnostic screen before release; Genlock On/Off toggle stays. Removed entry, screen enum, telemetry render (PHASE/TRIM/SLOTS/VTOTAL/UPTIME + probe), input/refresh handling (-75 lines, menu_diag_experiment.c only). Servo telemetry globals kept. Gates: MVS 51b9a977, SNES a3d517d0, genlock-compiled-out clean, toggle flow verified intact.
 - Release discipline: v0.12.1 tag HELD until 51b9a977 is flashed and eyeballed (Pico unplugged at the moment); released bytes must be hardware-tested.
+
+## 2026-08-02: Wrong colors on Morph4K + OSSC Pro (not RT4K / not PC monitor)
+- Report: colors off on Morph4K and OSSC Pro; user confirmed on own Morph. 240ptest color bars: ramps 0-7, "resets" darker from index 8; first and last 3 bars crushed. Direct to Alienware 4K monitor = perfect. RT4K = perfect.
+- Our AVI InfoFrame (hstx_packet.c set_avi_infoframe_aspect): RGB (Y=00), A=1, PB3=0x00 so Q=00 = "default" quantization range. Checksum verified spec-correct. Pixel data is full-range 0-255 (mvs_effect_model.h LUT).
+- Smoking gun: OSSC Pro source (references/ic_drivers/adv761x/adv761x.c:33) sets default_rgb_range = ADV761X_RGB_LIMITED; with AVI Q=default the ADV7610 assumes LIMITED RGB and expands 16-235 -> 0-255. Full-range content then crushes blacks and clips whites. Morph4K likely same default-limited policy. RT4K/monitors assume full = look correct.
+- Proposed fix: signal Q=Full explicitly (AVI PB3 bits 3:2 = 10 -> PB3=0x08). One byte + checksum. Sinks that ignore AVI unaffected; strict sinks stop expanding.
+- Mid-ramp "reset at 8" not yet explained by range alone (range expansion is monotonic); hypothesis: goes away once Morph skips its limited-expansion path; needs hardware A/B.
+- Open questions for hardware: which output mode (240p/480p/720p) shows it; Morph input-info readout (format/range); does OSD menu also look wrong; does v0.10.0 look right on Morph.
+- Morph input-info confirmed: "RGB Q/YQ: Default/Limited Range" (sink chose limited from Q=default). Reproducible in every output mode.
+- Implemented PICO_HDMI_AVI_RGB_FULL_RANGE (default 1) in hstx_packet.c: AVI PB3 = 0x08 (Q=Full). Built d7e7f77a, flashed for Morph A/B. Expect Morph info to now read Full Range; watch whether mid-ramp reset at index 8 also clears.
+- RESULT: Q=Full received (Morph info now "Q/YQ: Full Range/Limited Range") but color issue UNCHANGED. So the crush+reset are not (only) AVI range interpretation. YQ=Limited display is irrelevant for RGB. Next: photo of bars on Morph for quantitative transform fit; v0.10.0 A/B on Morph to split regression (v0.11 exact-clock / v0.12 RGB888) vs longstanding; Morph manual input-range override test.
+- User loaded Morph default.ini color profile -> colors now CORRECT. Suggests a stale/custom Morph color profile caused the crush+reset (explains the non-monotonic transform no spec decode could produce). Reflashed pre-change RC 51b9a977 for A/B against fixed profile.
+- A/B CONFIRMED two separate issues: (1) mid-ramp "reset" = stale Morph color profile, fixed by loading default.ini (not our bug); (2) end crush = real firmware issue, fixed by AVI Q=Full (PICO_HDMI_AVI_RGB_FULL_RANGE). Q=Full build d7e7f77a reflashed; change is a keeper for v0.12.1.
