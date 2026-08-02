@@ -2371,3 +2371,6 @@ Working implication for this board:
 - Ruled out first: build directory path (scratchpad vs canonical build/ produce identical cbed67b5 locally; builds are otherwise deterministic).
 - Fix: PICO_NO_BI_PROGRAM_BUILD_DATE=1 in src/CMakeLists.txt target defines (SDK-documented knob; drops the field entirely, no fake dates; NEOPICO_VERSION carries identity). New local hash 65d3c7dc, zero "Aug" strings, version string intact.
 - Flash of 65d3c7dc PENDING (Pico unplugged); needed so hardware-tested bytes = reproducible bytes before any v0.12.1 tag.
+
+## 2026-08-02 - Byte-identity chain closed end to end
+- CI run 30729794585 (post __DATE__ fix) artifact = 65d3c7dc = local build, verified ACROSS a UTC date boundary (local built Aug 1, runner Aug 2). Flashed 65d3c7dc to the bench Pico. Pico == git main (9c6fcba + pico_hdmi a3b492b) == CI artifact, provably. Ready for v0.12.1 tag on user request.
