@@ -25,7 +25,8 @@ static inline bool fast_osd_in_bounds(uint8_t row, uint8_t col)
 static inline uint8_t fast_osd_normalize_char(char c)
 {
     const uint8_t ch = (uint8_t)c;
-    if (ch == (uint8_t)FAST_OSD_GLYPH_CHECK || ch == (uint8_t)FAST_OSD_GLYPH_CROSS) {
+    if (ch == (uint8_t)FAST_OSD_GLYPH_CHECK || ch == (uint8_t)FAST_OSD_GLYPH_CROSS ||
+        ch == (uint8_t)FAST_OSD_GLYPH_ARROW_LEFT || ch == (uint8_t)FAST_OSD_GLYPH_ARROW_RIGHT) {
         return ch;
     }
     if (ch < 32U || ch > 126U) {

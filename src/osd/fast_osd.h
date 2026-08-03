@@ -22,6 +22,8 @@
 #define FAST_OSD_ROWS 16
 #define FAST_OSD_GLYPH_CHECK ((char)0x01)
 #define FAST_OSD_GLYPH_CROSS ((char)0x02)
+#define FAST_OSD_GLYPH_ARROW_LEFT ((char)0x03)
+#define FAST_OSD_GLYPH_ARROW_RIGHT ((char)0x04)
 
 extern volatile bool osd_visible;
 extern uint16_t osd_framebuffer[OSD_BOX_H][OSD_BOX_W];

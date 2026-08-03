@@ -8,16 +8,16 @@ void menu_diag_experiment_on_menu_open(void);
 void menu_diag_experiment_on_menu_close(void);
 void menu_diag_experiment_tick_background(void);
 
-// Arm the resolution-confirmation prompt for this boot (call before the menu
-// init): show the keep/revert countdown for new_mode, reverting to previous_mode.
-void menu_diag_experiment_arm_res_confirm(video_pipeline_reboot_mode_t new_mode,
-                                          video_pipeline_reboot_mode_t previous_mode);
-
-#if NEOPICO_EXP_GENLOCK_DYNAMIC
-// Arm the genlock-confirmation prompt for this boot (call before the menu
-// init): show the keep/revert countdown for new_enabled, reverting to
-// previous_enabled. Mirrors menu_diag_experiment_arm_res_confirm() above.
-void menu_diag_experiment_arm_genlock_confirm(bool new_enabled, bool previous_enabled);
-#endif
+// Arm the combined keep/revert confirmation prompt for this boot (call before
+// the menu init): show the countdown for new_mode (already active, per the
+// Apply that rebooted into it), reverting to revert_resolution/revert_genlock
+// on BACK/B/SELECT or timeout. Unconditional (not guarded by
+// NEOPICO_EXP_GENLOCK_DYNAMIC): a batched Video-screen Apply can change
+// Resolution and/or Refresh (genlock) together, so a single revert record
+// covers both -- revert_resolution comes from watchdog scratch
+// (video_pipeline_take_pending_confirmation()), revert_genlock from flash
+// (settings.h neopico_settings_t.pending_revert_genlock).
+void menu_diag_experiment_arm_revert_confirm(video_pipeline_reboot_mode_t new_mode,
+                                             video_pipeline_reboot_mode_t revert_resolution, bool revert_genlock);
 
 #endif // MENU_DIAG_EXPERIMENT_H

@@ -26,7 +26,38 @@ typedef struct {
     // ambiguity -- see settings_load()'s payload_size check, which keeps
     // accepting old images because sizeof(neopico_settings_t) is unchanged.
     uint8_t genlock_enabled;
-    uint8_t reserved[26]; // future settings; zero-initialized
+    // Batched Video-screen Apply safety net (see menu_diag_experiment.c): the
+    // PENDING flag and the revert resolution do NOT live here. They live in
+    // watchdog scratch (video_pipeline_request_reboot_mode_pending() /
+    // video_pipeline_take_pending_confirmation()) because that state is only
+    // ever needed across a single warm reboot, and being volatile-by-design
+    // means the post-Apply Keep action costs nothing: there is no flash
+    // record to clear, so Keep never touches flash (measured on hardware: a
+    // blocking Core 1 flash write in that path loses HDMI sync). Only the
+    // revert genlock bit is kept here, because genlock has no scratch
+    // carrier -- it is applied at boot by reading this persisted settings
+    // record, not from scratch like resolution -- so its revert value must
+    // survive in flash for Revert/timeout to read it back. Zero is both the
+    // natural default AND "revert to OFF", so an old settings image (whose
+    // reserved byte here was always zero-initialized) already reads
+    // unambiguously with no version bump needed. Known accepted tradeoff:
+    // because the pending flag is volatile, power-cycling mid-countdown keeps
+    // the new mode instead of reverting; the factory-reset button chord is
+    // the recovery path for that case.
+    uint8_t pending_revert_genlock; // 0/1 genlock_enabled to revert to
+    // Same batched-Apply safety net as pending_revert_genlock above, but for
+    // Colors: the Video screen's rule is that changing anything on that
+    // screen and then rebooting via Apply must Apply-or-revert as a single
+    // unit, so a resolution/refresh revert must also roll back a Colors
+    // change made in the same Apply. Colors has no scratch carrier (like
+    // genlock, it is applied at boot by reading this persisted record, not
+    // from scratch), so its revert value must live in flash too. Declared
+    // unconditionally -- like color_model/color_model_valid above -- even
+    // though only the NEOPICO_MVS_COLOR_MODEL_MENU build ever reads or
+    // writes it, because this struct is a persisted flash format that must
+    // be byte-identical across build configurations.
+    uint8_t pending_revert_color; // mvs_color_model_t to revert color_model to
+    uint8_t reserved[24];         // future settings; zero-initialized
 } neopico_settings_t;
 
 _Static_assert(sizeof(neopico_settings_t) == 32, "settings payload format must remain 32 bytes");

@@ -106,32 +106,29 @@ int main(void)
 
     video_pipeline_reboot_mode_t reboot_boot_mode = VIDEO_PIPELINE_REBOOT_MODE_480P;
     const bool warm_reboot = video_pipeline_take_reboot_mode_boot_request(&reboot_boot_mode);
-    // If this (warm) boot is a pending resolution change, arm the keep/revert
-    // countdown. reboot_boot_mode already holds the new mode from the scratch.
-    {
-        video_pipeline_reboot_mode_t res_confirm_previous;
-        if (video_pipeline_take_pending_confirmation(&res_confirm_previous)) {
-            menu_diag_experiment_arm_res_confirm(reboot_boot_mode, res_confirm_previous);
-        }
-    }
     neopico_settings_t persisted;
     settings_load(&persisted);
+    // Batched Video-screen Apply safety net: an Apply that changed Resolution
+    // and/or Refresh (genlock) reboots via
+    // video_pipeline_request_reboot_mode_pending(), which sets a
+    // watchdog-scratch pending marker and carries the revert resolution
+    // across the reboot (see video_pipeline.c) -- volatile by design, so the
+    // later Keep action has nothing to clear. The revert genlock bit has no
+    // scratch carrier (genlock is applied at boot from this persisted
+    // record, not from scratch), so it still comes from flash; settings_load()
+    // above must run before this to make it available. Arm the same
+    // keep/revert countdown UI here as before.
+    video_pipeline_reboot_mode_t revert_resolution = VIDEO_PIPELINE_REBOOT_MODE_480P;
+    if (video_pipeline_take_pending_confirmation(&revert_resolution)) {
+        menu_diag_experiment_arm_revert_confirm(reboot_boot_mode, revert_resolution,
+                                                persisted.pending_revert_genlock != 0U);
+    }
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
     // Genlock is opt-in (default off) and, like resolution, applied only at
-    // boot: the menu optimistically persists the new value to flash before
-    // rebooting (see menu_diag_experiment.c), so the flash copy already
-    // reflects the to-be-confirmed value by the time we read it here.
+    // boot: Apply persists the new value to flash before rebooting (see
+    // menu_diag_experiment.c), so the flash copy already reflects the
+    // to-be-confirmed value by the time we read it here.
     const bool genlock_enabled = persisted.genlock_enabled != 0U;
-    // Same safety net as resolution, for the genlock on/off setting: if this
-    // (warm) boot is a pending genlock change, arm the keep/revert countdown.
-    // genlock_enabled already holds the new (to-be-confirmed) value, applied
-    // above from flash; the pending marker carries only the revert-to value.
-    {
-        bool genlock_confirm_previous;
-        if (video_pipeline_take_genlock_pending_confirmation(&genlock_confirm_previous)) {
-            menu_diag_experiment_arm_genlock_confirm(genlock_enabled, genlock_confirm_previous);
-        }
-    }
 #endif
 #if NEOPICO_AUDIO_MODE == NEOPICO_AUDIO_MODE_SELECTABLE
     // Audio-source changes reboot through the existing warm-reboot path, so
@@ -231,6 +228,18 @@ int main(void)
     gpio_init(NEOPICO_OSD_CONTROLLER_DOWN_PIN);
     gpio_set_dir(NEOPICO_OSD_CONTROLLER_DOWN_PIN, GPIO_IN);
     gpio_pull_up(NEOPICO_OSD_CONTROLLER_DOWN_PIN);
+
+    gpio_init(NEOPICO_OSD_CONTROLLER_LEFT_PIN);
+    gpio_set_dir(NEOPICO_OSD_CONTROLLER_LEFT_PIN, GPIO_IN);
+    gpio_pull_up(NEOPICO_OSD_CONTROLLER_LEFT_PIN);
+
+    gpio_init(NEOPICO_OSD_CONTROLLER_RIGHT_PIN);
+    gpio_set_dir(NEOPICO_OSD_CONTROLLER_RIGHT_PIN, GPIO_IN);
+    gpio_pull_up(NEOPICO_OSD_CONTROLLER_RIGHT_PIN);
+
+    gpio_init(NEOPICO_OSD_CONTROLLER_B_PIN);
+    gpio_set_dir(NEOPICO_OSD_CONTROLLER_B_PIN, GPIO_IN);
+    gpio_pull_up(NEOPICO_OSD_CONTROLLER_B_PIN);
 
     sleep_ms(500);
     stdio_flush();
