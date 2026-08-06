@@ -253,11 +253,11 @@ static inline uint32_t video_pipeline_scanline_dim_channel(uint32_t v, uint8_t l
     }
 }
 
-// 480p only: energy-conserving scanlines. Plain scanlines throw
-// light away -- the dark line is multiplied by r and nothing gives it back,
-// so the picture dims by (1+r)/2. Here the PAIR is normalized instead: the
-// dark line keeps gain 2k/(1+k) and the bright line takes 2/(1+k), which sum
-// to 2 for any k, so average brightness is unchanged at every strength.
+// Energy-conserving scanlines. Plain scanlines throw light away -- the dimmed
+// rows are multiplied by r and nothing gives it back, so the picture loses
+// whatever they no longer emit. Here the GROUP is normalized instead: the
+// bright row takes a gain that puts the group average back at the source's,
+// so overall brightness is unchanged at every strength.
 //
 // The whole thing collapses to a constant multiply on the base table. A gain
 // applied to linear light is exactly a constant multiply in gamma space for a
@@ -266,34 +266,96 @@ static inline uint32_t video_pipeline_scanline_dim_channel(uint32_t v, uint8_t l
 // time rather than per pixel. Because the DARK table is derived FROM this one
 // (video_pipeline_dim_lut888_generate below), boosting the base is the entire
 // implementation: the dark/bright ratio r is untouched, so scanline depth
-// looks exactly as before and only the overall level moves.
+// looks exactly as before and only the overall level moves. It also means the
+// gain reaches the 720p path for free, since the 3x scale function reads this
+// same table.
 //
-// Gains are gamma-space (2/(1+k))^(1/2.4) in Q8, with k = r^2.4 for each
-// level's existing ratio r (1, 0.75, 0.5, 0.25, 0), i.e. the dark line keeps
-// the look it has today. OFF is unity and never actually used (the caller
-// skips the boost entirely at OFF).
+// Gains are (linear gain)^(1/2.4) in Q8, with k = r^2.4 for each level's
+// existing ratio r (1, 0.75, 0.5, 0.25, 0). The linear gain differs by mode
+// because the beam duty does: 480p dims one row of a pair and needs 2/(1+k),
+// while 720p dims the OUTER TWO rows of a triple (see video_output_rt.c) and
+// so has only a third of the area to carry the light, needing 3/(1+2k). That
+// is why the 720p gains below are much the larger of the two, and why 720p
+// looked so dark without them -- at level 2 it was passing 46% of source
+// while 480p was at 100%. Index 0 (OFF) is unity and never used, since the
+// caller skips the boost entirely at OFF.
 //
-// KNOWN LIMIT: the bright line clips, hardest at the 100% level (gain 1.335,
-// so anything above 191 saturates). Below 100% the dark line still separates
-// two source values that both clipped on the bright line, so the pair average
-// stays monotonic; at 100% the dark line is 0 and highlight detail above 191
-// is genuinely flattened.
-static const uint16_t k_scanline_boost_q8[5] = {256U, 289U, 318U, 337U, 342U};
+// KNOWN LIMIT, worse at 720p: the bright row clips (at level 2, above 205 for
+// 480p but above 184 here). Below the top level the dimmed rows still
+// separate two source values that both clipped on the bright row, so the
+// group average stays monotonic; at level 4 the 480p dark line is 0 and
+// highlight detail above 191 is genuinely flattened.
+//
+// SECOND LIMIT, 720p only: its dimmed rows are derived with __uhadd8 from the
+// already-boosted and already-CLIPPED bright buffer, not composed from a
+// companion dim LUT the way 480p's are. So where the bright row clips, the
+// dimmed rows inherit the clip and scanline contrast holds at r instead of
+// fading out the way a real beam does in highlights. Fixing that means
+// composing the dim line during the fill instead of deriving it afterwards,
+// which is a restructure of pico_hdmi's fill path, not a table change here.
+static const uint16_t k_scanline_boost_q8_pair[5] = {256U, 289U, 318U, 337U, 342U};
+static const uint16_t k_scanline_boost_q8_triple[5] = {256U, 303U, 354U, 393U, 405U};
 
+// Soft-knee gain rather than a hard clamp. Applying `gain` and clipping at
+// 255 flat-tops every value above 255/gain, which is exactly what crushed
+// highlights are -- and the stronger the boost the more of the range it eats
+// (at the 720p top level, everything above 161). Follow the linear gain
+// exactly up to a knee instead, then bend along a parabola that arrives at
+// 255 precisely when the input does, so highlight ORDERING survives even
+// where headroom does not.
+//
+// The knee is not a free parameter. Requiring the parabola to be tangent to
+// the gain line where it starts, and to land on (255, 255) with zero slope,
+// pins it at knee = 255 - E, where E = 255*gain - 255 is the light the clamp
+// would have thrown away. The curve then collapses to
+//     out = lin - (lin - knee)^2 / (4E)      for lin > knee
+// so there is no lookup table or branch tree here, just one multiply. Mids
+// are untouched (at the 720p 50% gain, input 128 lands within 1/255 of pure
+// gain) while input 200 comes out at 240 instead of flat 255.
+//
+// Free, exactly like the gain itself: this runs once per table entry at
+// build time, never per pixel, which is what makes a deliberate shape
+// affordable at all. It also softens the SECOND limit noted above: with no
+// hard clip in the base table there is no hard clip for the derived dim rows
+// to inherit, so 720p contrast tapers in highlights instead of holding flat.
 static inline uint32_t video_pipeline_scanline_boost_channel(uint32_t v, uint32_t gain_q8)
 {
-    const uint32_t out = ((v * gain_q8) + 128U) >> 8;
+    const uint32_t lin = v * gain_q8; // Q8
+    if (gain_q8 <= 256U) {
+        return (lin + 128U) >> 8; // no boost to bend
+    }
+    const uint32_t full = 255U * 256U;               // Q8 of full scale
+    const uint32_t excess = (255U * gain_q8) - full; // E, Q8
+    const uint32_t knee = full - excess;
+    uint32_t out = lin;
+    if (lin > knee) {
+        // (d/2)^2 / E, not d^2 / (4E): d peaks at 2E == 75990 for the largest
+        // gain in use, and squaring that overflows 32 bits by a hair.
+        const uint32_t half_d = (lin - knee) >> 1;
+        out = lin - ((half_d * half_d) / excess);
+    }
+    out = (out + 128U) >> 8;
     return (out > 255U) ? 255U : out;
 }
 
-// 480p only, deliberately: 720p derives its dark line with __uhadd8 from the
-// already-clipped bright buffer (pico_hdmi's video_output_service_double_
-// buffer_fill), so its highlights would not follow the model. 240p never
-// dims at all and must not be brightened. Both read the same base table, so
-// the mode gate has to live here rather than in the dim path.
-static inline bool video_pipeline_scanline_energy_active(void)
+// Q8 gain for `level` in the ACTIVE output mode, or 0 for "do not boost".
+// Keyed off the mode rather than a build flag because every mode reads the
+// same base table, so the choice has to be made where the table is built.
+// 240p returns 0 unconditionally: it never dims, and brightening a picture
+// that loses no light would just clip it for nothing.
+static uint32_t video_pipeline_scanline_boost_q8(uint8_t level)
 {
-    return video_output_active_mode->v_active_lines == 480U;
+    if (level == VIDEO_PIPELINE_SCANLINE_OFF) {
+        return 0U;
+    }
+    switch (video_output_active_mode->v_active_lines) {
+        case 480U:
+            return k_scanline_boost_q8_pair[level];
+        case 720U:
+            return k_scanline_boost_q8_triple[level];
+        default:
+            return 0U;
+    }
 }
 
 // Fills g_effect_lut888_dim from the already-generated g_effect_lut888,
@@ -327,8 +389,8 @@ static void video_pipeline_dim_lut888_generate(uint8_t level)
 static void video_pipeline_energy_lut888_generate(uint8_t level)
 {
     mvs_effect_lut888_generate(&g_effect_lut888);
-    if ((level != VIDEO_PIPELINE_SCANLINE_OFF) && video_pipeline_scanline_energy_active()) {
-        const uint32_t gain = k_scanline_boost_q8[level];
+    const uint32_t gain = video_pipeline_scanline_boost_q8(level);
+    if (gain != 0U) {
         for (uint32_t i = 0; i < MVS_EFFECT_RG_TABLE_ENTRIES; i++) {
             const uint32_t v = g_effect_lut888.rg[i];
             const uint32_t r8 = video_pipeline_scanline_boost_channel((v >> 16) & 0xFFU, gain);
