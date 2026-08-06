@@ -175,6 +175,16 @@ option(NEOPICO_EXP_RGB888_DOUBLE_BUFFER
 # of HSTX FIFO underruns in this firmware.
 option(NEOPICO_EXP_SCANLINE_TRACE
     "EXPERIMENTAL: record per-scanline callback cycle counts for USB dump" OFF)
+# Energy-conserving scanlines (480p only). Normalizes the bright/dark PAIR so
+# total light per source line is preserved instead of thrown away, recovering
+# the brightness plain scanlines cost. Costs nothing per pixel: the bright
+# gain is baked into the base LUT at generation time and the dark table is
+# already derived from it, so the dark/bright ratio (and thus the look of each
+# strength) is unchanged. See the block comment in video_pipeline.c for the
+# maths and the highlight-clipping limit. A/B by toggling Scanlines in the OSD
+# menu -- OFF rebuilds the base table unboosted.
+option(NEOPICO_EXP_SCANLINE_ENERGY
+    "EXPERIMENTAL: brightness-preserving scanlines at 480p (boost bright lines to conserve light)" OFF)
 # The line-ring size is a fixed board/tuning constant now (plain #define in
 # src/video/line_ring.h), not a cache option.
 # 50% scanlines at 480p (permanent feature): the app-side counterpart to the
@@ -307,6 +317,12 @@ else()
     set(EXP_RGB888_SCANOUT_VALUE 0)
 endif()
 
+if(NEOPICO_EXP_SCANLINE_ENERGY)
+    set(EXP_SCANLINE_ENERGY_VALUE 1)
+else()
+    set(EXP_SCANLINE_ENERGY_VALUE 0)
+endif()
+
 # The runtime pico_hdmi path is the only backend now (the compile-time
 # non-RT backend, its fixed 240p/720p modes, and the precomposed-scanout
 # experiment that required it have all been deleted).
@@ -419,6 +435,7 @@ target_compile_definitions(neopico_hd PRIVATE
     NEOPICO_DIAG_AUDIO_OSD=${DIAG_AUDIO_OSD_VALUE}
     NEOPICO_EXP_RGB888_SCANOUT=${EXP_RGB888_SCANOUT_VALUE}
     NEOPICO_EXP_SCANLINE_TRACE=${EXP_SCANLINE_TRACE_VALUE}
+    NEOPICO_EXP_SCANLINE_ENERGY=${EXP_SCANLINE_ENERGY_VALUE}
     # The SDK's binary info embeds __DATE__ by default, which broke CI
     # byte-reproducibility whenever the runner's UTC date differed from the
     # local build date (every prior byte-identity match was same-day luck).
