@@ -424,9 +424,6 @@ def audit_report(
         for name in (
             "video_capture_set_color_model",
             "video_capture_get_color_model",
-            "settings_request_save",
-            "settings_service_pending_save",
-            "settings_save_pending",
         ):
             symbol = symbols.get(name)
             if symbol is None:
@@ -436,10 +433,22 @@ def audit_report(
 
         if "g_capture_effect_lut" in symbols:
             findings.append(Finding("FAIL", "live Colors build unexpectedly contains the DARK/SHADOW effect LUT"))
-    elif color_menu_flag == "OFF":
-        for name in ("settings_request_save", "settings_service_pending_save", "settings_save_pending"):
-            if name in symbols:
-                findings.append(Finding("FAIL", f"feature-off build unexpectedly contains live Colors symbol: {name}"))
+
+    # The deferred-save queue is UNCONDITIONAL infrastructure, not a Colors
+    # feature. It used to be gated behind NEOPICO_MVS_COLOR_MODEL_MENU, and
+    # this audit asserted it was absent from feature-off builds; the gate was
+    # deliberately removed when the Scanlines level became persistent, since
+    # every build now needs a way to write settings from the OSD. A blocking
+    # settings_save() on Core 1 suspends XIP long enough to lose HDMI sync
+    # unless a reboot immediately follows, so the queue is the ONLY safe path
+    # for a live setting, in any configuration. Assert it is present and
+    # RAM-resident everywhere rather than asserting it is absent somewhere.
+    for name in ("settings_request_save", "settings_service_pending_save", "settings_save_pending"):
+        symbol = symbols.get(name)
+        if symbol is None:
+            findings.append(Finding("FAIL", f"deferred-save queue symbol missing: {name}"))
+        elif not in_sram(symbol.addr):
+            findings.append(Finding("FAIL", f"deferred-save queue symbol is not in SRAM: {symbol_line(symbol)}"))
 
     digital_processing_flag = flags.get("NEOPICO_MVS_DIGITAL_EFFECT_PROCESSING")
     if digital_processing_flag == "ON":
