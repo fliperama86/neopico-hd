@@ -76,6 +76,49 @@ static bool genlock_toggle_next(bool enabled)
 }
 #endif
 
+// Scanlines: LIVE, not staged -- unlike every other row on the Video screen
+// (see that screen's top comment and video_row_change_value() below).
+// s_video_scanline_level mirrors the pipeline's current level (there is no
+// separate staged/committed pair to reconcile), but it MUST be resynced from
+// video_pipeline_get_scanline_level() when the Video screen is entered: boot
+// restores the persisted level into the pipeline without going through this
+// file, so trusting the initializer below showed a stale value after a reboot.
+static const char *scanline_level_label(uint8_t level)
+{
+    switch (level) {
+        case VIDEO_PIPELINE_SCANLINE_25:
+            return "25%";
+        case VIDEO_PIPELINE_SCANLINE_50:
+            return "50%";
+        case VIDEO_PIPELINE_SCANLINE_75:
+            return "75%";
+        case VIDEO_PIPELINE_SCANLINE_100:
+            return "100%";
+        default:
+            return "OFF";
+    }
+}
+
+static uint8_t scanline_level_next(uint8_t level)
+{
+    return (level >= VIDEO_PIPELINE_SCANLINE_100) ? VIDEO_PIPELINE_SCANLINE_OFF : (uint8_t)(level + 1U);
+}
+
+static uint8_t scanline_level_previous(uint8_t level)
+{
+    return (level == VIDEO_PIPELINE_SCANLINE_OFF) ? VIDEO_PIPELINE_SCANLINE_100 : (uint8_t)(level - 1U);
+}
+
+static bool scanline_level_has_prev(uint8_t level)
+{
+    return level != VIDEO_PIPELINE_SCANLINE_OFF;
+}
+
+static bool scanline_level_has_next(uint8_t level)
+{
+    return level != VIDEO_PIPELINE_SCANLINE_100;
+}
+
 // Global frame counter from video output runtime.
 extern volatile uint32_t video_frame_count;
 
@@ -91,6 +134,9 @@ static uint32_t s_audio_hi = 0;
 static uint32_t s_audio_lo = 0;
 static uint32_t s_audio_samples = 0;
 static uint32_t s_shadow_hold_updates = 0;
+// Last drawn GP0-GP7 pressed bitmap on the Self Test screen; 0xFF forces the
+// first draw after the screen is (re)entered and cleared.
+static uint8_t s_gp_state_last = 0xFFU;
 
 static inline bool osd_physical_menu_pressed(void)
 {
@@ -108,12 +154,15 @@ static uint32_t s_factory_reset_hold_start_ms;
 
 static void factory_reset_buttons_tick(void)
 {
-#if NEOPICO_MVS_COLOR_MODEL_MENU
+    // Unconditional: any queued deferred save owns the flash record, and
+    // settings_factory_reset() below does a BLOCKING write. Letting both run
+    // would put two writers on the flash at once. This used to be gated on the
+    // Colors menu because that was the only deferred-save producer; Scanlines
+    // now queues saves in builds where Colors is compiled out.
     if (settings_save_pending()) {
         s_factory_reset_chord_active = false;
         return;
     }
-#endif
     const bool chord_pressed = osd_physical_menu_pressed() && osd_physical_back_pressed();
     if (!chord_pressed) {
         s_factory_reset_chord_active = false;
@@ -149,8 +198,8 @@ static osd_controller_button_t s_controller_up;
 static osd_controller_button_t s_controller_down;
 static osd_controller_button_t s_controller_left;
 static osd_controller_button_t s_controller_right;
-// B is wired and debounced identically to the other controller taps but not
-// acted on yet -- step 3 of the OSD menu rework maps it to "back".
+// A activates (same role as START/MENU), B backs out (same role as SELECT).
+static osd_controller_button_t s_controller_a;
 static osd_controller_button_t s_controller_b;
 
 static void osd_controller_button_init(osd_controller_button_t *button, bool pressed, uint32_t now_ms)
@@ -193,6 +242,7 @@ static void osd_controller_buttons_update(uint32_t now_ms)
     osd_controller_button_update(&s_controller_down, !gpio_get(NEOPICO_OSD_CONTROLLER_DOWN_PIN), now_ms);
     osd_controller_button_update(&s_controller_left, !gpio_get(NEOPICO_OSD_CONTROLLER_LEFT_PIN), now_ms);
     osd_controller_button_update(&s_controller_right, !gpio_get(NEOPICO_OSD_CONTROLLER_RIGHT_PIN), now_ms);
+    osd_controller_button_update(&s_controller_a, !gpio_get(NEOPICO_OSD_CONTROLLER_A_PIN), now_ms);
     osd_controller_button_update(&s_controller_b, !gpio_get(NEOPICO_OSD_CONTROLLER_B_PIN), now_ms);
 }
 
@@ -286,19 +336,42 @@ static bool SELECTOR_UI_RAM(resolution_has_next)(video_pipeline_reboot_mode_t mo
 // safe to call from the Core 1 background tick.
 // ---------------------------------------------------------------------------
 #define SELECTOR_ROW_LABEL_COL 2
-#define SELECTOR_ROW_LABEL_VALUE_GAP 2
-#define SELECTOR_ROW_ARROW_VALUE_GAP 1
+// The whole arrow-value-arrow group is RIGHT-ALIGNED: the right arrow sits at a
+// fixed column, the value ends just before it, and the left arrow hugs the
+// value, so it shifts with the value's length rather than floating away from it
+// at a fixed column. The OSD grid is FAST_OSD_COLS (28) wide.
+//
+// Fixed columns also fix a stale-glyph bug: values on a row differ in length
+// ("59.19Hz" vs "60Hz", "100%" vs "OFF"), so redrawing in place used to leave
+// the tail of a longer previous value on screen. The whole field is blanked
+// first. fast_osd_putc_color bounds-checks, so an over-wide field is safe.
+#define SELECTOR_ROW_VALUE_END_COL 24 // last column the value may occupy
+#define SELECTOR_ROW_ARROW_RIGHT_COL 26
+// Leftmost column the group can reach, with the longest value in play: the
+// blanked field starts here so no stale glyph can survive outside it.
+#define SELECTOR_ROW_FIELD_START_COL 16
+#define SELECTOR_ROW_FIELD_COLS (FAST_OSD_COLS - SELECTOR_ROW_FIELD_START_COL)
+// Longest value that still fits without pushing the left arrow past the field
+// start (currently 7: "59.19Hz").
+#define SELECTOR_ROW_VALUE_MAX_LEN (SELECTOR_ROW_VALUE_END_COL - SELECTOR_ROW_FIELD_START_COL - 1U)
 
 static void SELECTOR_UI_RAM(selector_row_render)(uint8_t row, const char *label, const char *value, bool has_prev,
                                                  bool has_next, uint16_t value_color)
 {
     fast_osd_puts_color(row, SELECTOR_ROW_LABEL_COL, label, OSD_COLOR_FG);
-    const uint8_t arrow_left_col = (uint8_t)(SELECTOR_ROW_LABEL_COL + strlen(label) + SELECTOR_ROW_LABEL_VALUE_GAP);
-    const uint8_t value_col = (uint8_t)(arrow_left_col + 1 + SELECTOR_ROW_ARROW_VALUE_GAP);
+    for (uint8_t i = 0; i < SELECTOR_ROW_FIELD_COLS; i++) {
+        fast_osd_putc_color(row, (uint8_t)(SELECTOR_ROW_FIELD_START_COL + i), ' ', value_color);
+    }
+    size_t len = strlen(value);
+    if (len > SELECTOR_ROW_VALUE_MAX_LEN) {
+        len = SELECTOR_ROW_VALUE_MAX_LEN; // never spill past the field start
+    }
+    const uint8_t value_col = (uint8_t)(SELECTOR_ROW_VALUE_END_COL + 1U - len);
+    // One blank column between the left arrow and the value.
+    const uint8_t arrow_left_col = (uint8_t)(value_col - 2U);
     fast_osd_putc_color(row, arrow_left_col, has_prev ? FAST_OSD_GLYPH_ARROW_LEFT : ' ', value_color);
     fast_osd_puts_color(row, value_col, value, value_color);
-    const uint8_t arrow_right_col = (uint8_t)(value_col + strlen(value) + SELECTOR_ROW_ARROW_VALUE_GAP);
-    fast_osd_putc_color(row, arrow_right_col, has_next ? FAST_OSD_GLYPH_ARROW_RIGHT : ' ', value_color);
+    fast_osd_putc_color(row, SELECTOR_ROW_ARROW_RIGHT_COL, has_next ? FAST_OSD_GLYPH_ARROW_RIGHT : ' ', value_color);
 }
 
 // ===========================================================================
@@ -384,20 +457,38 @@ static void root_menu_enter_root(uint32_t now_ms)
 }
 
 // ===========================================================================
-// Video screen: a multi-row form (Resolution / Refresh / Colors, plus Apply
-// and Cancel action rows) with a single cursor, reusing the selector_row_render
-// widget above for each setting row. Resolution and Refresh are STAGED --
-// changing them only updates the on-screen value, never the live pipeline --
-// until a batched Apply persists them together (at most one reboot). Colors
-// keeps its existing LIVE preview (video_capture_set_color_model() on every
-// change) but is likewise only PERSISTED on Apply. See
-// menu_diag_experiment_arm_revert_confirm() for the post-Apply-reboot
-// keep/revert safety net.
+// Video screen: a multi-row form (Resolution / Refresh / Colors / Scanlines,
+// plus Apply and Cancel action rows) with a single cursor, reusing the
+// selector_row_render widget above for each setting row. Resolution and
+// Refresh are STAGED -- changing them only updates the on-screen value, never
+// the live pipeline -- until a batched Apply persists them together (at most
+// one reboot). Colors keeps its existing LIVE preview
+// (video_capture_set_color_model() on every change) but is likewise only
+// PERSISTED on Apply. See menu_diag_experiment_arm_revert_confirm() for the
+// post-Apply-reboot keep/revert safety net.
+//
+// Scanlines is the one EXCEPTION to all of the above, deliberate and
+// user-specified: it is LIVE and fully exempt from the Apply/Cancel
+// transaction (video_pipeline_set_scanline_level() applies it immediately),
+// not staged, not persisted here, and untouched by both Apply and Cancel.
+// Every other row on this screen is strictly all-or-nothing; this one row is
+// not.
 // ===========================================================================
 #define VIDEO_TITLE_ROW 1
 #define VIDEO_FIRST_ROW 4
 #define VIDEO_ROW_STEP 2
+// 14 leaves >= 2 blank rows below Cancel for every row count this screen has
+// shipped with (<= 5 when Refresh or Colors is absent: Resolution/Scanlines/
+// Apply/Cancel plus at most one of Refresh/Colors). Scanlines is a permanent
+// row; Refresh+Colors both compiled in at once is the only remaining
+// combination that reaches 6 rows, which would otherwise collide with row 14
+// (Cancel would land there too) -- bump the hint down one step in that case
+// only, so every other build keeps the exact existing value.
+#if NEOPICO_EXP_GENLOCK_DYNAMIC && NEOPICO_MVS_COLOR_MODEL_MENU
+#define VIDEO_HINT_ROW 15
+#else
 #define VIDEO_HINT_ROW 14
+#endif
 
 typedef enum {
     VIDEO_ROW_RESOLUTION = 0,
@@ -407,6 +498,7 @@ typedef enum {
 #if NEOPICO_MVS_COLOR_MODEL_MENU
     VIDEO_ROW_COLORS,
 #endif
+    VIDEO_ROW_SCANLINES,
     VIDEO_ROW_APPLY,
     VIDEO_ROW_CANCEL,
     VIDEO_ROW_COUNT
@@ -416,6 +508,9 @@ static video_pipeline_reboot_mode_t s_video_resolution; // staged
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
 static bool s_video_genlock; // staged
 #endif
+// LIVE (see the screen comment above), not staged: always mirrors the
+// pipeline's actual current level.
+static uint8_t s_video_scanline_level = VIDEO_PIPELINE_SCANLINE_50;
 static uint8_t s_video_row;
 
 static inline uint8_t video_row_y(uint8_t idx)
@@ -436,6 +531,10 @@ static const char *SELECTOR_UI_RAM(video_row_description)(uint8_t idx)
         case VIDEO_ROW_COLORS:
             return color_model_description(s_selected_color_model);
 #endif
+        case VIDEO_ROW_SCANLINES:
+            return (video_pipeline_reboot_requested_mode() == VIDEO_PIPELINE_REBOOT_MODE_240P)
+                       ? "Unavailable at 240p"
+                       : "Dims alternating lines";
         case VIDEO_ROW_APPLY:
             return "Save and reboot if needed";
         case VIDEO_ROW_CANCEL:
@@ -483,6 +582,18 @@ static void SELECTOR_UI_RAM(video_row_render)(uint8_t idx)
             break;
         }
 #endif
+        case VIDEO_ROW_SCANLINES: {
+            // Disabled at 240p (no vertical scaling, so scanlines cannot be
+            // shown): no arrows, greyed out, based on the ACTIVE resolution
+            // (not s_video_resolution, which may be a staged, not-yet-applied
+            // change -- see the screen comment above).
+            const bool disabled = (video_pipeline_reboot_requested_mode() == VIDEO_PIPELINE_REBOOT_MODE_240P);
+            selector_row_render(row, "Scanlines", scanline_level_label(s_video_scanline_level),
+                                !disabled && scanline_level_has_prev(s_video_scanline_level),
+                                !disabled && scanline_level_has_next(s_video_scanline_level),
+                                disabled ? OSD_COLOR_GRAY : OSD_COLOR_GREEN);
+            break;
+        }
         case VIDEO_ROW_APPLY:
             fast_osd_puts_color(row, SELECTOR_ROW_LABEL_COL, "Apply", cursor_color);
             break;
@@ -549,6 +660,38 @@ static void SELECTOR_UI_RAM(video_row_change_value)(bool forward, bool wrap)
             video_capture_set_color_model(s_selected_color_model);
             break;
 #endif
+        case VIDEO_ROW_SCANLINES:
+            // LIVE and EXEMPT from Apply/Cancel (deliberate, user-specified;
+            // see the screen comment above): applies immediately via
+            // video_pipeline_set_scanline_level(), never staged. Persistence
+            // is likewise immediate, not batched with Apply: it queues onto
+            // the same deferred settings_request_save() path Colors uses, so
+            // Core 0 performs the actual flash write at a frame boundary
+            // (settings_service_pending_save() in video_capture_mvs.c /
+            // video_capture_snes.c) instead of blocking here on Core 1.
+            // Disabled at 240p -- LEFT/RIGHT/BACK are all ignored there,
+            // matching the greyed-out, arrow-less render above.
+            if (video_pipeline_reboot_requested_mode() == VIDEO_PIPELINE_REBOOT_MODE_240P) {
+                return;
+            }
+            if (wrap) {
+                s_video_scanline_level = forward ? scanline_level_next(s_video_scanline_level)
+                                                 : scanline_level_previous(s_video_scanline_level);
+            } else if (forward) {
+                if (scanline_level_has_next(s_video_scanline_level)) {
+                    s_video_scanline_level = scanline_level_next(s_video_scanline_level);
+                }
+            } else if (scanline_level_has_prev(s_video_scanline_level)) {
+                s_video_scanline_level = scanline_level_previous(s_video_scanline_level);
+            }
+            video_pipeline_set_scanline_level(s_video_scanline_level);
+            {
+                neopico_settings_t persisted;
+                settings_load(&persisted);
+                persisted.scanline_level = s_video_scanline_level;
+                settings_request_save(&persisted);
+            }
+            break;
         default:
             return; // Apply/Cancel: no effect.
     }
@@ -730,6 +873,11 @@ static void root_menu_enter_leaf(void)
             s_committed_color_model = video_capture_get_color_model();
             s_selected_color_model = s_committed_color_model;
 #endif
+            // Read the live level back rather than trusting this file's own
+            // initializer: boot restores the persisted level into the pipeline
+            // (see main.c), so without this the row showed its compile-time
+            // default after every reboot no matter what was saved.
+            s_video_scanline_level = video_pipeline_get_scanline_level();
             s_video_row = 0;
             video_screen_render_full();
             s_screen = MENU_SCREEN_VIDEO;
@@ -743,6 +891,7 @@ static void root_menu_enter_leaf(void)
 #endif
         case MENU_SCREEN_SELFTEST:
             selftest_layout_reset();
+            s_gp_state_last = 0xFFU;
             s_last_update_frame = video_frame_count;
             s_video_hi = 0;
             s_video_lo = 0;
@@ -872,8 +1021,10 @@ static void root_menu_buttons_tick(void)
     } else {
         // Once visible, controller navigation is distinct from the legacy
         // two-button physical scheme. Each press_event is one-shot.
-        menu_edge |= s_controller_start.press_event;
-        controller_select_edge = s_controller_select.press_event;
+        // A shares START's "activate" role and B shares SELECT's "back" role,
+        // so either the face buttons or START/SELECT can drive the menu.
+        menu_edge |= s_controller_start.press_event || s_controller_a.press_event;
+        controller_select_edge = s_controller_select.press_event || s_controller_b.press_event;
         up_edge = s_controller_up.press_event;
         down_edge = s_controller_down.press_event;
         left_edge = s_controller_left.press_event;
@@ -888,14 +1039,13 @@ static void root_menu_buttons_tick(void)
     s_btn_was_pressed = menu_pressed;
     s_back_was_pressed = back_pressed;
 
-#if NEOPICO_MVS_COLOR_MODEL_MENU
-    // A queued live Colors save owns the flash settings record. Continue
-    // sampling buttons, but ignore actions until Core 0 finishes the write so
-    // no Core 1 path can read XIP while flash is unavailable.
+    // A queued live save (Colors, or Scanlines) owns the flash settings record.
+    // Continue sampling buttons, but ignore actions until Core 0 finishes the
+    // write so no Core 1 path can read XIP while flash is unavailable.
+    // Unconditional: Scanlines queues saves even when Colors is compiled out.
     if (settings_save_pending()) {
         return;
     }
-#endif
 
     switch (s_screen) {
         case MENU_SCREEN_HIDDEN:
@@ -1031,6 +1181,7 @@ void menu_diag_experiment_init(void)
     osd_controller_button_init(&s_controller_down, !gpio_get(NEOPICO_OSD_CONTROLLER_DOWN_PIN), now_ms);
     osd_controller_button_init(&s_controller_left, !gpio_get(NEOPICO_OSD_CONTROLLER_LEFT_PIN), now_ms);
     osd_controller_button_init(&s_controller_right, !gpio_get(NEOPICO_OSD_CONTROLLER_RIGHT_PIN), now_ms);
+    osd_controller_button_init(&s_controller_a, !gpio_get(NEOPICO_OSD_CONTROLLER_A_PIN), now_ms);
     osd_controller_button_init(&s_controller_b, !gpio_get(NEOPICO_OSD_CONTROLLER_B_PIN), now_ms);
     s_back_was_pressed = false;
     s_last_back_press_ms = 0;
@@ -1079,6 +1230,27 @@ void SELECTOR_UI_RAM(menu_diag_experiment_tick_background)(void)
     root_menu_buttons_tick();
 
     if (osd_visible && s_screen == MENU_SCREEN_SELFTEST) {
+        // Live controller-tap readout: shows which of GP0-GP7 is pulled low
+        // right now, so a wiring map can be verified by pressing buttons
+        // instead of being assumed. Redrawn only when the state changes.
+        {
+            uint8_t state = 0;
+            for (uint8_t i = 0; i < 8U; i++) {
+                if (!gpio_get(i)) {
+                    state |= (uint8_t)(1U << i);
+                }
+            }
+            if (state != s_gp_state_last) {
+                s_gp_state_last = state;
+                fast_osd_puts_color(15, 1, "GP", OSD_COLOR_GRAY);
+                for (uint8_t i = 0; i < 8U; i++) {
+                    const bool pressed = (state & (1U << i)) != 0U;
+                    fast_osd_putc_color(15, (uint8_t)(4 + i), pressed ? (char)('0' + i) : '-',
+                                        pressed ? OSD_COLOR_GREEN : OSD_COLOR_GRAY);
+                }
+            }
+        }
+
         uint32_t video_sample = 0;
 #if NEOPICO_CAPTURE_TARGET == NEOPICO_CAPTURE_TARGET_MVS
         if (gpio_get(PIN_MVS_CSYNC)) {

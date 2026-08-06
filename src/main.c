@@ -237,6 +237,10 @@ int main(void)
     gpio_set_dir(NEOPICO_OSD_CONTROLLER_RIGHT_PIN, GPIO_IN);
     gpio_pull_up(NEOPICO_OSD_CONTROLLER_RIGHT_PIN);
 
+    gpio_init(NEOPICO_OSD_CONTROLLER_A_PIN);
+    gpio_set_dir(NEOPICO_OSD_CONTROLLER_A_PIN, GPIO_IN);
+    gpio_pull_up(NEOPICO_OSD_CONTROLLER_A_PIN);
+
     gpio_init(NEOPICO_OSD_CONTROLLER_B_PIN);
     gpio_set_dir(NEOPICO_OSD_CONTROLLER_B_PIN, GPIO_IN);
     gpio_pull_up(NEOPICO_OSD_CONTROLLER_B_PIN);
@@ -276,6 +280,19 @@ int main(void)
     // Core 1 is a single load (see video_pipeline_vsync_callback()).
     video_pipeline_set_genlock_enabled(genlock_enabled);
 #endif
+
+    // Restore the persisted Scanlines level before Core 1 launches:
+    // video_pipeline_set_scanline_level() regenerates the ~16 KB dim LUT
+    // in-place, which must finish before Core 1's scanout ISR can read it.
+    // Clamp defensively -- a corrupt or future-format flash record must not
+    // select an out-of-range level.
+    {
+        uint8_t scanline_level = persisted.scanline_level;
+        if (scanline_level > VIDEO_PIPELINE_SCANLINE_100) {
+            scanline_level = VIDEO_PIPELINE_SCANLINE_100;
+        }
+        video_pipeline_set_scanline_level(scanline_level);
+    }
 
     // Launch Core 1 for HSTX output
     multicore_launch_core1(video_output_core1_run);
