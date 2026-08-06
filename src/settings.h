@@ -57,7 +57,20 @@ typedef struct {
     // writes it, because this struct is a persisted flash format that must
     // be byte-identical across build configurations.
     uint8_t pending_revert_color; // mvs_color_model_t to revert color_model to
-    uint8_t reserved[24];         // future settings; zero-initialized
+    // Scanlines: LIVE setting (menu_diag_experiment.c), applied immediately
+    // via video_pipeline_set_scanline_level() and queued to flash through the
+    // same deferred settings_request_save()/settings_service_pending_save()
+    // path Colors uses -- no batched Apply, no revert carrier, since it is
+    // exempt from the Video screen's Apply/Cancel transaction. video_pipeline_
+    // scanline_level_t values are 0 (OFF) through 4 (100%); like genlock_
+    // enabled above, 0 needs no separate "_valid" marker because it is both
+    // the natural zero value and the desired default, so an old settings
+    // image (whose reserved byte here was always zero-initialized) already
+    // reads as "OFF" with no ambiguity. Declared unconditionally: this struct
+    // is a persisted flash format that must be byte-identical across build
+    // configurations.
+    uint8_t scanline_level;
+    uint8_t reserved[23]; // future settings; zero-initialized
 } neopico_settings_t;
 
 _Static_assert(sizeof(neopico_settings_t) == 32, "settings payload format must remain 32 bytes");
@@ -71,14 +84,14 @@ bool settings_load(neopico_settings_t *out);
 // suspended. The CRC and page image are prepared before the flash operation.
 void settings_save(const neopico_settings_t *s);
 
-#if NEOPICO_MVS_COLOR_MODEL_MENU
 // Queue one settings record from Core 1 without touching flash. Core 0 calls
 // settings_service_pending_save() after completing a captured frame, allowing
 // Core 1 HDMI interrupts to continue while XIP is temporarily unavailable.
+// Unconditional: both the Colors selector (NEOPICO_MVS_COLOR_MODEL_MENU) and
+// the always-available Scanlines level use this same deferred-save queue.
 bool settings_request_save(const neopico_settings_t *s);
 bool settings_service_pending_save(void);
 bool settings_save_pending(void);
-#endif
 
 // Restore and persist recovery defaults: 480p, MV1C Digital audio, and the
 // Digital MVS color model when its selector is compiled.

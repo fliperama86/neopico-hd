@@ -90,6 +90,36 @@ void video_pipeline_request_reboot_genlock_pending(bool new_enabled, bool previo
 bool video_pipeline_take_genlock_pending_confirmation(bool *previous_enabled);
 #endif
 
+// Scanline STRENGTH, shared BY NUMBER with pico_hdmi's
+// video_output_set_scanline_level() (720p path, lib/pico_hdmi): a caller
+// passes the same uint8_t 0..4 to both. Per-8-bit-channel dim formulas (see
+// video_pipeline.c and video_output_rt.c, which both apply these exactly):
+//   OFF  -> v                            (100% brightness, no dimming)
+//   25%  -> (v + (v >> 1)) >> 1          (75% brightness)
+//   50%  -> v >> 1                       (50% brightness)
+//   75%  -> v >> 2                       (25% brightness)
+//   100% -> 0                            (fully black)
+typedef enum {
+    VIDEO_PIPELINE_SCANLINE_OFF = 0,
+    VIDEO_PIPELINE_SCANLINE_25 = 1,
+    VIDEO_PIPELINE_SCANLINE_50 = 2,
+    VIDEO_PIPELINE_SCANLINE_75 = 3,
+    VIDEO_PIPELINE_SCANLINE_100 = 4,
+} video_pipeline_scanline_level_t;
+
+// LIVE, not staged (see menu_diag_experiment.c's Video-screen comment):
+// applies immediately. Safe to call from the Core 1 background/menu context;
+// never from the scanline ISR. Also forwards to pico_hdmi's
+// video_output_set_scanline_level() for 720p, so callers (the OSD menu) only
+// ever need this one function -- matching every other video_pipeline_*
+// wrapper in this header, none of which touch pico_hdmi directly.
+void video_pipeline_set_scanline_level(uint8_t level);
+
+// Current level. The pipeline owns this value (boot restores it from flash
+// before Core 1 launches), so the OSD must read it back rather than assume a
+// default, otherwise the menu shows a stale value after a reboot.
+uint8_t video_pipeline_get_scanline_level(void);
+
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
 #define VIDEO_PIPELINE_VSYNC_RAM __scratch_y("genlock_vsync")
 #else

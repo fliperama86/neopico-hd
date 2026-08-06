@@ -24,7 +24,6 @@ typedef struct {
 
 _Static_assert(sizeof(settings_record_t) <= FLASH_PAGE_SIZE, "settings record must fit one flash page");
 
-#if NEOPICO_MVS_COLOR_MODEL_MENU
 enum {
     SETTINGS_PENDING_IDLE = 0,
     SETTINGS_PENDING_WRITING,
@@ -34,7 +33,6 @@ enum {
 
 static neopico_settings_t g_pending_settings;
 static uint32_t g_pending_settings_state;
-#endif
 
 static uint32_t settings_crc32(const void *data, size_t len)
 {
@@ -89,7 +87,6 @@ void __no_inline_not_in_flash_func(settings_save)(const neopico_settings_t *s)
     restore_interrupts(saved);
 }
 
-#if NEOPICO_MVS_COLOR_MODEL_MENU
 bool settings_request_save(const neopico_settings_t *s)
 {
     uint32_t expected = SETTINGS_PENDING_IDLE;
@@ -121,7 +118,6 @@ bool settings_save_pending(void)
 {
     return __atomic_load_n(&g_pending_settings_state, __ATOMIC_ACQUIRE) != SETTINGS_PENDING_IDLE;
 }
-#endif
 
 void __no_inline_not_in_flash_func(settings_factory_reset)(void)
 {

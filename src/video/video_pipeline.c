@@ -35,6 +35,46 @@
 #define NEOPICO_EXP_RGB888_SCANOUT 0
 #endif
 
+// 50% scanlines at 480p (permanent feature). See the hardware-validated
+// 720p counterpart in lib/pico_hdmi, which dims with a per-pixel __uhadd8
+// SIMD instruction in a DEFERRED fill (3-line window). 480p CANNOT use that
+// approach: its scanline callback
+// re-renders every source line from the line ring for BOTH physical output
+// lines of a 2x pair inside the PER-LINE ISR itself (no early return, no
+// reused buffer, 1-line window -- see fb_line below), which is already the
+// tightest CPU budget in the system. A first version dimmed with a per-pixel
+// uhadd8 kernel plus a per-line function-pointer-selection call; hardware
+// testing showed that dropped 480p HDMI sync (720p was fine) -- ~320 extra
+// uhadd8 per dimmed line plus the selection call's memory traffic, on EVERY
+// line in EVERY mode, was too much for the per-line ISR's 1-line window.
+//
+// Current approach costs ZERO per-pixel work instead: a second, pre-dimmed
+// LUT (g_effect_lut888_dim, generated once at init by halving every channel
+// of g_effect_lut888). The scale functions already do one LUT lookup per
+// source pixel; dimming becomes a matter of WHICH table that lookup reads,
+// not extra work per pixel. The callback (scratch_x, no headroom to spare)
+// writes only a single bool, g_scanline_dim_line, once per line, right next
+// to where g_scanline_shadow is already latched -- same per-line cost as
+// before, now just a bool store instead of a bool store PLUS ~320 uhadd8
+// PLUS a cross-TU call. video_pipeline_double_pixels_fast (scratch_y, which
+// has headroom) does the actual pointer ternary between the two large LUT
+// addresses once per function call, not per pixel: an earlier version
+// resolved the pointer directly in the callback and measured 32-88 bytes of
+// SCRATCH_X overflow just from needing both LUT addresses at the per-line
+// assignment sites, even after hoisting the selection condition to a single
+// precomputed local. g_scanline_dim_line is true only for the second
+// physical line of a 2x/480p pair (active_line odd); always false for 240p
+// (structurally impossible: no vertical scaling) and 720p (has its own
+// uhadd8 path in the library, untouched by this). RGB888-only
+// (NEOPICO_EXP_RGB888_SCANOUT): the non-RGB888 path is unaffected. The OSD
+// span is never dimmed -- full brightness always, so the menu stays crisp
+// over scanlines; this predates the LUT rework and was unrelated to the
+// sync failure, so it is unchanged.
+//
+// Hardware-validated 2026-08-05 (this LUT-based version, including runtime
+// levels and persistence; the earlier per-pixel-kernel version above is what
+// failed on hardware and was replaced by this one).
+
 // ---------------------------------------------------------------------------
 // Scanline timing trace (NEOPICO_EXP_SCANLINE_TRACE, default OFF).
 //
@@ -139,6 +179,99 @@ static void __scratch_y("") video_pipeline_fill_rgb565(uint32_t *dst, uint32_t w
 static mvs_effect_lut888_t g_effect_lut888;
 static uint32_t g_scanline_shadow;
 
+// 50% scanlines at 480p, LUT-based (see the comment at the top of this file
+// for why): a full pre-dimmed companion table, so a dimmed line
+// costs nothing per pixel -- the scale functions already do one LUT lookup
+// per source pixel, so dimming it becomes a matter of WHICH table they read,
+// not extra per-pixel work. g_scanline_dim_line (below) says whether the
+// current physical output line should read this table; the pointer ternary
+// itself lives in video_pipeline_double_pixels_fast, not here. Plain bss,
+// not scratch: 16896 bytes is trivial against the ~180 KB of free main RAM,
+// and
+// scratch_x/scratch_y have none to spare.
+static mvs_effect_lut888_t g_effect_lut888_dim;
+// The per-line SELECT (is this line dimmed?) is a single bool, written by
+// the scratch_x callback; the ACTUAL pointer ternary between the two large
+// LUT addresses is done once per function call inside
+// video_pipeline_double_pixels_fast (scratch_y, which has headroom) rather
+// than once per line inside the callback (scratch_x, which does not): an
+// earlier version wrote the resolved pointer directly from the callback and
+// measured 32-88 bytes of SCRATCH_X overflow from the two literal LUT
+// addresses needed at each of the per-line assignment sites, even after
+// hoisting the condition to a single precomputed local.
+static bool g_scanline_dim_line;
+// Current scanline STRENGTH, 0..4 (video_pipeline_scanline_level_t in
+// video_pipeline.h). Defaults to 50%, matching this feature's previous fixed
+// behavior before runtime levels existed.
+// video_pipeline_set_scanline_dim_line() below ANDs its selection on this
+// being != OFF, so OFF disables dim selection entirely rather than relying
+// on an identity-valued dim table (see video_pipeline_set_scanline_level()
+// further down, which also owns the only writes to this after init).
+static uint8_t g_scanline_level = VIDEO_PIPELINE_SCANLINE_50;
+
+// Computing (not just storing) the dim condition inline in the callback --
+// in any of several shapes/placements tried, including right next to the
+// g_scanline_shadow assignment sites further down (the placement it might
+// seem most natural to mirror) -- measured a persistent SCRATCH_X cost of
+// 16-88 bytes, because it forced worse register allocation through this
+// whole tightly-packed function, not just at the new code. Moving the
+// COMPUTATION itself into this __scratch_y helper, called exactly once, up
+// front (see the call site above, not duplicated at the shadow-assignment
+// sites), is what actually fit: 0 bytes of SCRATCH_X headroom left, but it
+// links. Guarding the call with `if (h_scale == 2U)` to skip it for
+// 240p/720p (where g_scanline_dim_line is never read) was tried both here
+// and at the shadow sites and measured WORSE every time (20-28 bytes over):
+// the extra branch always cost more than the skipped call saved. Two
+// arguments (h_scale, active_line), unconditional, is the cheapest shape
+// found.
+static void __attribute__((noinline, noclone)) __scratch_y("")
+    video_pipeline_set_scanline_dim_line(uint32_t h_scale, uint32_t active_line)
+{
+    g_scanline_dim_line =
+        (g_scanline_level != VIDEO_PIPELINE_SCANLINE_OFF) && (h_scale == 2U) && ((active_line & 1U) != 0U);
+}
+
+// Per-8-bit-channel dim formula for `level` (see the enum in video_pipeline.h
+// for the shared values/formulas). 50% matches __uhadd8(v, 0) exactly (a
+// halving-add against zero is a plain per-byte v>>1, no rounding); the other
+// levels are plain integer arithmetic since this runs once per level change,
+// not per pixel -- no SIMD instruction needed here (contrast the 720p path
+// in pico_hdmi, which runs per PIXEL and does use __uhadd8).
+static inline uint32_t video_pipeline_scanline_dim_channel(uint32_t v, uint8_t level)
+{
+    switch (level) {
+        case VIDEO_PIPELINE_SCANLINE_25:
+            return (v + (v >> 1)) >> 1;
+        case VIDEO_PIPELINE_SCANLINE_50:
+            return v >> 1;
+        case VIDEO_PIPELINE_SCANLINE_75:
+            return v >> 2;
+        case VIDEO_PIPELINE_SCANLINE_100:
+            return 0;
+        default: // OFF, or any unexpected value: identity (never selected -- see g_scanline_dim_line above)
+            return v;
+    }
+}
+
+// Fills g_effect_lut888_dim from the already-generated g_effect_lut888,
+// applying `level`'s dim formula to each 8-bit channel independently.
+// Channels must be handled independently, never the whole packed word: the
+// rg table packs r8 at bits[23:16] directly against g8 at bits[15:8] with no
+// padding byte between them, so shifting the whole word right would bleed
+// r8's low bit into g8's high bit.
+static void video_pipeline_dim_lut888_generate(uint8_t level)
+{
+    for (uint32_t i = 0; i < MVS_EFFECT_RG_TABLE_ENTRIES; i++) {
+        const uint32_t v = g_effect_lut888.rg[i];
+        const uint32_t r8 = video_pipeline_scanline_dim_channel((v >> 16) & 0xFFU, level);
+        const uint32_t g8 = video_pipeline_scanline_dim_channel((v >> 8) & 0xFFU, level);
+        g_effect_lut888_dim.rg[i] = (r8 << 16) | (g8 << 8);
+    }
+    for (uint32_t i = 0; i < MVS_EFFECT_B_TABLE_ENTRIES; i++) {
+        g_effect_lut888_dim.b[i] = video_pipeline_scanline_dim_channel(g_effect_lut888.b[i], level);
+    }
+}
+
 // Plain bit-replication RGB565 -> RGB888 (NOT the DARK/SHADOW model). Packs
 // as 0x00RRGGBB to match the HSTX RGB888 expand_tmds lane layout (L0=blue
 // ROT=0, L1=green ROT=8, L2=red ROT=16).
@@ -169,6 +302,15 @@ static void __scratch_y("") video_pipeline_fill_rgb888(uint32_t *dst, uint32_t w
 #else
 #define VIDEO_PIPELINE_FILL(dst_arg, words_arg, rgb565color_arg)                                                       \
     video_pipeline_fill_rgb565((dst_arg), (words_arg), (rgb565color_arg))
+#endif
+
+#if !NEOPICO_EXP_RGB888_SCANOUT
+// Non-RGB888 builds (e.g. SNES, where RGB888 scanout auto-disables for any
+// non-MVS capture target -- see the CMakeLists.txt guard): the 480p dim-LUT
+// machinery above doesn't exist, but video_pipeline_set_scanline_level() /
+// video_pipeline_get_scanline_level() below still need a place to track the
+// menu's current level.
+static uint8_t g_scanline_level = VIDEO_PIPELINE_SCANLINE_50;
 #endif
 
 // Fake OSD transparency: black background pixels retain 12.5% of the captured
@@ -365,6 +507,7 @@ void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
 {
 #if NEOPICO_EXP_RGB888_SCANOUT
     mvs_effect_lut888_generate(&g_effect_lut888);
+    video_pipeline_dim_lut888_generate(g_scanline_level);
 #endif
     video_output_init(frame_width, frame_height);
     video_output_set_vsync_callback(video_pipeline_vsync_callback);
@@ -577,11 +720,22 @@ void __scratch_y("") video_pipeline_double_pixels_fast(uint32_t *restrict dst, c
     // One 32-bit RGB888 word per physical output pixel: each source pixel is
     // doubled into 2 consecutive words (was: doubled into 1 packed word).
     const uint32_t *src32 = (const uint32_t *)src;
+    // 50% scanlines: g_scanline_dim_line (a single bool, set once per line
+    // by the callback right next to the shadow latch) selects which table
+    // to read this call, instead of the literal &g_effect_lut888. The
+    // pointer ternary lives HERE (scratch_y, plenty of headroom) rather than
+    // in the callback (scratch_x, none to spare) -- see the comment on
+    // g_scanline_dim_line. This is the ONLY scale function that ever needs
+    // the dim table -- triple/quadruple (720p/240p) are untouched, since
+    // g_scanline_dim_line is always false for those modes (see the
+    // callback) and 240p/720p have their own tight-budget history. One
+    // pointer select here, at function entry, not per pixel.
+    const mvs_effect_lut888_t *lut = g_scanline_dim_line ? &g_effect_lut888_dim : &g_effect_lut888;
     int pairs = count >> 1;
     for (int i = 0; i < pairs; i++) {
         uint32_t pair = src32[i];
-        uint32_t c0 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, pair & 0xFFFFU, g_scanline_shadow);
-        uint32_t c1 = mvs_effect_lut888_lookup_entropy(&g_effect_lut888, pair >> 16U, g_scanline_shadow);
+        uint32_t c0 = mvs_effect_lut888_lookup_entropy(lut, pair & 0xFFFFU, g_scanline_shadow);
+        uint32_t c1 = mvs_effect_lut888_lookup_entropy(lut, pair >> 16U, g_scanline_shadow);
         dst[(i * 4) + 0] = c0;
         dst[(i * 4) + 1] = c0;
         dst[(i * 4) + 2] = c1;
@@ -683,6 +837,53 @@ void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const u
 #endif
 }
 
+// See video_pipeline.h for the level values/formulas and call-site
+// requirements. Regenerating g_effect_lut888_dim is ~4224 entries (16896
+// bytes), cheap on Core 1's background loop but far too slow for any ISR.
+void video_pipeline_set_scanline_level(uint8_t level)
+{
+    if (level > VIDEO_PIPELINE_SCANLINE_100) {
+        level = VIDEO_PIPELINE_SCANLINE_100;
+    }
+#if NEOPICO_EXP_RGB888_SCANOUT
+    if (level != g_scanline_level) {
+        if (level == VIDEO_PIPELINE_SCANLINE_OFF) {
+            // Disabling: g_effect_lut888_dim's content is irrelevant once
+            // selection is forced off by the level check in
+            // video_pipeline_set_scanline_dim_line() -- no regen needed.
+            g_scanline_level = VIDEO_PIPELINE_SCANLINE_OFF;
+        } else {
+            // RACE SAFETY: video_pipeline_set_scanline_dim_line() runs once
+            // per line from the scratch_x callback, which can preempt this
+            // Core 1 background call at any point during the regen loop
+            // below. Forcing OFF FIRST makes every line touched during the
+            // regen resolve to the normal (non-dim) LUT, so the ISR can
+            // never read a torn g_effect_lut888_dim (part old level, part
+            // new level). Flip to the real level only once the table is
+            // fully consistent. A frame or so without scanlines during a
+            // level change is expected and fine.
+            g_scanline_level = VIDEO_PIPELINE_SCANLINE_OFF;
+            video_pipeline_dim_lut888_generate(level);
+            g_scanline_level = level;
+        }
+    }
+#else
+    // No 480p LUT path in this build, but the level is still the value the OSD
+    // reads back, so it must track regardless.
+    g_scanline_level = level;
+#endif
+    // 720p: pico_hdmi's own runtime setter, same 0..4 level values. Called
+    // unconditionally so the menu never has to know whether the 480p LUT
+    // path above actually did anything (e.g. NEOPICO_EXP_RGB888_SCANOUT
+    // off).
+    video_output_set_scanline_level(level);
+}
+
+uint8_t video_pipeline_get_scanline_level(void)
+{
+    return g_scanline_level;
+}
+
 #if NEOPICO_EXP_GENLOCK_DYNAMIC
 // Nominals that approximate MVS ~59.18 Hz at each mode's pixel clock:
 //   480p: 25.2M / (800 * 532) = 59.21 Hz    (±1 → 59.10–59.32 Hz)
@@ -713,8 +914,8 @@ void __scratch_y("") video_pipeline_quadruple_pixels_fast(uint32_t *dst, const u
 
 // Once per frame from the vsync callback; does not need scratch residency
 // (and scratch_x is at its hard boundary).
-volatile uint32_t g_genlock_phase_us;      // published for the genlock OSD
-volatile uint32_t g_genlock_outzone_count; // raw out-of-zone frames (incl. measurement spikes)
+static volatile uint32_t g_genlock_phase_us;      // published for the genlock OSD
+static volatile uint32_t g_genlock_outzone_count; // raw out-of-zone frames (incl. measurement spikes)
 
 static void genlock_dynamic_update(void)
 {
@@ -883,6 +1084,16 @@ static void __scratch_x("000_video_pipeline_modes")
         active_width / 2U;
 #endif
     const uint32_t h_scale = mode_is_3x ? 3U : mode_is_240p ? 4U : 2U;
+#if NEOPICO_EXP_RGB888_SCANOUT
+    // 50% scanlines: unlike g_scanline_shadow (which depends on captured
+    // per-line data and can only be set once a ready line is found),
+    // g_scanline_dim_line depends only on h_scale/active_line, both already
+    // known here -- so it is safe, and measured cheapest, to set it
+    // unconditionally once, up front, rather than duplicated at the two
+    // g_scanline_shadow assignment sites further down (see
+    // video_pipeline_set_scanline_dim_line's comment for the numbers).
+    video_pipeline_set_scanline_dim_line(h_scale, active_line);
+#endif
     const uint32_t image_words =
 #if NEOPICO_EXP_RGB888_SCANOUT
         LINE_WIDTH * h_scale;

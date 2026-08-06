@@ -179,17 +179,16 @@ static semaphore_t g_vsync_sem;
 // =============================================================================
 
 #include "mvs_color.h"
+#include "settings.h"
 
 #if NEOPICO_MVS_COLOR_MODEL_MENU
 #include "mvs_color_model.h"
-#include "settings.h"
 
 #if ENABLE_DARK_SHADOW
 #error "The normal-color model selector must remain separate from DARK/SHADOW processing"
 #endif
 
 static uint32_t g_requested_color_model = MVS_COLOR_MODEL_DIGITAL;
-static volatile bool g_sync_decoder_reset_requested;
 
 void video_capture_set_color_model(mvs_color_model_t model)
 {
@@ -203,6 +202,14 @@ mvs_color_model_t video_capture_get_color_model(void)
     return mvs_color_model_is_valid(requested) ? (mvs_color_model_t)requested : MVS_COLOR_MODEL_DIGITAL;
 }
 #endif
+
+// Set by video_capture_resync_after_settings_save() (below) after a deferred
+// settings save (Colors or Scanlines) pauses Core 0's capture loop for the
+// flash write; consumed by sync_irq_handler() to reset its sync-decoder state
+// cleanly instead of resuming mid-vsync-detection. Unconditional: both the
+// Colors selector and the always-available Scanlines level use this same
+// resync path.
+static volatile bool g_sync_decoder_reset_requested;
 
 #if ENABLE_DARK_SHADOW
 #if NEOPICO_EXP_RGB888_SCANOUT
@@ -428,13 +435,11 @@ static void sync_irq_handler(void)
     static uint32_t equ_count = 0;
     static bool in_vsync = false;
 
-#if NEOPICO_MVS_COLOR_MODEL_MENU
     if (g_sync_decoder_reset_requested) {
         equ_count = 0;
         in_vsync = false;
         g_sync_decoder_reset_requested = false;
     }
-#endif
 
     if (!in_vsync) {
         if (is_short_pulse) {
@@ -492,7 +497,6 @@ static void video_capture_reset_hardware(void)
     pio_interrupt_clear(g_pio_mvs, MVS_SYNC_IRQ_INDEX);
 }
 
-#if NEOPICO_MVS_COLOR_MODEL_MENU
 static void video_capture_resync_after_settings_save(void)
 {
     // Core 0 was paused while flash XIP was unavailable. Discard any queued
@@ -504,7 +508,6 @@ static void video_capture_resync_after_settings_save(void)
     video_capture_reset_hardware();
     irq_set_enabled(PIO1_IRQ_0, true);
 }
-#endif
 
 // =============================================================================
 // Public API
@@ -626,15 +629,11 @@ void video_capture_run(void)
             g_line_ring_diag.sync_resets++;
 #endif
             audio_rearm_on_next_signal = true;
-#if NEOPICO_MVS_COLOR_MODEL_MENU
             if (settings_service_pending_save()) {
                 video_capture_resync_after_settings_save();
             } else {
                 video_capture_reset_hardware();
             }
-#else
-            video_capture_reset_hardware();
-#endif
             tud_task();
             continue;
         }
@@ -738,13 +737,11 @@ void video_capture_run(void)
 #if NEOPICO_EXP_SCANLINE_TRACE
         scanline_trace_dump_tick();
 #endif
-#if NEOPICO_MVS_COLOR_MODEL_MENU
         // Persist only after a complete input frame. This pauses capture for a
         // rare flash operation while Core 1 continues outputting the last frame.
         if (settings_service_pending_save()) {
             video_capture_resync_after_settings_save();
         }
-#endif
     }
 }
 

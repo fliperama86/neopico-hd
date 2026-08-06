@@ -20,6 +20,7 @@
 #include "capture_profile.h"
 #include "line_ring.h"
 #include "pico.h"
+#include "settings.h"
 #include "snes_pins.h"
 #include "tusb.h"
 #include "video_capture.h"
@@ -227,6 +228,21 @@ void video_capture_run(void)
 
             line_ring_commit(line + 1);
         }
+
+        // Persist only after a complete input frame, mirroring the MVS
+        // capture loop's drain site (video_capture_mvs.c): this pauses
+        // capture for a rare flash operation while Core 1 continues
+        // outputting the last frame. Unlike MVS, no separate post-save
+        // resync call is needed here: MVS's resync clears a free-running
+        // PIO sync-decoder's stale state and a backlogged vsync semaphore,
+        // neither of which exist on this path -- VBLANK is detected by
+        // directly polling a GPIO in this same loop (above), not by a
+        // background IRQ. By the time this line runs, the last DMA transfer
+        // has already completed (dma_channel_wait_for_finish_blocking()
+        // above), and the unconditional per-frame pixel SM reset at the top
+        // of this loop already realigns capture hardware for the next frame
+        // regardless of whether a save happened here.
+        settings_service_pending_save();
     }
 }
 

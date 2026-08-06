@@ -177,6 +177,15 @@ option(NEOPICO_EXP_SCANLINE_TRACE
     "EXPERIMENTAL: record per-scanline callback cycle counts for USB dump" OFF)
 # The line-ring size is a fixed board/tuning constant now (plain #define in
 # src/video/line_ring.h), not a cache option.
+# 50% scanlines at 480p (permanent feature): the app-side counterpart to the
+# hardware-validated 720p scanlines, which live entirely in pico_hdmi. 480p
+# can't reuse that approach: its scanline callback re-renders every source
+# line from the line ring for BOTH physical output lines of a 2x pair (no
+# early return, no reused buffer -- see video_pipeline.c fb_line), so dimming
+# is folded into that existing per-pixel render via a second, pre-dimmed LUT
+# instead of a second buffer/pass (see video_pipeline.c for the full
+# accounting). The OSD span stays full brightness on a dimmed line --
+# deliberate, so the menu stays legible over scanlines.
 
 string(TOUPPER "${NEOPICO_MVS_EFFECT_MODEL}" NEOPICO_MVS_EFFECT_MODEL_UPPER)
 if(NEOPICO_MVS_EFFECT_MODEL_UPPER STREQUAL "MISTER")
