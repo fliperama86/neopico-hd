@@ -253,12 +253,7 @@ static inline uint32_t video_pipeline_scanline_dim_channel(uint32_t v, uint8_t l
     }
 }
 
-#ifndef NEOPICO_EXP_SCANLINE_ENERGY
-#define NEOPICO_EXP_SCANLINE_ENERGY 0
-#endif
-
-#if NEOPICO_EXP_SCANLINE_ENERGY
-// EXPERIMENT, 480p only: energy-conserving scanlines. Plain scanlines throw
+// 480p only: energy-conserving scanlines. Plain scanlines throw
 // light away -- the dark line is multiplied by r and nothing gives it back,
 // so the picture dims by (1+r)/2. Here the PAIR is normalized instead: the
 // dark line keeps gain 2k/(1+k) and the bright line takes 2/(1+k), which sum
@@ -287,7 +282,7 @@ static const uint16_t k_scanline_boost_q8[5] = {256U, 289U, 318U, 337U, 342U};
 
 static inline uint32_t video_pipeline_scanline_boost_channel(uint32_t v, uint32_t gain_q8)
 {
-    const uint32_t out = (v * gain_q8 + 128U) >> 8;
+    const uint32_t out = ((v * gain_q8) + 128U) >> 8;
     return (out > 255U) ? 255U : out;
 }
 
@@ -300,8 +295,6 @@ static inline bool video_pipeline_scanline_energy_active(void)
 {
     return video_output_active_mode->v_active_lines == 480U;
 }
-
-#endif
 
 // Fills g_effect_lut888_dim from the already-generated g_effect_lut888,
 // applying `level`'s dim formula to each 8-bit channel independently.
@@ -322,7 +315,6 @@ static void video_pipeline_dim_lut888_generate(uint8_t level)
     }
 }
 
-#if NEOPICO_EXP_SCANLINE_ENERGY
 // Rebuilds BOTH tables for `level`. The base MUST be regenerated from the
 // colour model first: the boost is applied in place, so reusing the previous
 // contents would compound the gain across level changes.
@@ -349,7 +341,6 @@ static void video_pipeline_energy_lut888_generate(uint8_t level)
     }
     video_pipeline_dim_lut888_generate(level);
 }
-#endif
 
 // Plain bit-replication RGB565 -> RGB888 (NOT the DARK/SHADOW model). Packs
 // as 0x00RRGGBB to match the HSTX RGB888 expand_tmds lane layout (L0=blue
@@ -585,12 +576,7 @@ static void video_pipeline_init_test_pattern_line(void)
 void video_pipeline_init(uint32_t frame_width, uint32_t frame_height)
 {
 #if NEOPICO_EXP_RGB888_SCANOUT
-#if NEOPICO_EXP_SCANLINE_ENERGY
     video_pipeline_energy_lut888_generate(g_scanline_level);
-#else
-    mvs_effect_lut888_generate(&g_effect_lut888);
-    video_pipeline_dim_lut888_generate(g_scanline_level);
-#endif
 #endif
     video_output_init(frame_width, frame_height);
     video_output_set_vsync_callback(video_pipeline_vsync_callback);
@@ -933,14 +919,12 @@ void video_pipeline_set_scanline_level(uint8_t level)
         if (level == VIDEO_PIPELINE_SCANLINE_OFF) {
             // Disabling: g_effect_lut888_dim's content is irrelevant once
             // selection is forced off by the level check in
-            // video_pipeline_set_scanline_dim_line() -- no regen needed.
+            // video_pipeline_set_scanline_dim_line() -- no regen needed there.
+            // The BASE table still carries the bright-line boost, though, and
+            // has to be rebuilt without it, or turning scanlines off would
+            // leave the picture 24% hot.
             g_scanline_level = VIDEO_PIPELINE_SCANLINE_OFF;
-#if NEOPICO_EXP_SCANLINE_ENERGY
-            // ...except in the energy-conserving build, where the BASE table
-            // carries the bright-line boost and has to be rebuilt without it,
-            // or turning scanlines off would leave the picture 24% hot.
             video_pipeline_energy_lut888_generate(VIDEO_PIPELINE_SCANLINE_OFF);
-#endif
         } else {
             // RACE SAFETY: video_pipeline_set_scanline_dim_line() runs once
             // per line from the scratch_x callback, which can preempt this
@@ -952,11 +936,7 @@ void video_pipeline_set_scanline_level(uint8_t level)
             // fully consistent. A frame or so without scanlines during a
             // level change is expected and fine.
             g_scanline_level = VIDEO_PIPELINE_SCANLINE_OFF;
-#if NEOPICO_EXP_SCANLINE_ENERGY
             video_pipeline_energy_lut888_generate(level);
-#else
-            video_pipeline_dim_lut888_generate(level);
-#endif
             g_scanline_level = level;
         }
     }

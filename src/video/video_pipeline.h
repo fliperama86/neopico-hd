@@ -92,8 +92,15 @@ bool video_pipeline_take_genlock_pending_confirmation(bool *previous_enabled);
 
 // Scanline STRENGTH, shared BY NUMBER with pico_hdmi's
 // video_output_set_scanline_level() (720p path, lib/pico_hdmi): a caller
-// passes the same uint8_t 0..4 to both. Per-8-bit-channel dim formulas (see
-// video_pipeline.c and video_output_rt.c, which both apply these exactly):
+// passes the same uint8_t 0..4 to both, and both apply the same per-channel
+// factors below. A level is nonetheless somewhat DARKER at 720p, because the
+// geometry differs: this path dims one row of a pair (average (1 + d)/2)
+// while 720p dims the outer two rows of a triple, to keep the bright row
+// centred on the source line, averaging (1 + 2d)/3. See video_output_rt.c
+// for why equalizing them is blocked on the dim pass's measured cost budget.
+//
+// Per-8-bit-channel dim formulas, applied exactly as written in
+// video_pipeline.c and (on both dimmed rows) in video_output_rt.c:
 //   OFF  -> v                            (100% brightness, no dimming)
 //   25%  -> (v + (v >> 1)) >> 1          (75% brightness)
 //   50%  -> v >> 1                       (50% brightness)
